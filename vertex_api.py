@@ -8112,11 +8112,30 @@ _CALENDARIO_REFRESCANDO = False
 #: cabe en dos semanas de decisiones sin convertir la caja en un listado.
 _CALENDARIO_DIAS = 14
 
-#: Tope de empresas en la caja. Es la última red, no el filtro: lo que decide
+#: Tope de empresas POR DÍA. Es la última red, no el filtro: lo que decide
 #: quién sale es el tamaño (abajo). Existe porque la respuesta viaja al
 #: navegador y se guarda en el almacén en cada refresco. Si se recorta se DICE,
 #: en vez de callar que faltan.
-_RESULTADOS_MAX = 400
+#:
+#: Por día y no por el total, que era el fallo. Con un tope global de 400 sobre
+#: la lista ya ordenada por fecha, en temporada alta los primeros días se
+#: comían la cuota entera y del séptimo en adelante no llegaba ni una empresa:
+#: la caja decía «próximos 14 días» y enseñaba seis. Eso no es un filtro, es el
+#: final de la lista cayéndose por el borde. Cortando por día, los catorce
+#: están siempre representados y lo que se pierde es la cola de cada día —las
+#: más pequeñas—, que es justo lo que sobra.
+_RESULTADOS_POR_DIA = 40
+
+#: El mapa del sector que da FMP («Consumer Cyclical») a su casilla («XLY»).
+#:
+#: Se toma prestado del motor en vez de escribir otro: el port ya lo tenía para
+#: elegir el ETF de referencia de cada empresa, y dos mapas del mismo hecho se
+#: separan solos con el tiempo.
+_SECTOR_DE_FMP: dict[str, str] = {}
+try:                                             # pragma: no cover - import
+    from wbj.packet.builder import _SECTOR_ETF as _SECTOR_DE_FMP  # noqa: N811
+except Exception:                                # noqa: BLE001
+    pass
 
 #: El corte de «importante»: CAPITALIZACIÓN DE MERCADO.
 #:
@@ -8187,23 +8206,144 @@ def _fred_observaciones(serie: str, limite: int = 14) -> list:
 #: Se casan por trozo del nombre y en minúsculas porque el proveedor cambia la
 #: redacción («CPI m/m», «Consumer Price Index MoM»): exigir el nombre exacto
 #: haría que la caja se vaciara sola el día que retoquen una palabra.
-_MACRO_EVENTOS = (
-    "cpi", "consumer price", "core pce", "pce price", "inflation rate",
-    "fed interest rate", "fomc", "federal funds",
-    "nonfarm payroll", "non farm payroll", "unemployment rate",
-    "initial jobless", "gdp growth", "gdp ",
-    "retail sales", "ism manufacturing", "ism services",
-    "michigan consumer sentiment", "ppi", "producer price",
-)
+#: Los indicadores macro que importan, con su NIVEL y su DIRECCIÓN.
+#:
+#: Dos campos, y son cosas distintas:
+#:
+#:  · `nivel` — 1 es de los que mueven el mercado el día que salen (IPC,
+#:    nóminas, la Fed); 2 son los de segunda fila, que importan pero no paran
+#:    la sala. Sirve para el «los más importantes, no todos» de Kevin.
+#:
+#:  · `mejor` — hacia dónde es BUENO que salga, para la economía. `"bajo"` para
+#:    la inflación, el paro y las peticiones de desempleo; `"alto"` para las
+#:    nóminas, el PIB, las ventas minoristas y los PMI.
+#:
+#: Ese segundo campo existe por una avería de lectura, no de cálculo: el panel
+#: pintaba de VERDE todo lo que saliera por encima del consenso y de ROJO todo
+#: lo que saliera por debajo, para los veinte indicadores por igual. Así, un
+#: paro que sube más de lo esperado salía en verde y una inflación disparada
+#: también. El comentario del código decía «sin juicio de bueno o malo», pero
+#: un verde AL LADO DE UNA CIFRA es exactamente eso, y se lee así.
+#:
+#: «Recuerda que no siempre si es mayor a lo esperado es bueno o si es menos a
+#: lo esperado es malo.» — Kevin, 22/08/2026.
+#:
+#: Las claves se buscan por inclusión sobre el nombre que manda FMP, y se
+#: prueba SIEMPRE la más larga primero: «core pce price index» tiene que ganarle
+#: a «pce», y «core cpi» a «cpi», o el matiz se pierde en la primera coincidencia.
+_MACRO_TABLA = {
+    # ── Inflación: cuanto MÁS BAJA, mejor ────────────────────────────────
+    "core cpi":                    (1, "bajo"),
+    "cpi":                         (1, "bajo"),
+    "consumer price":              (1, "bajo"),
+    "core pce price":              (1, "bajo"),
+    "pce price":                   (1, "bajo"),
+    "core inflation rate":         (1, "bajo"),
+    "inflation rate":              (1, "bajo"),
+    "core ppi":                    (2, "bajo"),
+    "ppi":                         (2, "bajo"),
+    "producer price":              (2, "bajo"),
+    "import prices":               (2, "bajo"),
+    # ── Empleo: nóminas ALTAS bien; paro y peticiones BAJOS bien ─────────
+    "nonfarm payroll":             (1, "alto"),
+    "non farm payroll":            (1, "alto"),
+    "adp employment":              (2, "alto"),
+    "unemployment rate":           (1, "bajo"),
+    "initial jobless":             (2, "bajo"),
+    "continuing jobless":          (2, "bajo"),
+    "average hourly earnings":     (2, "bajo"),   # salarios = inflación futura
+    "job openings":                (2, "alto"),
+    # ── Actividad: cuanto MÁS ALTA, mejor ────────────────────────────────
+    "gdp growth":                  (1, "alto"),
+    "gdp price":                   (2, "bajo"),
+    "retail sales":                (1, "alto"),
+    "ism manufacturing":           (1, "alto"),
+    "ism services":                (1, "alto"),
+    "s&p global composite":        (2, "alto"),
+    "s&p global manufacturing":    (2, "alto"),
+    "s&p global services":         (2, "alto"),
+    "durable goods":               (2, "alto"),
+    "industrial production":       (2, "alto"),
+    "building permits":            (2, "alto"),
+    "housing starts":              (2, "alto"),
+    "existing home sales":         (2, "alto"),
+    "new home sales":              (2, "alto"),
+    "michigan consumer sentiment": (2, "alto"),
+    "consumer confidence":         (2, "alto"),
+    # ── La Fed: no tiene «mejor», es una DECISIÓN, no una sorpresa ───────
+    #
+    # Un tipo más alto no es «peor dato»: es política. Marcarlo con dirección
+    # haría que el panel pintara de rojo una subida y de verde una bajada, que
+    # es una opinión sobre la Fed y no una lectura del dato. `None` = se enseña
+    # la cifra, sin color y sin juicio.
+    "fed interest rate":           (1, None),
+    "federal funds":               (1, None),
+    "fomc":                        (1, None),
+    "interest rate decision":      (1, None),
+}
 
-#: Cuántos días atrás y adelante mira la caja.
+#: Las claves ordenadas de más larga a más corta. El orden ES la corrección:
+#: buscando por inclusión, «cpi» coincidiría dentro de «core cpi» y se llevaría
+#: el nivel y la dirección equivocados.
+_MACRO_CLAVES = tuple(sorted(_MACRO_TABLA, key=len, reverse=True))
+
+
+def _macro_ficha(nombre: str) -> tuple[int, str | None] | None:
+    """`(nivel, mejor)` del indicador, o `None` si no es de los que miramos."""
+    n = str(nombre or "").lower()
+    for clave in _MACRO_CLAVES:
+        if clave in n:
+            return _MACRO_TABLA[clave]
+    return None
+
+
+def _fecha_inversa(f: str) -> tuple:
+    """Clave para ordenar por fecha DESCENDENTE dentro de un `sort` ascendente.
+
+    Los caracteres no se pueden negar como los números, así que se invierte
+    cada uno. Es lo que permite ordenar por «primero el nivel, y dentro de cada
+    nivel lo más reciente» en una sola pasada.
+    """
+    return tuple(-ord(c) for c in str(f or ""))
+
+
+def _macro_lectura_del_dato(salio, esperado, mejor: str | None) -> dict:
+    """Separa el HECHO de la LECTURA. Nunca los mezcla.
+
+    · `sorpresa` es el hecho: por encima o por debajo del consenso, y cuánto.
+      No opina. Un dato en línea no sorprende y punto.
+
+    · `bueno` es la lectura, y solo existe si el indicador tiene dirección. Es
+      lo que antes se daba por hecho —«por encima = verde»— y era falso para la
+      mitad de la tabla: un paro por encima de lo esperado sorprende al alza y
+      es PEOR, no mejor.
+
+    Y `bueno` se refiere a la ECONOMÍA, no a la bolsa, porque las dos cosas se
+    separan a menudo: con la Fed decidiendo por los datos, unas nóminas
+    calientes son buena economía y mala bolsa el mismo día. Esa vuelta de tuerca
+    la cuenta la explicación con el contexto del momento; meterla en un color
+    sería fingir que la relación es fija, y no lo es.
+    """
+    if salio is None or esperado is None:
+        return {"sorpresa": None, "bueno": None}
+    d = float(salio) - float(esperado)
+    if abs(d) < 1e-12:
+        return {"sorpresa": 0.0, "bueno": None}   # en línea: ya estaba en el precio
+    if mejor is None:
+        return {"sorpresa": d, "bueno": None}     # decisión, no sorpresa
+    return {"sorpresa": d, "bueno": (d < 0) if mejor == "bajo" else (d > 0)}
+
+#: Cuántos días atrás mira «ya salieron», y cuántos adelante «lo que viene».
+#:
+#: Adelante son SIETE —hoy y seis más—, no veintiuno. «En los próximos datos
+#: quiero que salga desde hoy y 6 días más en adelante»: lo que se decide con
+#: esta caja es la semana, y un IPC a tres semanas vista no cambia nada hoy.
 _MACRO_DIAS_ATRAS = 21
-_MACRO_DIAS_ADELANTE = 21
+_MACRO_DIAS_ADELANTE = 6
 
 
 def _es_evento_macro(nombre: str) -> bool:
-    n = str(nombre or "").lower()
-    return any(t in n for t in _MACRO_EVENTOS)
+    return _macro_ficha(nombre) is not None
 
 
 def _num(x):
@@ -8270,6 +8410,7 @@ def _macro_calcula() -> dict:
         if not _es_evento_macro(nombre):
             continue
         cuando = str(ev.get("date") or "")[:16]
+        nivel, mejor = _macro_ficha(nombre)
         fila = {
             "evento": nombre,
             "fecha": cuando,
@@ -8278,15 +8419,37 @@ def _macro_calcula() -> dict:
             "anterior": _num(ev.get("previous")),
             "unidad": "%" if "%" in str(ev.get("actual") or "") else "",
             "impacto": str(ev.get("impact") or "").lower() or None,
+            # El nivel decide quién entra en la caja; la dirección decide de qué
+            # color sale y qué dice la ayuda emergente.
+            "nivel": nivel,
+            "mejor": mejor,
         }
+        fila.update(_macro_lectura_del_dato(fila["salio"], fila["esperado"],
+                                            mejor))
         # Publicado = tiene DATO, no «la fecha ya pasó». Un evento de ayer sin
         # cifra es uno que se retrasó, y meterlo entre los publicados con un
         # hueco lo haría parecer un dato que salió vacío.
-        (publicados if fila["salio"] is not None else proximos).append(fila)
+        if fila["salio"] is not None:
+            publicados.append(fila)
+        elif cuando[:10] >= hoy.isoformat():
+            # «Que salga desde HOY y 6 días más en adelante»: lo que viene es lo
+            # que todavía no ha pasado. Un dato de la semana pasada que se
+            # retrasó y nunca se publicó no es un próximo dato — es un hueco, y
+            # colarlo aquí ponía fechas viejas bajo el rótulo «Próximos datos».
+            proximos.append(fila)
 
-    publicados.sort(key=lambda x: x["fecha"], reverse=True)
-    proximos.sort(key=lambda x: x["fecha"])
+    # ── «Los más recientes y los más importantes. No todos son importantes.» ──
+    #
+    # Los dos criterios a la vez, y en este orden: primero el nivel, después la
+    # fecha. Ordenando solo por fecha, ocho peticiones de desempleo semanales
+    # empujaban fuera de la caja al IPC del martes — el dato más reciente no es
+    # el más importante, y la caja tiene sitio para ocho.
+    publicados.sort(key=lambda x: (x["nivel"], _fecha_inversa(x["fecha"])))
+    proximos.sort(key=lambda x: (x["fecha"], x["nivel"]))
     publicados, proximos = publicados[:8], proximos[:8]
+    # Y ya recortados, los publicados se enseñan del más reciente al más viejo,
+    # que es como se leen.
+    publicados.sort(key=lambda x: x["fecha"], reverse=True)
 
     if not publicados and not proximos:
         respaldo = _macro_desde_fred()
@@ -8334,12 +8497,17 @@ def _macro_desde_fred() -> dict:
             "motivo": "", "fuente": "FRED"}
 
 
-def _grandes_del_mercado(clave: str) -> tuple[dict[str, float], str]:
-    """Las cotizadas de EE.UU. que pasan del umbral, con su capitalización.
+def _grandes_del_mercado(clave: str) -> tuple[dict[str, dict], str]:
+    """Las cotizadas de EE.UU. que pasan del umbral, con su ficha.
 
-    Devuelve `({ticker: capitalización}, motivo)`. El motivo solo se llena
-    cuando NO se pudo medir — y entonces el diccionario viene vacío, que es
-    distinto de «ninguna es grande».
+    Devuelve `({ticker: {"cap", "nombre", "sector"}}, motivo)`. El motivo solo
+    se llena cuando NO se pudo medir — y entonces el diccionario viene vacío,
+    que es distinto de «ninguna es grande».
+
+    El nombre y el sector salen de ESTA MISMA llamada. El screener ya los trae
+    en cada fila, así que atarlos aquí no cuesta ni una petición más: antes se
+    tiraban y el panel se quedaba con el ticker pelado y, para todo lo que no
+    fuera uno de los 114 componentes escritos a mano, sin sector ninguno.
 
     Es **una sola llamada** para toda la caja, pase quien pase: se pregunta por
     el universo (quién es grande) en vez de por cada empresa que reporta. El
@@ -8362,16 +8530,24 @@ def _grandes_del_mercado(clave: str) -> tuple[dict[str, float], str]:
     if not isinstance(crudo, list) or not crudo:
         return {}, ("El listado de capitalizaciones vino vacío: salen todas "
                     "las que reportan.")
-    caps: dict[str, float] = {}
+    caps: dict[str, dict] = {}
     for fila in crudo:
         tk = str((fila or {}).get("symbol") or "").upper()
         cap = (fila or {}).get("marketCap")
         if not tk or cap is None:
             continue
         try:
-            caps[tk] = float(cap)
+            valor = float(cap)
         except (TypeError, ValueError):
             continue
+        caps[tk] = {
+            "cap": valor,
+            "nombre": str((fila or {}).get("companyName") or "").strip() or None,
+            # El sector tal y como lo llama FMP («Consumer Cyclical»). La
+            # traducción a la casilla de arriba se hace luego, con el mapa que
+            # ya existe en el motor.
+            "sector_fmp": str((fila or {}).get("sector") or "").strip() or None,
+        }
     if not caps:
         return {}, ("El listado de capitalizaciones no traía el campo "
                     "`marketCap`: salen todas las que reportan.")
@@ -8445,7 +8621,18 @@ def _resultados_calcula() -> dict:
         grandes = [f for f in filas if f["ticker"] in caps]
         fuera = len(filas) - len(grandes)
         for f in grandes:
-            f["cap"] = caps[f["ticker"]]
+            ficha = caps[f["ticker"]]
+            f["cap"] = ficha["cap"]
+            f["nombre"] = ficha.get("nombre")
+            # El sector, para TODAS. `MIEMBROS` manda cuando lo tiene —son los
+            # componentes escritos a mano y revisados—, y para el resto se
+            # traduce el sector que da FMP a su casilla. Antes, todo lo que no
+            # estuviera en esos 114 nombres salía sin sector y la ayuda decía
+            # «fuera de los once sectores», que era falso: sí pertenecen a uno,
+            # simplemente no estaba escrito aquí.
+            if not f["sector"]:
+                f["sector"] = _SECTOR_DE_FMP.get(ficha.get("sector_fmp") or "")
+                f["sector_nombre"] = nombre_de(f["sector"]) if f["sector"] else None
         filas = grandes
     # Dentro de cada día, la más grande primero: es la que mueve el índice, y
     # es lo primero que se quiere ver al abrir la caja. Sin medida se conserva
@@ -8453,8 +8640,27 @@ def _resultados_calcula() -> dict:
     # sin ningún criterio.
     filas.sort(key=lambda x: (x["fecha"], -x.get("cap", 0.0),
                               x["sector"] is None, x["ticker"]))
-    recortadas = len(filas) - _RESULTADOS_MAX
-    filas = filas[:_RESULTADOS_MAX]
+
+    # ── El recorte, POR DÍA y no por el total ────────────────────────────────
+    #
+    # Recortar la lista entera a 400 tras ordenarla por fecha amputaba el
+    # calendario por la cola: en temporada alta reportan cientos de empresas
+    # grandes en los primeros días, esos días se comían la cuota entera, y del
+    # día 7 en adelante no llegaba ni una. La caja decía «próximos 14 días» y
+    # enseñaba seis. No era un filtro: era el final de la lista cayéndose.
+    #
+    # Con el corte por día, los catorce están siempre representados y lo que se
+    # pierde es la cola de CADA día —las más pequeñas de ese día—, que es lo
+    # que sobra, no lo que falta.
+    por_dia: dict[str, list] = {}
+    for f in filas:
+        por_dia.setdefault(f["fecha"], []).append(f)
+    recortadas, quedan = 0, []
+    for fecha in sorted(por_dia):
+        del_dia = por_dia[fecha]
+        recortadas += max(0, len(del_dia) - _RESULTADOS_POR_DIA)
+        quedan.extend(del_dia[:_RESULTADOS_POR_DIA])
+    filas = quedan
     if not filas and not motivo:
         # «10 mil millones» y no «10.000 millones»: el punto de los miles es
         # el separador DECIMAL en inglés, y al traducir la frase el umbral
@@ -8476,8 +8682,8 @@ _MACRO_LECTURA_SYSTEM = (
     "Eres el economista de una mesa institucional. Escribes la nota que leen un "
     "gestor y un trader cuando acaba de salir un dato macro: qué salió, por qué "
     "importa y qué hace con el dinero.\n\n"
-    "Te dan los datos YA PUBLICADOS con lo que se esperaba y lo anterior, y los "
-    "que vienen con su fecha.\n\n"
+    "Te dan los datos YA PUBLICADOS con lo que se esperaba, lo anterior y LA "
+    "DIRECCIÓN de cada indicador, y los que vienen con su fecha.\n\n"
     "REGLAS INNEGOCIABLES:\n"
     "1. No inventes NADA. Ni una cifra, ni una declaración, ni una fecha. Si un "
     "dato no está en lo que te doy, no existe para esta nota. NO tienes acceso "
@@ -8486,58 +8692,114 @@ _MACRO_LECTURA_SYSTEM = (
     "2. La sorpresa es la noticia. Un dato que sale igual que lo esperado ya "
     "estaba en el precio; lo que mueve el mercado es la DIFERENCIA entre lo que "
     "salió y lo que se esperaba. Empieza siempre por ahí y di el número.\n"
-    "3. Distingue lo que SABES de lo que INFIERES. Lo primero con su cifra; lo "
+    "3. MÁS ALTO NO ES «MEJOR». Cada dato trae escrito hacia dónde es bueno. En "
+    "la inflación (IPC, PCE, IPP), en el paro y en las peticiones de desempleo, "
+    "más BAJO es mejor: un dato por encima de lo esperado ahí es una MALA "
+    "noticia. En las nóminas, el PIB, las ventas minoristas y los PMI es al "
+    "revés. Nunca digas que un dato «mejoró» solo porque el número subió.\n"
+    "4. Bueno para la economía y bueno para la bolsa NO son lo mismo, y a "
+    "menudo se separan. Con la Fed decidiendo dato a dato, unas nóminas muy "
+    "fuertes son buena economía y mala bolsa el mismo día, porque alejan las "
+    "bajadas de tipos. Cuando se separen, dilo explícitamente y explica por "
+    "qué; no lo escondas detrás de una sola palabra.\n"
+    "5. Distingue lo que SABES de lo que INFIERES. Lo primero con su cifra; lo "
     "segundo empieza por «probablemente» o «suele». La reacción del mercado a "
     "un dato es una tendencia histórica, no una ley.\n"
-    "4. Nada de recomendaciones de compra o venta, ni objetivos de precio.\n"
-    "5. Frases cortas y en español llano. Esto lo lee alguien que invierte, no "
+    "6. Nada de recomendaciones de compra o venta, ni objetivos de precio.\n"
+    "7. Frases cortas y en español llano. Esto lo lee alguien que invierte, no "
     "un doctorando en economía: «la inflación bajó del 3,1% al 2,9%, menos de "
-    "lo que se temía» y no «se observa una moderación en el deflactor».\n"
-    "6. Si los datos no dan para una sección, dilo en una línea. Rellenar es "
+    "lo que se temía» y no «se observa una moderación en el deflactor». Cada "
+    "vez que uses un mecanismo, explícalo en la misma frase: no digas «se "
+    "comprimen los múltiplos», di «si los tipos suben, el dinero futuro vale "
+    "menos hoy y por eso las acciones caras caen más».\n"
+    "8. Si los datos no dan para una sección, dilo en una línea. Rellenar es "
     "peor que dejarlo corto.\n\n"
     "FORMATO exacto, con estos titulares en negrita markdown y nada más:\n"
-    "**Qué salió** — cada dato publicado con su cifra, lo que se esperaba y lo "
-    "anterior. Di en una frase si sorprendió al alza, a la baja o fue en línea.\n"
+    "**Qué salió** — cada dato publicado, uno por uno, con SU FECHA, su cifra, "
+    "lo que se esperaba y lo anterior. Di si sorprendió al alza, a la baja o "
+    "fue en línea, Y si eso es bueno o malo según la dirección de ESE "
+    "indicador.\n"
     "**Por qué salió así** — lo que el propio dato deja ver: qué componente "
     "tira, si viene de una tendencia o rompe una. Solo lo que los números "
     "sostienen; si no se puede saber con lo que hay, dilo.\n"
+    "**Qué le hace al dólar** — si estos datos empujan al dólar arriba o abajo "
+    "y por qué mecanismo (tipos reales, diferencial contra Europa y Japón, "
+    "refugio). Y qué arrastra el dólar consigo: materias primas, beneficios de "
+    "las multinacionales de EE.UU., deuda emergente.\n"
     "**Qué significa para la economía de EE.UU.** — crecimiento, empleo, "
-    "precios y qué implica para lo que haga la Fed.\n"
-    "**Qué significa para la gente** — en dinero de la calle: la hipoteca, el "
-    "crédito, el ahorro, el sueldo real, el empleo. Sin jerga.\n"
+    "precios, consumo. Si va hacia recalentamiento, hacia aterrizaje suave o "
+    "hacia enfriamiento, y con qué evidencia de la de arriba.\n"
+    "**Qué significa para el resto del mundo** — cómo llega esto a Europa, "
+    "China y los emergentes: por el dólar, por los tipos de EE.UU., por la "
+    "demanda de importaciones y por las materias primas.\n"
+    "**Qué hace la Fed con esto** — acerca o aleja las bajadas de tipos, y "
+    "cuánto. Di qué parte del mandato toca (precios o empleo) y qué tendría "
+    "que pasar en el próximo dato para cambiar la lectura. Nada de porcentajes "
+    "de probabilidad inventados: si no te doy el mercado de futuros, no lo "
+    "cites.\n"
+    "**Los tipos y los bonos** — qué le hace a la parte corta (2 años, que "
+    "sigue a la Fed) y a la larga (10 y 30 años, que siguen al crecimiento y a "
+    "la inflación esperada), si la curva se empina o se aplana y qué significa "
+    "eso. Y qué le hace al crédito y a las hipotecas.\n"
     "**Qué significa para la bolsa** — el mercado en conjunto: tipos, "
-    "valoraciones y apetito de riesgo.\n"
+    "valoraciones, apetito de riesgo y si esto favorece a las grandes de "
+    "calidad o a las pequeñas endeudadas.\n"
     "**Sector por sector** — una línea por cada uno de los once, diciendo si "
     "este dato le viene a favor o en contra y POR QUÉ, con el mecanismo "
-    "(tipos, consumo, márgenes, deuda, ciclo). Los once: tecnología, "
+    "(tipos, consumo, márgenes, deuda, ciclo, dólar). Los once: tecnología, "
     "financiero, salud, consumo discrecional, comunicaciones, industrial, "
     "consumo básico, energía, servicios públicos, inmobiliario y materiales.\n"
-    "**Qué viene y qué vigilar** — los próximos datos con su fecha y qué "
-    "cambiaría la lectura de arriba."
+    "**Qué viene y qué vigilar** — los próximos datos con su fecha y su "
+    "estimación, y qué cifra concreta cambiaría la lectura de arriba."
 )
 
 
 def _macro_lectura_datos(macro: dict) -> str:
-    """Lo publicado y lo que viene, ordenado para el modelo."""
+    """Lo publicado y lo que viene, ordenado para el modelo.
+
+    Cada dato va con SU DIRECCIÓN escrita al lado —hacia dónde es bueno— y con
+    la lectura ya resuelta. Sin eso, el modelo cae en el mismo error que caía
+    el color del panel: dar por hecho que un número por encima del consenso es
+    una buena noticia, y decir que «el paro mejoró» cuando lo que hizo fue
+    subir. Dárselo hecho es más barato que corregirlo con una regla.
+    """
+    def _n(x):
+        return "sin dato" if x is None else f"{x:g}"
+
     partes = ["DATOS YA PUBLICADOS (salió · esperado · anterior)"]
     for f in (macro or {}).get("publicados") or []:
-        def _n(x):
-            return "sin dato" if x is None else f"{x:g}"
+        mejor = f.get("mejor")
+        if mejor == "bajo":
+            direccion = "  [en este dato, MÁS BAJO ES MEJOR]"
+        elif mejor == "alto":
+            direccion = "  [en este dato, MÁS ALTO ES MEJOR]"
+        else:
+            direccion = "  [decisión de política, no una sorpresa que juzgar]"
+        bueno = f.get("bueno")
+        juicio = ("" if bueno is None else
+                  ("  → sorprendió BIEN" if bueno else "  → sorprendió MAL"))
+        if bueno is None and f.get("sorpresa") == 0:
+            juicio = "  → EN LÍNEA: ya estaba en el precio"
         partes.append(
             f"  {f['fecha']} · {f['evento']}: salió {_n(f['salio'])}"
-            f" · esperado {_n(f['esperado'])} · anterior {_n(f['anterior'])}")
+            f" · esperado {_n(f['esperado'])} · anterior {_n(f['anterior'])}"
+            f"{direccion}{juicio}")
     if not (macro or {}).get("publicados"):
         partes.append("  ninguno en la ventana mirada")
-    partes += ["", "LO QUE VIENE"]
+    partes += ["", "LO QUE VIENE (desde hoy, los próximos días)"]
     for f in (macro or {}).get("proximos") or []:
         esp = "" if f["esperado"] is None else f" (se espera {f['esperado']:g})"
         partes.append(f"  {f['fecha']} · {f['evento']}{esp}")
     if not (macro or {}).get("proximos"):
         partes.append("  nada programado en la ventana mirada")
-    partes += ["", "La sorpresa —la diferencia entre lo que salió y lo que se "
-               "esperaba— es lo que mueve el precio. Empieza por ahí."]
+    partes += [
+        "",
+        "La sorpresa —la diferencia entre lo que salió y lo que se esperaba— es "
+        "lo que mueve el precio. Empieza por ahí.",
+        "Y recuerda: la dirección va escrita en cada línea. Un dato por encima "
+        "de lo esperado NO es automáticamente una buena noticia.",
+    ]
     return "\n".join(partes)
-
 
 @app.get("/api/dashboard/macro/lectura")
 def api_macro_lectura(refrescar: int = 0):
@@ -9088,6 +9350,40 @@ _LECTURA_SYSTEM = (
     "que sale de una familia y entra en otra. Usa las familias (crecimiento, "
     "cíclicos, defensivos) y di explícitamente cuando algo NO se puede explicar "
     "con lo que hay.\n"
+    "**Sector por sector** — LOS ONCE, uno por uno, sin saltarte ninguno, "
+    "aunque de alguno solo se pueda decir «sin nada citable hoy». Por cada uno: "
+    "su cuadrante, su fuerza relativa, su volumen y su amplitud interna con el "
+    "número; si el dinero ENTRA o SALE y en qué se ve; y qué tendría que pasar "
+    "para que cambiara de cuadrante. Los once: XLK tecnología, XLF financiero, "
+    "XLV salud, XLY consumo discrecional, XLC comunicaciones, XLI industrial, "
+    "XLP consumo básico, XLE energía, XLU servicios públicos, XLRE "
+    "inmobiliario, XLB materiales.\n"
+    "**Rotación dentro de los sectores** — si te doy el bloque de industria "
+    "contra su propio sector, cuenta dónde el dinero se está moviendo DENTRO de "
+    "un sector: qué industria le gana a su sector y cuál le pierde, con los "
+    "puntos porcentuales. Es lo que separa «entra dinero en tecnología» de "
+    "«entra en semiconductores y sale de software», que por fuera es lo mismo y "
+    "por dentro son dos apuestas opuestas. Si una industria gana en la semana "
+    "pero pierde en el trimestre, dilo: eso es un rebote, no una rotación. Si "
+    "no te doy ese bloque, escribe una línea diciendo que no está y sigue.\n"
+    "**Las próximas semanas** — qué suele seguir a este patrón en el plazo "
+    "corto (dos a seis semanas), dicho como probabilidad y anclado a lo que ya "
+    "se ve: el impulso a 5 sesiones, quién está en 'despertando', quién en "
+    "'agotándose'. Di qué señal concreta lo confirmaría y cuál lo rompería.\n"
+    "**Los próximos tres meses** — el plazo largo, que se lee con otros "
+    "números: la fuerza relativa a 50 sesiones, las ventanas de 3M y 6M, y la "
+    "familia (crecimiento, cíclicos, defensivos) que domina. Di explícitamente "
+    "que a tres meses la incertidumbre es MUCHO mayor y que un dato macro o "
+    "unos resultados pueden darle la vuelta.\n"
+    "**Dónde está la oportunidad de verdad** — no la que ya es obvia. Lo que "
+    "lleva tres meses liderando ya lo sabe todo el mundo y el precio lo "
+    "refleja. Busca la desconexión: un sector en 'despertando' con volumen y "
+    "amplitud interna que aún no se ha movido; una industria que le gana a su "
+    "sector sin que el sector destaque; un sector fuerte cuya amplitud interna "
+    "se está estrechando —eso es riesgo, no oportunidad, y también hay que "
+    "decirlo—. Ordena de más a menos sostenida por los datos, di de CADA una "
+    "qué la confirmaría, y si hoy no hay ninguna citable, dilo en una línea en "
+    "vez de inventarte una.\n"
     "**Qué esperar y qué lo invalidaría** — una línea por familia con lo que "
     "suele seguir a este patrón, dicho como probabilidad; y qué tendría que "
     "verse para que esta lectura estuviera equivocada.\n"
@@ -9173,9 +9469,82 @@ def _lectura_dentro(nombre: str, filas: list, amp: dict, ventana: str = "") -> s
     return "\n".join(partes)
 
 
+def _rotacion_dentro_de_los_sectores(industrias: str) -> str:
+    """La rotación de industria a industria DENTRO de cada sector.
+
+    Es una pregunta distinta de la de arriba y se mide distinto. La rotación
+    sectorial compara cada sector contra el SPY; esta compara cada industria
+    **contra su propio sector**, que es lo único que la hace intra-sector: que
+    los semiconductores suban un 8% no dice nada por sí solo si XLK subió un 8%
+    también. Lo que informa es la diferencia.
+
+    Es lo que separa «entra dinero en tecnología» de «entra dinero en
+    semiconductores Y SALE de software», que es la misma tecnología por fuera y
+    dos apuestas opuestas por dentro.
+
+    `industrias` viene del PANEL con la forma `SMH:XLK,IGV:XLK,…`. La tabla de
+    qué industria pertenece a qué sector vive allí y solo allí —una tabla, un
+    sitio—: el servidor no necesita saber qué es cada ticker, solo cotizarlo y
+    restar.
+
+    Devuelve el bloque de texto para el prompt, o `""` si no se pudo medir. No
+    lanza nunca: esta sección es un extra de la nota, y tumbar la nota entera
+    porque el proveedor no dio una industria sería cambiar mucho por poco.
+    """
+    pares = []
+    for trozo in str(industrias or "").split(",")[:80]:
+        ind, _, sec = trozo.partition(":")
+        ind, sec = ind.upper().strip(), sec.upper().strip()
+        if re.fullmatch(r"[A-Z]{1,6}", ind) and re.fullmatch(r"[A-Z]{1,6}", sec):
+            pares.append((ind, sec))
+    if not pares:
+        return ""
+    quiero = sorted({t for par in pares for t in par})
+    try:
+        datos = api_sectores(tickers=",".join(quiero))
+    except Exception:                            # noqa: BLE001
+        return ""
+    if not datos.get("ok"):
+        return ""
+    idx = {f["ticker"]: f for f in (datos.get("filas") or [])}
+
+    por_sector: dict[str, list] = {}
+    for ind, sec in pares:
+        fi, fs = idx.get(ind), idx.get(sec)
+        if not fi or not fs:
+            continue
+        ci, cs = (fi.get("cambios") or {}), (fs.get("cambios") or {})
+        # Tres ventanas y no una: una industria que le gana a su sector en la
+        # semana pero le pierde en el trimestre es un rebote, no una rotación.
+        # La diferencia de las tres juntas es lo que distingue las dos cosas.
+        trozos = []
+        for etiqueta, _ in _VENTANAS_ORDEN[:3]:  # 7D · 1M · 3M
+            a, b = ci.get(etiqueta), cs.get(etiqueta)
+            if a is not None and b is not None:
+                trozos.append(f"{etiqueta} {a - b:+.2f}pp")
+        if not trozos:
+            continue
+        por_sector.setdefault(sec, []).append(
+            (f"    {ind} ({fi.get('nombre', ind)}) vs {sec}: "
+             + " · ".join(trozos)))
+    if not por_sector:
+        return ""
+    lineas = ["", "ROTACIÓN DENTRO DE CADA SECTOR (industria contra SU PROPIO "
+              "sector, en puntos porcentuales de diferencia)"]
+    for sec in sorted(por_sector):
+        lineas.append(f"  {sec}:")
+        lineas.extend(sorted(por_sector[sec]))
+    lineas.append("    (positivo = la industria le GANA a su sector; negativo = "
+                  "le pierde. Es lo que separa «entra dinero en el sector» de "
+                  "«entra en una industria y sale de otra dentro del mismo "
+                  "sector».)")
+    return "\n".join(lineas)
+
+
 @app.get("/api/sectores/lectura")
 def api_sectores_lectura(refrescar: int = 0, ambito: str = "",
-                         tickers: str = "", ventana: str = ""):
+                         tickers: str = "", ventana: str = "",
+                         industrias: str = ""):
     """La rotación del día contada en palabras.
 
     Se apoya en la MISMA foto que pinta la pantalla (la cache de `/api/sectores`
@@ -9185,7 +9554,11 @@ def api_sectores_lectura(refrescar: int = 0, ambito: str = "",
     """
     ahora = time.time()
     amb = str(ambito or "").upper().strip()
-    clave = f"{_idioma_actual()}|{amb or '_mercado'}|{ventana or '-'}"
+    # Las industrias entran en la clave: la nota CON rotación interna y la nota
+    # sin ella son dos textos distintos, y sin esto la primera que se pidiera se
+    # quedaría servida durante el cuarto de hora entero.
+    clave = (f"{_idioma_actual()}|{amb or '_mercado'}|{ventana or '-'}"
+             f"|{'ind' if industrias else '-'}")
     guardado = _LECTURA_CACHE.get(clave)
     if guardado and not refrescar and ahora - guardado[0] < _LECTURA_TTL:
         return {**guardado[1], "cacheado": True}
@@ -9237,11 +9610,19 @@ def api_sectores_lectura(refrescar: int = 0, ambito: str = "",
         "Estos son los datos de hoy. Explícalos siguiendo el formato:\n\n"
         + _lectura_datos(rot, base.get("filas") or [], _ventana_valida(ventana),
                          base.get("interna"), base.get("amplitud"),
-                         base.get("reloj")),
-        # Más margen: la nota tiene ocho secciones y cada afirmación lleva su
-        # número pegado. Con 1.400 salía cortada por la mitad, y una nota que se
-        # corta en «De dónde sale» es peor que una corta a propósito.
-        temp=0.3, max_tokens=2600)
+                         base.get("reloj"))
+        # La rotación de dentro de cada sector va DETRÁS de la de fuera, que es
+        # el orden en que se lee: primero a qué sector va el dinero, después a
+        # qué industria dentro de él. Y solo si el panel mandó la tabla: sin
+        # ella la nota sale igual, con una sección menos.
+        + _rotacion_dentro_de_los_sectores(industrias),
+        # Más margen: la nota pasó de ocho secciones a trece —los once sectores
+        # uno por uno, la rotación de dentro, los dos horizontes y la
+        # oportunidad—, y cada afirmación lleva su número pegado. Con 1.400
+        # salía cortada por la mitad y con 2.600 se cortaba en «Sector por
+        # sector», que es peor que una nota corta a propósito: parece que el
+        # análisis se acabó justo donde empezaba lo que se venía a leer.
+        temp=0.3, max_tokens=6000)
     if not texto:
         # El motivo de CADA proveedor, no solo el del último. Un 429 de cuota
         # reportado como «falta la clave» manda a mirar donde no es.

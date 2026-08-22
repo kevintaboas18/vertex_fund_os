@@ -2175,9 +2175,16 @@ function vxResultadosHTML(d) {
             // decenas de fichas y meter «$3T» en cada una convierte la caja en
             // una tabla. Lo que se ve es el orden; el número está a un cursor.
             const cap = vxCapCorta(f.cap);
+            // «Nombre de la empresa - Sector», que es lo que se quiere saber
+            // al pasar por encima: el ticker solo no dice de quién es. El
+            // nombre y el sector vienen del mismo listado que mide el tamaño,
+            // así que no cuestan una petición aparte. El tamaño y la hora van
+            // detrás, separados con «·», porque son el dato de apoyo.
+            const quien = [f.nombre, f.sector_nombre].filter(Boolean).join(' - ')
+                || f.ticker;
             return `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${
               f.sector ? 'bg-white/[0.06] text-gray-200' : 'bg-white/[0.02] text-gray-400'}"
-              title="${_vcEsc(f.sector_nombre || 'fuera de los once sectores')}${
+              title="${_vcEsc(quien)}${
               cap ? ' · ' + _vcEsc(cap) : ''}${c ? ' · ' + _vcEsc(c) : ''}">${
               _vcEsc(f.ticker)}${casilla}</span>`;
           }).join('')}</span></div>`;
@@ -2191,7 +2198,7 @@ function vxResultadosHTML(d) {
     return vxCajaHTML('Resultados que vienen',
         `${filas.length} empresas · próximos 14 días`,
         `<div class="max-h-[28rem] overflow-y-auto pr-1">${cuerpo}</div>`
-        + (recortadas ? `<p class="text-[9px] text-amber-500/80 mt-1">Y ${recortadas} más que no caben en la caja.</p>` : '')
+        + (recortadas ? `<p class="text-[9px] text-amber-500/80 mt-1">Y ${recortadas} más repartidas entre los días, que no caben en la caja.</p>` : '')
         // Tres trozos y no una frase: el barrido del idioma traduce NODOS DE
         // TEXTO enteros, así que una frase que cambia de forma según haya o no
         // empresas fuera necesitaría un patrón por variante. Separados, cada
@@ -2240,17 +2247,36 @@ function vxMacroHTML(d) {
             <span class="w-16 text-right">Esperado</span><span class="w-16 text-right">Anterior</span>
           </div>`;
         cuerpo += pub.map(f => {
-            // Verde si sorprendió al alza, rojo si a la baja. Sin juicio de
-            // «bueno o malo»: un paro que sube sorprende a la baja para la
-            // economía y eso lo cuenta la explicación, no un color.
-            const sorpresa = (f.salio != null && f.esperado != null)
-                ? f.salio - f.esperado : null;
-            const col = sorpresa == null ? 'text-gray-200'
-                : sorpresa > 0 ? 'text-emerald-400'
-                : sorpresa < 0 ? 'text-red-400' : 'text-gray-200';
+            // El color dice BUENO o MALO, no «arriba o abajo».
+            //
+            // Antes era verde todo lo que saliera por encima del consenso y
+            // rojo todo lo que saliera por debajo, para los veinte indicadores
+            // por igual: un paro disparado salía verde y una inflación
+            // disparada también. El código decía «sin juicio de bueno o malo»,
+            // pero un verde pegado a una cifra ES ese juicio, y así se lee.
+            //
+            // Ahora el servidor manda `bueno` ya resuelto con la dirección del
+            // indicador —inflación y paro, mejor bajos; nóminas y PIB, mejor
+            // altos— y `null` cuando no hay juicio que hacer: un dato en línea,
+            // o una decisión de tipos, que es política y no una sorpresa.
+            const col = f.bueno === true ? 'text-emerald-400'
+                : f.bueno === false ? 'text-red-400' : 'text-gray-200';
+            // La ayuda emergente dice la fecha en que salió y por qué está de
+            // ese color. Sin eso, el color es una afirmación sin evidencia.
+            const cuando = vxFechaCorta(String(f.fecha).slice(0, 10));
+            const porque = f.bueno == null
+                ? (f.sorpresa === 0 ? 'en línea con lo esperado: ya estaba en el precio'
+                   : f.mejor == null ? 'es una decisión, no una sorpresa' : '')
+                : (f.mejor === 'bajo'
+                    ? (f.bueno ? 'salió más bajo de lo esperado, y en este dato más bajo es mejor'
+                               : 'salió más alto de lo esperado, y en este dato más alto es PEOR')
+                    : (f.bueno ? 'salió más alto de lo esperado, y en este dato más alto es mejor'
+                               : 'salió más bajo de lo esperado, y en este dato más bajo es PEOR'));
+            const ayuda = `${f.evento} · salió el ${cuando}${porque ? ' · ' + porque : ''}`;
             return `<div class="flex items-baseline gap-2 py-1 border-t border-gray-800/60 text-[10px]">
-              <span class="flex-1 min-w-0 text-gray-300 truncate" title="${_vcEsc(f.evento)}">${_vcEsc(f.evento)}</span>
-              <span class="w-16 text-right font-bold tabular-nums ${col}">${vxMacroNum(f.salio, f.unidad)}</span>
+              <span class="flex-1 min-w-0 text-gray-300 truncate" title="${_vcEsc(ayuda)}">${_vcEsc(f.evento)}
+                <span class="block text-[9px] text-gray-600">${_vcEsc(cuando)}</span></span>
+              <span class="w-16 text-right font-bold tabular-nums ${col}" title="${_vcEsc(ayuda)}">${vxMacroNum(f.salio, f.unidad)}</span>
               <span class="w-16 text-right tabular-nums text-gray-500">${vxMacroNum(f.esperado, f.unidad)}</span>
               <span class="w-16 text-right tabular-nums text-gray-600">${vxMacroNum(f.anterior, f.unidad)}</span>
             </div>`;
@@ -2291,7 +2317,7 @@ function vxMacroHTML(d) {
 
     const sub = m.fuente === 'FRED' ? 'niveles de FRED' : 'salió · esperado · anterior';
     return vxCajaHTML('Macroeconómico', sub, cuerpo
-        + `<p class="text-[9px] text-gray-600 mt-2">Lo que mueve el precio no es la cifra sino la DIFERENCIA con lo que se esperaba: un dato en línea ya estaba puesto. Fuente: calendario económico de FMP.</p>`);
+        + `<p class="text-[9px] text-gray-600 mt-2"><span>Lo que mueve el precio no es la cifra sino la DIFERENCIA con lo que se esperaba: un dato en línea ya estaba puesto.</span> <span>El color dice si eso es bueno o malo PARA LA ECONOMÍA, no si el número subió: en la inflación y en el paro, más bajo es mejor.</span> <span>Fuente: calendario económico de FMP.</span></p>`);
 }
 
 //: La explicación de lo macro. Va DENTRO de la caja, entre lo que salió y lo
@@ -3250,9 +3276,18 @@ async function cargaLecturaMercado(refrescar) {
     if (!caja) return;
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
       <p class="text-xs text-gray-500">Leyendo el mercado y escribiendo la explicación…</p></div>`;
+    // La tabla de industrias la manda el PANEL, que es donde vive —una tabla,
+    // un sitio—. El servidor no necesita saber qué industria es cuál: cotiza lo
+    // que le llega y resta cada industria contra SU sector, que es lo que hace
+    // que la rotación sea de dentro y no otra vez la de fuera.
+    const industrias = Object.entries(VX_INDUSTRIAS)
+        .flatMap(([sec, lista]) => lista.map(([tk]) => `${tk}:${sec}`))
+        .join(',');
     let d;
     try {
-        const r = await fetch(`${API_BASE}/api/sectores/lectura${refrescar ? '?refrescar=1' : ''}`);
+        const q = `industrias=${encodeURIComponent(industrias)}`
+            + (refrescar ? '&refrescar=1' : '');
+        const r = await fetch(`${API_BASE}/api/sectores/lectura?${q}`);
         d = await r.json();
     } catch (e) {
         d = { ok: false, error: 'No se pudo pedir la lectura.' };
@@ -13710,7 +13745,15 @@ const VX_ES2EN = {
     "se espera": "expected",
     "Leyendo los datos macro y escribiendo la explicación…": "Reading the macro data and writing the explanation…",
     "Falta FMP_API_KEY: sin ella no hay calendario económico.": "FMP_API_KEY is missing: without it there is no economic calendar.",
-    "Lo que mueve el precio no es la cifra sino la DIFERENCIA con lo que se esperaba: un dato en línea ya estaba puesto. Fuente: calendario económico de FMP.": "What moves the price is not the figure but the DIFFERENCE against what was expected: a figure in line was already priced in. Source: FMP economic calendar.",
+    "Lo que mueve el precio no es la cifra sino la DIFERENCIA con lo que se esperaba: un dato en línea ya estaba puesto.": "What moves the price is not the figure but the DIFFERENCE against what was expected: a figure in line was already priced in.",
+    "El color dice si eso es bueno o malo PARA LA ECONOMÍA, no si el número subió: en la inflación y en el paro, más bajo es mejor.": "The colour says whether that is good or bad FOR THE ECONOMY, not whether the number went up: in inflation and unemployment, lower is better.",
+    "Fuente: calendario económico de FMP.": "Source: FMP economic calendar.",
+    "es una decisión, no una sorpresa": "it is a policy decision, not a surprise to judge",
+    "en línea con lo esperado: ya estaba en el precio": "in line with expectations: it was already priced in",
+    "salió más bajo de lo esperado, y en este dato más bajo es mejor": "came in lower than expected, and in this reading lower is better",
+    "salió más alto de lo esperado, y en este dato más alto es PEOR": "came in higher than expected, and in this reading higher is WORSE",
+    "salió más alto de lo esperado, y en este dato más alto es mejor": "came in higher than expected, and in this reading higher is better",
+    "salió más bajo de lo esperado, y en este dato más bajo es PEOR": "came in lower than expected, and in this reading lower is WORSE",
     "actualizando…": "updating…",
     "foto guardada": "saved snapshot",
     "buscando los precios…": "looking up the prices…",
@@ -13733,6 +13776,7 @@ const VX_ES2EN = {
     "empresas · próximos 14 días": "companies · next 14 days",
     "fuera de los once sectores": "outside the eleven sectors",
     "más que no caben en la caja.": "more that do not fit in the box.",
+    "más repartidas entre los días, que no caben en la caja.": "more spread across the days that do not fit in the box.",
     "Cada cifra con LA FECHA en que se publicó: el IPC de hoy es el del mes pasado. La flecha compara con la lectura anterior. Fuente: FRED.": "Every figure with THE DATE it was published: today's CPI is last month's. The arrow compares against the previous reading. Source: FRED.",
     "Falta FMP_API_KEY: sin ella no hay fechas de resultados.": "FMP_API_KEY is missing: without it there are no earnings dates.",
     "Dentro de cada día van de mayor a menor; pasa el cursor para ver el tamaño y si reporta antes de abrir o tras el cierre.": "Within each day they go largest to smallest; hover to see the size and whether it reports before the open or after the close.",
