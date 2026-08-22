@@ -8288,13 +8288,65 @@ _MACRO_TABLA = {
 _MACRO_CLAVES = tuple(sorted(_MACRO_TABLA, key=len, reverse=True))
 
 
-def _macro_ficha(nombre: str) -> tuple[int, str | None] | None:
-    """`(nivel, mejor)` del indicador, o `None` si no es de los que miramos."""
+def _macro_familia(nombre: str) -> str | None:
+    """La clave de la tabla que casa con este nombre. La FAMILIA del dato.
+
+    Un mismo comunicado sale de FMP partido en variantes —«Retail Sales MoM»,
+    «Retail Sales YoY», «Retail Sales Excluding Autos MoM», «Retail Sales
+    Excluding Gas and Autos MoM»— y las cuatro son el MISMO dato mirado por
+    cuatro cortes. Todas casan con la clave «retail sales», y esa clave es lo
+    que las agrupa.
+    """
     n = str(nombre or "").lower()
     for clave in _MACRO_CLAVES:
         if clave in n:
-            return _MACRO_TABLA[clave]
+            return clave
     return None
+
+
+def _macro_ficha(nombre: str) -> tuple[int, str | None] | None:
+    """`(nivel, mejor)` del indicador, o `None` si no es de los que miramos."""
+    clave = _macro_familia(nombre)
+    return _MACRO_TABLA[clave] if clave else None
+
+
+#: Las familias cuyo titular es la lectura INTERANUAL, no la mensual.
+#:
+#: La inflación se cita a doce meses —«la inflación está en el 3,1%»— y la
+#: actividad se cita mes a mes —«las ventas minoristas cayeron un 0,6%»—. Son
+#: convenciones del oficio, no una preferencia: elegir la variante equivocada
+#: hace que la caja enseñe un número que nadie reconoce.
+_MACRO_TITULAR_ANUAL = frozenset({
+    "core cpi", "cpi", "consumer price", "core pce price", "pce price",
+    "core inflation rate", "inflation rate", "core ppi", "ppi",
+    "producer price", "gdp growth",
+})
+
+
+def _macro_titular(f: dict) -> tuple:
+    """Cómo de «titular» es esta variante dentro de su familia. Menor = más.
+
+    Cuando una familia trae cuatro cortes, el que se enseña es el que mira el
+    mercado, no el primero que llegue:
+
+     · Los «excluyendo…» van los últimos. Son sub-agregados: útiles para
+       entender el dato, no para titularlo. En la captura del 22/08 dos de los
+       cinco huecos de la caja eran «Excluyendo Automóviles» y «Excluyendo
+       Gasolina y Automóviles» del MISMO comunicado.
+     · A igualdad, gana el nombre más CORTO, que es el que no lleva
+       calificativos: «Retail Sales MoM» antes que «Retail Sales Control Group».
+     · Y a igualdad de nombre, el más reciente.
+    """
+    n = str(f.get("evento") or "").lower()
+    excluye = 1 if ("excluding" in n or "excluyendo" in n or " ex " in n) else 0
+    # El corte que cita el mercado para ESTA familia. Sin esto, MoM y YoY
+    # empatan en longitud y ganaba el que llegara primero: la caja enseñaba
+    # unas ventas minoristas interanuales, que no es el número que se mira.
+    fam = _macro_familia(n) or ""
+    quiero = "yoy" if fam in _MACRO_TITULAR_ANUAL else "mom"
+    otro = "mom" if quiero == "yoy" else "yoy"
+    corte = 0 if quiero in n else (1 if otro not in n else 2)
+    return (excluye, corte, len(n), _fecha_inversa(f.get("fecha") or ""))
 
 
 def _fecha_inversa(f: str) -> tuple:
@@ -8450,7 +8502,33 @@ def _macro_calcula() -> dict:
     # fecha. Ordenando solo por fecha, ocho peticiones de desempleo semanales
     # empujaban fuera de la caja al IPC del martes — el dato más reciente no es
     # el más importante, y la caja tiene sitio para ocho.
+    # ── Una fila por FAMILIA, no una por variante ────────────────────────────
+    #
+    # FMP parte cada comunicado en cortes. Sin agrupar, las ventas minoristas
+    # de un solo martes ocupaban CUATRO de los ocho huecos de la caja —MoM,
+    # YoY, sin automóviles y sin gasolina ni automóviles— y empujaban fuera al
+    # resto de la semana. La caja parecía tener cinco datos y tenía dos.
+    #
+    # Se conserva el titular de cada familia (`_macro_titular`); los otros
+    # cortes no se pierden para siempre, se dejan de titular.
+    _familias: dict[str, dict] = {}
+    for f in publicados:
+        fam = _macro_familia(f["evento"]) or f["evento"]
+        actual = _familias.get(fam)
+        if actual is None or _macro_titular(f) < _macro_titular(actual):
+            _familias[fam] = f
+    publicados = list(_familias.values())
+
     publicados.sort(key=lambda x: (x["nivel"], _fecha_inversa(x["fecha"])))
+    # Los retrasados delante: si un dato debía salir ayer y no ha salido, es lo
+    # más inminente que hay, no lo más viejo.
+    _fam_prox: dict[str, dict] = {}
+    for f in proximos:
+        fam = (_macro_familia(f["evento"]) or f["evento"]) + f["fecha"][:10]
+        actual = _fam_prox.get(fam)
+        if actual is None or _macro_titular(f) < _macro_titular(actual):
+            _fam_prox[fam] = f
+    proximos = list(_fam_prox.values())
     # Los retrasados delante: si un dato debía salir ayer y no ha salido, es lo
     # más inminente que hay, no lo más viejo.
     proximos.sort(key=lambda x: (not x.get("retrasado"), x["fecha"], x["nivel"]))
@@ -8833,7 +8911,11 @@ def api_macro_lectura(refrescar: int = 0):
         _MACRO_LECTURA_SYSTEM,
         "Estos son los datos macro de ahora. Explícalos siguiendo el formato:"
         "\n\n" + _macro_lectura_datos(macro),
-        temp=0.3, max_tokens=2600)
+        # Once secciones, y la primera enumera CADA dato publicado con sus tres
+        # cifras. Con 2.600 —y con el pensamiento de Gemini comiéndose parte del
+        # presupuesto— la nota se cortaba DENTRO de esa primera lista y no
+        # llegaba a ninguna de las diez de análisis.
+        temp=0.3, max_tokens=8000)
     if not texto:
         return {"ok": False, "texto": "",
                 "error": f"Ningún modelo pudo escribir la lectura ({err})."}
@@ -15192,11 +15274,30 @@ def _texto_llm(system_msg, user_msg, temp=0.4, max_tokens=4000):
     fallos = []
     if client_gemini is not None:
         try:
+            # `max_output_tokens` de Gemini 2.5 cuenta los tokens de PENSAMIENTO
+            # más los de respuesta, no solo la respuesta.
+            #
+            # Con el presupuesto compartido, una nota larga se gastaba casi todo
+            # razonando y salía cortada a media frase. Se vio en el panel el
+            # 22/08: la nota macro moría en el quinto dato, en la palabra
+            # «Salió», y las diez secciones de análisis —el dólar, la Fed, los
+            # bonos, los sectores— no llegaban a escribirse nunca. Desde fuera
+            # parecía que el modelo no sabía contestar; lo que pasaba es que no
+            # le dejábamos sitio para hacerlo.
+            #
+            # Estas notas no necesitan cadena de pensamiento: el motor ya hizo
+            # la matemática y las clasificaciones, y el trabajo del modelo es
+            # REDACTAR lo que se le da ya resuelto. Con el pensamiento a cero,
+            # el presupuesto entero va al texto que se lee.
+            _cfg = dict(temperature=temp, max_output_tokens=max_tokens)
+            try:
+                _cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            except Exception:                    # noqa: BLE001
+                pass                             # SDK viejo: se sigue sin ello
             r = _gemini_genera(
                 model="gemini-2.5-flash",
                 contents=f"{system_msg}\n\n{user_msg}",
-                config=types.GenerateContentConfig(
-                    temperature=temp, max_output_tokens=max_tokens))
+                config=types.GenerateContentConfig(**_cfg))
             texto = (r.text or "").strip()
             if texto:
                 return texto, "gemini", ""

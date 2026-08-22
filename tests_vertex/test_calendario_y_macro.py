@@ -484,3 +484,146 @@ class TestLaNotaPideTodoLoQuePidioKevin:
         for etf in ("XLK", "XLF", "XLV", "XLY", "XLC", "XLI", "XLP", "XLE",
                     "XLU", "XLRE", "XLB"):
             assert etf in V._LECTURA_SYSTEM, f"{etf} no se le pide al modelo"
+
+
+class TestUnComunicadoNoOcupaCuatroHuecos:
+    """La captura del 22/08: cuatro sabores del mismo dato llenando la caja.
+
+    FMP parte cada comunicado en cortes. Las ventas minoristas de UN martes
+    salían como cuatro filas —MoM, YoY, sin automóviles, y sin gasolina ni
+    automóviles— y se comían cuatro de los ocho huecos, empujando fuera al
+    resto de la semana. La caja parecía tener cinco datos y tenía dos.
+
+        «No es lo que yo quiero y no sale los últimos 5 más recientes.»
+    """
+
+    @pytest.fixture
+    def caja(self, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        hoy = date.today()
+
+        def _ev(nombre, dias, salio, esp=None, prev=None):
+            return {"country": "US", "event": nombre,
+                    "date": (hoy - timedelta(days=dias)).isoformat() + " 12:30:00",
+                    "actual": salio, "estimate": esp, "previous": prev}
+
+        crudo = [
+            # Los cuatro cortes de la captura, del mismo día.
+            _ev("Retail Sales Excluding Gas and Autos MoM", 8, "-0.2%", "0.3%", "0.4%"),
+            _ev("Retail Sales Excluding Autos MoM", 8, "-0.3%", "0.2%", "-0.2%"),
+            _ev("Retail Sales YoY", 8, "5%", "6%", "6.8%"),
+            _ev("Retail Sales MoM", 8, "-0.6%", "0.1%", "0.2%"),
+            _ev("Inflation Rate MoM", 10, "0.3%", "0.2%", "0.1%"),
+            _ev("Inflation Rate YoY", 10, "3.1%", "3.0%", "2.9%"),
+            _ev("Core CPI YoY", 10, "3.4%", "3.1%", "3.2%"),
+            _ev("Nonfarm Payrolls", 14, "280K", "180K", "175K"),
+            _ev("Unemployment Rate", 14, "4.4%", "4.1%", "4.2%"),
+            _ev("ISM Manufacturing PMI", 18, "52.1", "50.0", "49.5"),
+        ]
+
+        class _R:
+            status_code = 200
+
+            def json(self):
+                return crudo
+
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        return V._macro_calcula()
+
+    def test_las_ventas_minoristas_ocupan_UN_hueco_y_no_cuatro(self, caja):
+        cuantas = [f["evento"] for f in caja["publicados"] if "Retail" in f["evento"]]
+        assert len(cuantas) == 1, (
+            f"el mismo comunicado ocupa {len(cuantas)} huecos: {cuantas}")
+
+    def test_los_EXCLUYENDO_no_titulan(self, caja):
+        """Son sub-agregados: sirven para entender el dato, no para titularlo."""
+        malos = [f["evento"] for f in caja["publicados"]
+                 if "Excluding" in f["evento"]]
+        assert not malos, f"un sub-agregado se quedó con el hueco: {malos}"
+
+    def test_de_las_ventas_se_ensena_el_MoM(self, caja):
+        """Es el corte que cita el mercado: «las ventas cayeron un 0,6%»."""
+        f = next(f for f in caja["publicados"] if "Retail" in f["evento"])
+        assert f["evento"] == "Retail Sales MoM" and f["salio"] == -0.6
+
+    def test_pero_de_la_inflacion_se_ensena_el_YoY(self, caja):
+        """La inflación se cita a doce meses: «la inflación está en el 3,1%».
+
+        Es la vuelta de tuerca del caso de arriba: la regla NO es «siempre el
+        mensual», es «el que cita el mercado para esa familia».
+        """
+        f = next(f for f in caja["publicados"]
+                 if f["evento"].startswith("Inflation Rate"))
+        assert f["evento"] == "Inflation Rate YoY" and f["salio"] == 3.1
+
+    def test_el_nucleo_sigue_siendo_una_familia_aparte(self, caja):
+        """«Core CPI» y «CPI» no son el mismo dato: los dos se miran."""
+        eventos = [f["evento"] for f in caja["publicados"]]
+        assert "Core CPI YoY" in eventos and "Inflation Rate YoY" in eventos
+
+    def test_y_ahora_caben_los_datos_de_TODA_la_semana(self, caja):
+        """Lo que se ganaba al dejar de repetir: el resto de la quincena."""
+        eventos = [f["evento"] for f in caja["publicados"]]
+        for esperado in ("Nonfarm Payrolls", "Unemployment Rate",
+                         "ISM Manufacturing PMI"):
+            assert esperado in eventos, (
+                f"{esperado} sigue fuera de la caja: {eventos}")
+
+
+class TestLaNotaNoSePuedeCORTAR:
+    """Por qué la nota moría en el quinto dato, en la palabra «Salió».
+
+    El proveedor principal es Gemini 2.5 Flash, que es un modelo PENSANTE: su
+    `max_output_tokens` cuenta los tokens de pensamiento MÁS los de respuesta.
+    Con el presupuesto compartido y una nota de once secciones, el modelo se
+    gastaba casi todo razonando y el texto salía cortado a media frase — dentro
+    de la PRIMERA sección, así que las diez de análisis no se escribían nunca.
+
+    Desde el panel parecía que el modelo no sabía contestar. Lo que pasaba es
+    que no le dejábamos sitio para hacerlo.
+    """
+
+    def test_el_pensamiento_de_gemini_va_a_CERO(self):
+        """Estas notas no razonan: el motor ya hizo la matemática y las
+        clasificaciones, y el trabajo del modelo es REDACTAR lo que se le da
+        resuelto. Con el pensamiento a cero, el presupuesto entero va al texto.
+        """
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._texto_llm)
+        assert "ThinkingConfig(thinking_budget=0)" in fuente, (
+            "sin esto, el presupuesto se lo come el pensamiento y la nota sale "
+            "cortada a media frase")
+
+    def test_y_un_SDK_viejo_no_tumba_la_llamada(self):
+        """`ThinkingConfig` no existe en todas las versiones del SDK. Que falte
+        tiene que costar una nota más corta, no ninguna nota."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._texto_llm)
+        i = fuente.index("ThinkingConfig")
+        assert "except Exception" in fuente[i:i + 400], (
+            "la configuración del pensamiento no está protegida")
+
+    @pytest.mark.parametrize("ruta,minimo", [
+        ("api_macro_lectura", 6000),
+        ("api_sectores_lectura", 5000),
+    ])
+    def test_cada_nota_larga_tiene_margen_de_sobra(self, ruta, minimo):
+        """Once y trece secciones, y la primera de cada una enumera datos con
+        sus cifras. El margen tiene que dar para llegar al final."""
+        import inspect
+        import re
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(getattr(V, ruta))
+        topes = [int(x) for x in re.findall(r"max_tokens=(\d+)", fuente)]
+        assert topes and max(topes) >= minimo, (
+            f"{ruta} escribe con {topes}: se corta antes de acabar")
