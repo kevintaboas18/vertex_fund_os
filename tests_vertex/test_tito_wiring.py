@@ -5398,13 +5398,22 @@ class TestElCALENDARIOyElSUELOMACRO:
             "diferencia entre una caja filtrada y una que parece filtrada")
 
     def test_si_se_RECORTA_la_lista_se_dice(self, monkeypatch):
-        """Callar que faltan es lo que haría creer que ya no queda nada."""
+        """Callar que faltan es lo que haría creer que ya no queda nada.
+
+        El tope es POR DÍA desde el 22/08/2026, y antes era por el total. El
+        cambio no es cosmético: cortando la lista ya ordenada por fecha, en
+        temporada alta los primeros días agotaban la cuota y del séptimo en
+        adelante no llegaba ni una empresa — la caja decía «próximos 14 días»
+        y enseñaba seis. Este caso mide ahora el tope de UN día, que es donde
+        vive el recorte, y `test_los_14_dias_estan_representados` en
+        `test_calendario_y_macro.py` cuida el otro lado.
+        """
         import vertex_api as V
 
         monkeypatch.setenv("FMP_API_KEY", "x" * 20)
         hoy = date.today().isoformat()
         muchas = [{"symbol": f"AA{i}", "date": hoy}
-                  for i in range(V._RESULTADOS_MAX + 25)]
+                  for i in range(V._RESULTADOS_POR_DIA + 25)]
         # Todas GRANDES a propósito: lo que se mide aquí es el tope de la caja,
         # no el corte por tamaño. Si el filtro se las llevara antes, este caso
         # pasaría en verde sin haber ejercitado el tope.
@@ -5413,7 +5422,7 @@ class TestElCALENDARIOyElSUELOMACRO:
             screener=[{"symbol": f["symbol"], "marketCap": 5e10}
                       for f in muchas])
         r = V._resultados_calcula()
-        assert len(r["filas"]) == V._RESULTADOS_MAX
+        assert len(r["filas"]) == V._RESULTADOS_POR_DIA
         assert r["recortadas"] == 25
 
     def test_la_caja_hace_SCROLL_en_vez_de_estirarse_sin_fin(self):

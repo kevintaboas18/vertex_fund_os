@@ -8431,11 +8431,17 @@ def _macro_calcula() -> dict:
         # hueco lo haría parecer un dato que salió vacío.
         if fila["salio"] is not None:
             publicados.append(fila)
-        elif cuando[:10] >= hoy.isoformat():
-            # «Que salga desde HOY y 6 días más en adelante»: lo que viene es lo
-            # que todavía no ha pasado. Un dato de la semana pasada que se
-            # retrasó y nunca se publicó no es un próximo dato — es un hueco, y
-            # colarlo aquí ponía fechas viejas bajo el rótulo «Próximos datos».
+        else:
+            # Publicado = tiene DATO, no «la fecha ya pasó»: un evento de ayer
+            # sin cifra es uno que SE RETRASÓ, y sigue estando por venir.
+            #
+            # Lo intenté quitar para que «Próximos datos» empezara hoy, y estaba
+            # mal: unas nóminas que debían salir ayer y no han salido son
+            # justamente lo que más se quiere ver, y desaparecían del panel sin
+            # dejar rastro. Lo que había que arreglar no era que estuvieran,
+            # sino que enseñaran una fecha pasada como si fuera una cita futura.
+            # Se marcan, y el panel dice «retrasado» en vez de la fecha vieja.
+            fila["retrasado"] = cuando[:10] < hoy.isoformat()
             proximos.append(fila)
 
     # ── «Los más recientes y los más importantes. No todos son importantes.» ──
@@ -8445,7 +8451,9 @@ def _macro_calcula() -> dict:
     # empujaban fuera de la caja al IPC del martes — el dato más reciente no es
     # el más importante, y la caja tiene sitio para ocho.
     publicados.sort(key=lambda x: (x["nivel"], _fecha_inversa(x["fecha"])))
-    proximos.sort(key=lambda x: (x["fecha"], x["nivel"]))
+    # Los retrasados delante: si un dato debía salir ayer y no ha salido, es lo
+    # más inminente que hay, no lo más viejo.
+    proximos.sort(key=lambda x: (not x.get("retrasado"), x["fecha"], x["nivel"]))
     publicados, proximos = publicados[:8], proximos[:8]
     # Y ya recortados, los publicados se enseñan del más reciente al más viejo,
     # que es como se leen.
@@ -8729,6 +8737,8 @@ _MACRO_LECTURA_SYSTEM = (
     "**Qué significa para la economía de EE.UU.** — crecimiento, empleo, "
     "precios, consumo. Si va hacia recalentamiento, hacia aterrizaje suave o "
     "hacia enfriamiento, y con qué evidencia de la de arriba.\n"
+    "**Qué significa para la gente** — en dinero de la calle: la hipoteca, el "
+    "crédito, el ahorro, el sueldo real, el empleo. Sin jerga.\n"
     "**Qué significa para el resto del mundo** — cómo llega esto a Europa, "
     "China y los emergentes: por el dólar, por los tipos de EE.UU., por la "
     "demanda de importaciones y por las materias primas.\n"

@@ -2304,8 +2304,14 @@ function vxMacroHTML(d) {
         cuerpo += `<div class="border-t border-gray-800 pt-2 mt-2">
           <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Pr&oacute;ximos datos</p>`
             + prox.map(f => {
-                const cuando = vxFechaCorta(String(f.fecha).slice(0, 10));
-                const destaca = cuando === 'hoy' || cuando === 'mañana';
+                // Un dato RETRASADO —debía salir y no ha salido— es lo más
+                // inminente que hay, no lo más viejo. Enseñar su fecha pasada
+                // bajo «Próximos datos» lo hacía parecer un error del panel;
+                // quitarlo, que era lo que hice primero, lo hacía desaparecer
+                // justo cuando más se mira.
+                const cuando = f.retrasado ? 'retrasado'
+                    : vxFechaCorta(String(f.fecha).slice(0, 10));
+                const destaca = f.retrasado || cuando === 'hoy' || cuando === 'mañana';
                 const esp = f.esperado == null ? ''
                     : `<span class="text-gray-600 text-[9px] ml-1">se espera ${vxMacroNum(f.esperado, f.unidad)}</span>`;
                 return `<div class="flex items-baseline gap-2 py-0.5 text-[10px]">
@@ -13775,6 +13781,7 @@ const VX_ES2EN = {
     "Todas las empresas de EE.UU. que reportan. Las que forman los once sectores llevan su ETF al lado y van primero; pasa el cursor para ver si reporta antes de abrir o tras el cierre.": "Every US company that reports. The ones that make up the eleven sectors carry their ETF beside them and come first; hover to see whether it reports before the open or after the close.",
     "empresas · próximos 14 días": "companies · next 14 days",
     "fuera de los once sectores": "outside the eleven sectors",
+    "retrasado": "delayed",
     "más que no caben en la caja.": "more that do not fit in the box.",
     "más repartidas entre los días, que no caben en la caja.": "more spread across the days that do not fit in the box.",
     "Cada cifra con LA FECHA en que se publicó: el IPC de hoy es el del mes pasado. La flecha compara con la lectura anterior. Fuente: FRED.": "Every figure with THE DATE it was published: today's CPI is last month's. The arrow compares against the previous reading. Source: FRED.",

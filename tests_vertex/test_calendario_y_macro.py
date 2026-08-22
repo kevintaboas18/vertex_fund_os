@@ -305,12 +305,32 @@ class TestLaCajaMacroFiltraYFecha:
         assert any("CPI" in e for e in eventos), (
             f"el IPC se cayó de la caja, empujado por lo semanal: {eventos}")
 
-    def test_lo_que_VIENE_empieza_hoy_y_no_antes(self, macro):
-        """Un dato atrasado que nunca salió no es un próximo dato."""
-        hoy = date.today().isoformat()
-        viejos = [f["evento"] for f in macro["proximos"] if f["fecha"][:10] < hoy]
-        assert not viejos, (
-            f"bajo «Próximos datos» hay fechas ya pasadas: {viejos}")
+    def test_un_dato_RETRASADO_no_desaparece_del_panel(self, macro):
+        """Publicado = tiene DATO, no «la fecha ya pasó».
+
+        Lo quité para que «Próximos datos» empezara hoy, y estaba mal: unas
+        ventas minoristas que debían salir hace cinco días y no han salido son
+        justo lo que más se mira, y desaparecían sin dejar rastro. Lo que había
+        que arreglar no era que estuvieran, sino que enseñaran una fecha pasada
+        como si fuera una cita futura.
+        """
+        eventos = [f["evento"] for f in macro["proximos"]]
+        assert any("Retail" in e for e in eventos), (
+            f"el dato retrasado se perdió por el camino: {eventos}")
+
+    def test_y_va_MARCADO_como_retrasado(self, macro):
+        """Para que el panel diga «retrasado» en vez de una fecha vieja."""
+        f = next(f for f in macro["proximos"] if "Retail" in f["evento"])
+        assert f.get("retrasado") is True
+
+    def test_el_retrasado_va_DELANTE(self, macro):
+        """Es lo más inminente que hay, no lo más viejo."""
+        assert "Retail" in macro["proximos"][0]["evento"], (
+            "un dato que debía salir y no ha salido tiene que ir el primero")
+
+    def test_lo_que_SI_esta_programado_no_se_marca(self, macro):
+        f = next(f for f in macro["proximos"] if "Payrolls" in f["evento"])
+        assert not f.get("retrasado")
 
     def test_la_ventana_de_lo_que_viene_es_de_SIETE_dias(self):
         """«Desde hoy y 6 días más en adelante.»"""
