@@ -2390,12 +2390,8 @@ async function vxMacroDespliega(i, boton) {
     // El texto del modelo se ESCAPA y solo después se marcan las negritas —al
     // revés de como suele hacerse, y la única forma de que un `<img onerror>`
     // en la respuesta no acabe ejecutándose.
-    caja.innerHTML = `<div class="pl-4 pr-1">` + _vcEsc(d.texto)
-        .replace(/\*\*(.+?)\*\*/g, '<b class="text-white">$1</b>')
-        .split(/\n{2,}/)
-        .map(p => `<p class="text-[11px] text-gray-300 leading-relaxed mb-2">${
-            p.replace(/\n/g, '<br>')}</p>`)
-        .join('')
+    caja.innerHTML = `<div class="pl-4 pr-1">`
+        + vxProsaDelModelo(d.texto, 'text-[11px] text-gray-300')
         + `<p class="text-[9px] text-gray-600 mt-1 pt-1 border-t border-gray-800">Escrito por el modelo a partir de los n&uacute;meros de arriba. Es una lectura de lo que pasa, <b>no</b> una recomendaci&oacute;n de compra o venta.</p></div>`;
     caja.dataset.escrita = '1';
 }
@@ -3325,17 +3321,35 @@ async function cargaLecturaGrupo(refrescar) {
 //: modelo se ESCAPA y solo después se marcan las negritas — al revés de como
 //: suele hacerse, y la única forma de que un `<img onerror>` en la respuesta
 //: no acabe ejecutándose.
+/** La prosa del modelo, convertida en HTML. EL ÚNICO sitio que lo hace.
+ *
+ *  El orden es lo que importa y va al revés de como suele hacerse: primero se
+ *  ESCAPA el texto entero y solo después se marcan las negritas. Al revés, un
+ *  `<img onerror=...>` colado en la respuesta del modelo entraría vivo en el
+ *  DOM y se ejecutaría en el navegador de quien lee.
+ *
+ *  Y es uno solo a propósito. Cuando la lectura del mercado y la del grupo
+ *  tenían cada una su copia, el guardián cubría una y la otra podía quedarse
+ *  sin escapar sin que nada lo dijera. Al añadir la explicación por dato volvió
+ *  a haber dos copias y el guardián lo cazó otra vez, que es exactamente su
+ *  trabajo.
+ */
+function vxProsaDelModelo(texto, clase) {
+    return _vcEsc(texto)
+        .replace(/\*\*(.+?)\*\*/g, '<b class="text-white">$1</b>')
+        .split(/\n{2,}/)
+        .map(p => `<p class="${clase} leading-relaxed mb-2">${
+            p.replace(/\n/g, '<br>')}</p>`)
+        .join('');
+}
+
 function vxLecturaHTML(d, fn) {
     if (!d || !d.ok || !d.texto) {
         return `<div class="bg-panel border border-panel rounded-2xl p-4">
           <p class="text-xs text-amber-400">${_vcEsc((d && d.error) || 'Sin lectura disponible.')}</p>
           <button onclick="${fn}(1)" class="text-[10px] text-blue-400 hover:text-blue-300 mt-1">Reintentar</button></div>`;
     }
-    const cuerpo = _vcEsc(d.texto)
-        .replace(/\*\*(.+?)\*\*/g, '<b class="text-white">$1</b>')
-        .split(/\n{2,}/)
-        .map(p => `<p class="text-xs text-gray-300 leading-relaxed mb-2">${p.replace(/\n/g, '<br>')}</p>`)
-        .join('');
+    const cuerpo = vxProsaDelModelo(d.texto, 'text-xs text-gray-300');
     return `<div class="bg-panel border border-panel rounded-2xl p-4">
       <div class="flex items-baseline justify-between mb-2 gap-2 flex-wrap">
         <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Qu&eacute; est&aacute; pasando en el mercado</h3>

@@ -4229,24 +4229,36 @@ class TestLaLecturaDelMercadoEXPLICAyNoDECIDE:
         """Al revés de como suele hacerse, y la única forma de que un
         `<img onerror>` en la respuesta del modelo no acabe ejecutándose.
 
-        Se mira `vxLecturaHTML`, que es por donde pasan LAS DOS lecturas —la
-        del mercado y la de un grupo—. Cuando cada una tenía su copia, este
-        test solo cubría una.
+        Se mira `vxProsaDelModelo`, que es por donde pasa TODA la prosa del
+        modelo: la lectura del mercado, la de un grupo y la explicación de un
+        dato macro suelto.
+
+        Que sea uno solo es la mitad del guardián. Cuando cada lectura tenía su
+        copia, este test cubría una y la otra podía quedarse sin escapar sin que
+        nada lo dijera. Al añadir la explicación por dato (23/08/2026) volvió a
+        haber dos copias y el caso lo cazó — que es justo su trabajo—, así que
+        se unificaron en el ayudante.
         """
         import pathlib
         import re
 
         html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        cuerpo = html.split("function vxLecturaHTML", 1)[1][:2600]
-        i_esc = cuerpo.index("_vcEsc(d.texto)")
+        cuerpo = html.split("function vxProsaDelModelo", 1)[1][:1200]
+        i_esc = cuerpo.index("_vcEsc(texto)")
         i_neg = cuerpo.index("replace(/\\*\\*")
         assert i_esc < i_neg, (
             "se marcan las negritas antes de escapar: el HTML del modelo "
             "entraría vivo")
         assert not re.search(r"innerHTML\s*=\s*[`\'\"]?\s*\$\{d\.texto\}", html)
-        assert html.count("_vcEsc(d.texto)") == 1, (
-            "hay más de un sitio pintando la lectura: uno puede quedarse sin "
-            "escapar")
+        # Se cuenta el paso de MARKDOWN A HTML, no el nombre del parámetro:
+        # hay otras funciones con un `texto` que escapan cadenas planas y no
+        # convierten nada, y contarlas aquí sería medir lo que no es.
+        assert html.count("replace(/\\*\\*(.+?)\\*\\*/g,") == 1, (
+            "hay más de un sitio convirtiendo prosa del modelo en HTML: uno "
+            "puede quedarse sin escapar")
+        assert "_vcEsc(d.texto)" not in html, (
+            "alguien volvió a pintar la lectura por su cuenta en vez de pasar "
+            "por `vxProsaDelModelo`")
 
 
 class TestLaVentanaDeDatosDAParaLoQueSeANUNCIA:
@@ -5743,10 +5755,14 @@ class TestLaExplicacionDeLoMACRO:
         import vertex_api as V
 
         p = V._MACRO_LECTURA_SYSTEM.lower()
+        # «Para la gente» y «para el resto del mundo» las quitó Kevin el
+        # 23/08/2026; que NO estén lo cuida `test_y_NO_pide_lo_que_Kevin_quito`
+        # en `test_calendario_y_macro.py`.
         for pieza in ("qué salió", "por qué salió así",
-                      "economía de ee.uu.", "para la gente",
+                      "economía de ee.uu.", "qué le hace al dólar",
+                      "qué hace la fed", "los tipos y los bonos",
                       "para la bolsa", "sector por sector",
-                      "qué viene y qué vigilar"):
+                      "qué vigilar de estos mismos datos"):
             assert pieza in p, f"falta la sección «{pieza}»"
 
     def test_pide_LOS_ONCE_sectores_por_su_nombre(self):
@@ -5801,16 +5817,20 @@ class TestLaExplicacionDeLoMACRO:
         d = client.get("/api/dashboard/macro/lectura").json()
         assert d["ok"] is False and not llamado
 
-    def test_el_ORDEN_de_la_caja_es_salio_boton_proximos(self):
-        """Es el orden que pidió Kevin y el orden en que se lee: primero lo que
-        ya pasó, luego qué significa, y solo entonces qué viene."""
+    def test_el_ORDEN_de_la_caja_es_salio_y_luego_proximos(self):
+        """Primero lo que ya pasó y después lo que viene, que es como se lee.
+
+        El botón global que iba en medio ya no está: desde el 23/08/2026 cada
+        dato lleva su flecha y su explicación debajo, así que lo que antes era
+        un tercer bloque ahora vive DENTRO del primero.
+        """
         h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         f = h.split("function vxMacroHTML(d) {", 1)[1].split("\n}\n", 1)[0]
         i_pub = f.index("Ya salieron")
-        i_bot = f.index("cargaMacroLectura()")
+        i_flecha = f.index("vxMacroDespliega(")
         i_prox = f.index("Pr&oacute;ximos datos")
-        assert i_pub < i_bot < i_prox, (
-            f"el orden salió {i_pub}/{i_bot}/{i_prox}")
+        assert i_pub < i_flecha < i_prox, (
+            f"el orden salió {i_pub}/{i_flecha}/{i_prox}")
 
     def test_la_explicacion_cae_DENTRO_de_la_caja(self):
         h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
