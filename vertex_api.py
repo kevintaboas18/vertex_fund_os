@@ -8792,12 +8792,14 @@ _MACRO_LECTURA_SYSTEM = (
     "segundo empieza por «probablemente» o «suele». La reacción del mercado a "
     "un dato es una tendencia histórica, no una ley.\n"
     "6. Nada de recomendaciones de compra o venta, ni objetivos de precio.\n"
-    "7. Frases cortas y en español llano. Esto lo lee alguien que invierte, no "
-    "un doctorando en economía: «la inflación bajó del 3,1% al 2,9%, menos de "
+    "7. Palabras llanas y directo. Esto lo lee alguien que invierte su propio "
+    "dinero y no es economista: «la inflación bajó del 3,1% al 2,9%, menos de "
     "lo que se temía» y no «se observa una moderación en el deflactor». Cada "
-    "vez que uses un mecanismo, explícalo en la misma frase: no digas «se "
-    "comprimen los múltiplos», di «si los tipos suben, el dinero futuro vale "
-    "menos hoy y por eso las acciones caras caen más».\n"
+    "vez que uses un término del oficio, explícalo en la misma frase: no digas "
+    "«se comprimen los múltiplos», di «si los tipos suben, el dinero de dentro "
+    "de años vale menos hoy, y por eso las acciones caras caen más». Frase "
+    "corta, el dato delante, y nada de «cabe destacar» ni «en el actual "
+    "entorno macroeconómico».\n"
     "8. Si los datos no dan para una sección, dilo en una línea. Rellenar es "
     "peor que dejarlo corto.\n\n"
     "FORMATO exacto, con estos titulares en negrita markdown y nada más:\n"
@@ -8815,11 +8817,6 @@ _MACRO_LECTURA_SYSTEM = (
     "**Qué significa para la economía de EE.UU.** — crecimiento, empleo, "
     "precios, consumo. Si va hacia recalentamiento, hacia aterrizaje suave o "
     "hacia enfriamiento, y con qué evidencia de la de arriba.\n"
-    "**Qué significa para la gente** — en dinero de la calle: la hipoteca, el "
-    "crédito, el ahorro, el sueldo real, el empleo. Sin jerga.\n"
-    "**Qué significa para el resto del mundo** — cómo llega esto a Europa, "
-    "China y los emergentes: por el dólar, por los tipos de EE.UU., por la "
-    "demanda de importaciones y por las materias primas.\n"
     "**Qué hace la Fed con esto** — acerca o aleja las bajadas de tipos, y "
     "cuánto. Di qué parte del mandato toca (precios o empleo) y qué tendría "
     "que pasar en el próximo dato para cambiar la lectura. Nada de porcentajes "
@@ -8837,8 +8834,11 @@ _MACRO_LECTURA_SYSTEM = (
     "(tipos, consumo, márgenes, deuda, ciclo, dólar). Los once: tecnología, "
     "financiero, salud, consumo discrecional, comunicaciones, industrial, "
     "consumo básico, energía, servicios públicos, inmobiliario y materiales.\n"
-    "**Qué viene y qué vigilar** — los próximos datos con su fecha y su "
-    "estimación, y qué cifra concreta cambiaría la lectura de arriba."
+    "**Qué vigilar de estos mismos datos** — de los indicadores que acabas de "
+    "explicar: cuándo vuelven a salir si te doy la fecha, y qué cifra concreta "
+    "cambiaría lo que has contado. Habla de ESTOS datos y de sus parientes "
+    "cercanos —el IPC con el IPP, las nóminas con el paro—, no del calendario "
+    "entero."
 )
 
 
@@ -8889,15 +8889,113 @@ def _macro_lectura_datos(macro: dict) -> str:
     ]
     return "\n".join(partes)
 
+_MACRO_DATO_SYSTEM = (
+    "Explicas UN dato económico a alguien que invierte su propio dinero y no "
+    "es economista. Ni un dato más: solo el que te dan.\n\n"
+    "CÓMO ESCRIBIR:\n"
+    "· Palabras llanas. Si usas un término del oficio, lo explicas en la misma "
+    "frase. No digas «se comprimen los múltiplos»: di «si los tipos suben, el "
+    "dinero de dentro de años vale menos hoy, y por eso las acciones caras "
+    "caen más».\n"
+    "· Directo. Frase corta, el dato delante. Nada de «cabe destacar» ni «en "
+    "el actual entorno macroeconómico». Si una frase no dice un hecho, sobra.\n"
+    "· Dos o tres frases por sección. Esto se lee en el móvil.\n\n"
+    "REGLAS INNEGOCIABLES:\n"
+    "1. No inventes NADA. Ni una cifra, ni una fecha, ni una declaración, ni "
+    "una noticia. Si no está en lo que te doy, no existe. No tienes acceso a "
+    "titulares ni a ruedas de prensa.\n"
+    "2. La noticia es la SORPRESA, no la cifra: lo que mueve el precio es la "
+    "diferencia con lo que se esperaba. Un dato en línea ya estaba en el "
+    "precio, y entonces lo que hay que decir es justo eso.\n"
+    "3. MÁS ALTO NO ES «MEJOR». El dato trae escrito hacia dónde es bueno. En "
+    "la inflación, el paro y las peticiones de desempleo, más BAJO es mejor: "
+    "un dato por encima de lo esperado ahí es MALA noticia. En las nóminas, el "
+    "PIB, las ventas y los PMI es al revés. Nunca digas que «mejoró» solo "
+    "porque el número subió.\n"
+    "4. Bueno para la economía y bueno para la bolsa NO son lo mismo. Con la "
+    "Fed decidiendo dato a dato, unas nóminas muy fuertes son buena economía y "
+    "mala bolsa el mismo día, porque alejan las bajadas de tipos. Cuando se "
+    "separen, dilo y explica por qué.\n"
+    "5. Separa lo que SABES de lo que SUPONES. Lo primero con su cifra; lo "
+    "segundo empieza por «probablemente» o «suele».\n"
+    "6. Nada de recomendaciones de compra o venta, ni objetivos de precio.\n\n"
+    "FORMATO exacto, con estos titulares en negrita markdown y nada más:\n"
+    "**Qué salió** — la cifra, lo que se esperaba y lo anterior. Di si "
+    "sorprendió arriba, abajo o en línea, y si eso es bueno o malo según la "
+    "dirección de ESTE indicador.\n"
+    "**Qué mide y por qué importa** — qué está contando este dato en una "
+    "frase, y por qué el mercado lo mira.\n"
+    "**El dólar** — si esto empuja al dólar arriba o abajo, y por qué.\n"
+    "**La economía de EE.UU.** — qué dice de hacia dónde va: recalentamiento, "
+    "aterrizaje suave o enfriamiento.\n"
+    "**La Fed** — acerca o aleja las bajadas de tipos, y por qué. Nada de "
+    "porcentajes de probabilidad: no te doy el mercado de futuros.\n"
+    "**Los tipos y los bonos** — qué le hace al bono a 2 años (que sigue a la "
+    "Fed) y al de 10 (que sigue al crecimiento y a la inflación esperada), y "
+    "qué le hace a las hipotecas y al crédito.\n"
+    "**La bolsa** — el mercado en conjunto, y si favorece a las grandes de "
+    "calidad o a las pequeñas endeudadas.\n"
+    "**Sector por sector** — una línea por cada uno de los once, diciendo si "
+    "este dato le viene a favor o en contra y POR QUÉ. Los once: tecnología, "
+    "financiero, salud, consumo discrecional, comunicaciones, industrial, "
+    "consumo básico, energía, servicios públicos, inmobiliario y materiales.\n"
+    "**Qué vigilar de este mismo dato** — la próxima vez que salga ESTE "
+    "indicador, o los que lo confirman o lo desmienten: qué cifra concreta "
+    "cambiaría lo que acabas de contar. Habla solo de este dato y de sus "
+    "parientes cercanos, no del calendario entero."
+)
+
+
+def _macro_dato_datos(f: dict) -> str:
+    """UN dato, con su dirección y su lectura ya resueltas, para el modelo."""
+    def _n(x):
+        return "sin dato" if x is None else f"{x:g}"
+
+    mejor = f.get("mejor")
+    if mejor == "bajo":
+        direccion = "En este indicador, MÁS BAJO ES MEJOR."
+    elif mejor == "alto":
+        direccion = "En este indicador, MÁS ALTO ES MEJOR."
+    else:
+        direccion = ("Es una decisión de política, no una sorpresa que juzgar: "
+                     "no digas que es buena ni mala noticia.")
+    bueno = f.get("bueno")
+    if bueno is None:
+        juicio = ("Salió EN LÍNEA con lo esperado: ya estaba en el precio."
+                  if f.get("sorpresa") == 0 else "")
+    else:
+        juicio = "Sorprendió BIEN." if bueno else "Sorprendió MAL."
+    return (
+        f"EL DATO\n"
+        f"  {f.get('evento')}\n"
+        f"  publicado el {f.get('fecha')}\n"
+        f"  salió {_n(f.get('salio'))} · se esperaba {_n(f.get('esperado'))}"
+        f" · el anterior fue {_n(f.get('anterior'))}\n"
+        f"  {direccion} {juicio}\n\n"
+        "Recuerda: la noticia es la diferencia con lo esperado, no la cifra.")
+
+
 @app.get("/api/dashboard/macro/lectura")
-def api_macro_lectura(refrescar: int = 0):
+def api_macro_lectura(refrescar: int = 0, evento: str = ""):
     """El dato macro explicado: qué salió, por qué, y a quién le pega.
 
+    Con `evento`, explica UN dato y solo ese. Es como se pide desde el panel
+    desde el 23/08/2026: cada fila tiene su flecha y la explicación se escribe
+    al desplegarla.
+
+    El motivo es de lectura, no de coste. Una nota que explicaba los ocho datos
+    de golpe obligaba a buscar dentro de un muro de texto el que interesaba, y
+    mezclaba en el mismo párrafo un IPC en línea con unas nóminas desplomadas
+    —dos cosas que no se leen juntas—. Explicado de uno en uno, cada nota habla
+    de una cosa y se lee entera.
+
     Mismo trato que la lectura del mercado: el modelo NO calcula nada, traduce
-    a palabras lo que el calendario ya trae.
+    a palabras lo que el calendario ya trae, con la dirección del indicador ya
+    resuelta para que no repita el error de dar por bueno todo lo que sube.
     """
     ahora = time.time()
-    clave = f"macro|{_idioma_actual()}"
+    pedido = str(evento or "").strip()
+    clave = f"macro|{_idioma_actual()}|{pedido or '_todos'}"
     guardado = _LECTURA_CACHE.get(clave)
     if guardado and not refrescar and ahora - guardado[0] < _LECTURA_TTL:
         return {**guardado[1], "cacheado": True}
@@ -8906,6 +9004,33 @@ def api_macro_lectura(refrescar: int = 0):
     if not (macro.get("publicados") or macro.get("proximos")):
         return {"ok": False, "texto": "",
                 "error": macro.get("motivo") or "Sin datos macro que explicar."}
+
+    # ── Un solo dato ─────────────────────────────────────────────────────────
+    if pedido:
+        fila = next((f for f in (macro.get("publicados") or [])
+                     if str(f.get("evento") or "") == pedido), None)
+        if fila is None:
+            # El nombre viene del propio panel, así que no encontrarlo significa
+            # que la caja se refrescó por debajo y ese dato ya no está. Se dice,
+            # en vez de explicar otro que sí esté.
+            return {"ok": False, "texto": "",
+                    "error": "Ese dato ya no está en la caja: vuelve a abrirla."}
+        texto, fuente, err = _texto_llm(
+            _MACRO_DATO_SYSTEM,
+            "Explica este dato siguiendo el formato:\n\n"
+            + _macro_dato_datos(fila),
+            # Nueve secciones y once sectores. Sobra margen a propósito: lo que
+            # se corta a media frase no se puede leer, y una nota corta de más
+            # no le hace daño a nadie.
+            temp=0.3, max_tokens=6000)
+        if not texto:
+            return {"ok": False, "texto": "",
+                    "error": f"Ningún modelo pudo escribir la lectura ({err})."}
+        salida = {"ok": True, "texto": texto, "fuente": fuente,
+                  "evento": pedido,
+                  "generado": datetime.now(timezone.utc).isoformat()}
+        _LECTURA_CACHE[clave] = (ahora, salida)
+        return {**salida, "cacheado": False}
 
     texto, fuente, err = _texto_llm(
         _MACRO_LECTURA_SYSTEM,

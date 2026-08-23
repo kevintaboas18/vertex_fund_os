@@ -2246,7 +2246,7 @@ function vxMacroHTML(d) {
             <span class="flex-1"></span><span class="w-16 text-right">Salió</span>
             <span class="w-16 text-right">Esperado</span><span class="w-16 text-right">Anterior</span>
           </div>`;
-        cuerpo += pub.map(f => {
+        cuerpo += pub.map((f, i) => {
             // El color dice BUENO o MALO, no «arriba o abajo».
             //
             // Antes era verde todo lo que saliera por encima del consenso y
@@ -2261,8 +2261,6 @@ function vxMacroHTML(d) {
             // o una decisión de tipos, que es política y no una sorpresa.
             const col = f.bueno === true ? 'text-emerald-400'
                 : f.bueno === false ? 'text-red-400' : 'text-gray-200';
-            // La ayuda emergente dice la fecha en que salió y por qué está de
-            // ese color. Sin eso, el color es una afirmación sin evidencia.
             const cuando = vxFechaCorta(String(f.fecha).slice(0, 10));
             const porque = f.bueno == null
                 ? (f.sorpresa === 0 ? 'en línea con lo esperado: ya estaba en el precio'
@@ -2273,12 +2271,28 @@ function vxMacroHTML(d) {
                     : (f.bueno ? 'salió más alto de lo esperado, y en este dato más alto es mejor'
                                : 'salió más bajo de lo esperado, y en este dato más bajo es PEOR'));
             const ayuda = `${f.evento} · salió el ${cuando}${porque ? ' · ' + porque : ''}`;
-            return `<div class="flex items-baseline gap-2 py-1 border-t border-gray-800/60 text-[10px]">
-              <span class="flex-1 min-w-0 text-gray-300 truncate" title="${_vcEsc(ayuda)}">${_vcEsc(f.evento)}
-                <span class="block text-[9px] text-gray-600">${_vcEsc(cuando)}</span></span>
-              <span class="w-16 text-right font-bold tabular-nums ${col}" title="${_vcEsc(ayuda)}">${vxMacroNum(f.salio, f.unidad)}</span>
-              <span class="w-16 text-right tabular-nums text-gray-500">${vxMacroNum(f.esperado, f.unidad)}</span>
-              <span class="w-16 text-right tabular-nums text-gray-600">${vxMacroNum(f.anterior, f.unidad)}</span>
+            // Cada dato con SU flecha, y la explicación de ESE dato debajo.
+            //
+            // Antes había un solo botón que escribía una nota con los ocho
+            // datos dentro. Obligaba a buscar en un muro de texto el que
+            // interesaba, y mezclaba en el mismo párrafo un IPC en línea con
+            // unas nóminas desplomadas — dos cosas que no se leen juntas.
+            //
+            // Se escribe al DESPLEGAR y no al pintar: son unos segundos y una
+            // llamada al modelo por dato, y nadie quiere leer los ocho.
+            const id = 'macroDato' + i;
+            return `<div class="border-t border-gray-800/60">
+              <button type="button" onclick="vxMacroDespliega(${i}, this)"
+                aria-expanded="false" aria-controls="${id}"
+                class="w-full flex items-baseline gap-2 py-1 text-[10px] text-left hover:bg-white/[0.03] rounded">
+                <span class="vx-flecha text-gray-600 shrink-0 w-2">&rsaquo;</span>
+                <span class="flex-1 min-w-0 text-gray-300 truncate" title="${_vcEsc(ayuda)}">${_vcEsc(f.evento)}
+                  <span class="block text-[9px] text-gray-600">${_vcEsc(cuando)}</span></span>
+                <span class="w-16 text-right font-bold tabular-nums ${col}">${vxMacroNum(f.salio, f.unidad)}</span>
+                <span class="w-16 text-right tabular-nums text-gray-500">${vxMacroNum(f.esperado, f.unidad)}</span>
+                <span class="w-16 text-right tabular-nums text-gray-600">${vxMacroNum(f.anterior, f.unidad)}</span>
+              </button>
+              <div id="${id}" class="hidden pb-2"></div>
             </div>`;
         }).join('');
     }
@@ -2293,11 +2307,11 @@ function vxMacroHTML(d) {
             </div>`).join('');
     }
 
-    // ── 2. El botón, y el hueco donde cae la explicación ─────────────────
-    cuerpo += `<div class="border-t border-gray-800 pt-2 mt-2">
-        <button onclick="cargaMacroLectura()" class="text-[11px] font-bold text-blue-400 hover:text-blue-300">Expl&iacute;came qu&eacute; est&aacute; pasando &rsaquo;</button>
-      </div>
-      <div id="macroLectura" class="mt-2"></div>`;
+    // El botón global que escribía los ocho datos de golpe ya no está: cada
+    // fila tiene su flecha y su explicación. `macroLectura` se conserva como
+    // hueco vacío porque `cargaMacroLectura` sigue existiendo para quien la
+    // llame a mano.
+    cuerpo += `<div id="macroLectura" class="mt-2"></div>`;
 
     // ── 3. Lo que VIENE ──────────────────────────────────────────────────
     if (prox.length) {
@@ -2324,6 +2338,66 @@ function vxMacroHTML(d) {
     const sub = m.fuente === 'FRED' ? 'niveles de FRED' : 'salió · esperado · anterior';
     return vxCajaHTML('Macroeconómico', sub, cuerpo
         + `<p class="text-[9px] text-gray-600 mt-2"><span>Lo que mueve el precio no es la cifra sino la DIFERENCIA con lo que se esperaba: un dato en línea ya estaba puesto.</span> <span>El color dice si eso es bueno o malo PARA LA ECONOMÍA, no si el número subió: en la inflación y en el paro, más bajo es mejor.</span> <span>Fuente: calendario económico de FMP.</span></p>`);
+}
+
+/** Despliega un dato macro y escribe la explicación de ESE dato.
+ *
+ *  Se escribe al desplegar y no al pintar la caja: son unos segundos y una
+ *  llamada al modelo por cada dato, y nadie los quiere leer los ocho. Una vez
+ *  escrita se queda —el servidor además la cachea un cuarto de hora—, así que
+ *  cerrar y volver a abrir es instantáneo.
+ */
+async function vxMacroDespliega(i, boton) {
+    const caja = document.getElementById('macroDato' + i);
+    if (!caja) return;
+    const flecha = boton.querySelector('.vx-flecha');
+    const abierto = !caja.classList.contains('hidden');
+    if (abierto) {
+        caja.classList.add('hidden');
+        boton.setAttribute('aria-expanded', 'false');
+        if (flecha) flecha.innerHTML = '&rsaquo;';
+        return;
+    }
+    caja.classList.remove('hidden');
+    boton.setAttribute('aria-expanded', 'true');
+    if (flecha) flecha.innerHTML = '&rsaquo;';
+    if (flecha) flecha.style.transform = 'rotate(90deg)';
+    // Ya escrita: no se vuelve a pedir.
+    if (caja.dataset.escrita === '1') return;
+
+    const m = ((window._calendarioData || {}).macro) || {};
+    const f = (m.publicados || [])[i];
+    if (!f) { caja.innerHTML = ''; return; }
+    caja.innerHTML = `<p class="text-[10px] text-gray-500 pl-4">Escribiendo la explicaci&oacute;n de este dato&hellip;</p>`;
+    let d;
+    try {
+        // El `?` va DENTRO de la consulta, no suelto en la plantilla. Suelto,
+        // el trozo que queda entre las dos interpolaciones es
+        // «/api/dashboard/macro/lectura?», y el guardián del idioma lo lee como
+        // una frase en español sin traducir. Con el `?` dentro queda igual que
+        // la llamada que ya había en este archivo, que pasa desde siempre.
+        const q = '?evento=' + encodeURIComponent(f.evento);
+        const r = await fetch(`${API_BASE}/api/dashboard/macro/lectura${q}`);
+        d = await r.json();
+    } catch (e) {
+        d = { ok: false, error: 'No se pudo pedir la explicaci\u00f3n.' };
+    }
+    if (!d || !d.ok || !d.texto) {
+        caja.innerHTML = `<p class="text-[10px] text-amber-400 pl-4">${
+            _vcEsc((d && d.error) || 'Sin explicaci\u00f3n disponible.')}</p>`;
+        return;
+    }
+    // El texto del modelo se ESCAPA y solo después se marcan las negritas —al
+    // revés de como suele hacerse, y la única forma de que un `<img onerror>`
+    // en la respuesta no acabe ejecutándose.
+    caja.innerHTML = `<div class="pl-4 pr-1">` + _vcEsc(d.texto)
+        .replace(/\*\*(.+?)\*\*/g, '<b class="text-white">$1</b>')
+        .split(/\n{2,}/)
+        .map(p => `<p class="text-[11px] text-gray-300 leading-relaxed mb-2">${
+            p.replace(/\n/g, '<br>')}</p>`)
+        .join('')
+        + `<p class="text-[9px] text-gray-600 mt-1 pt-1 border-t border-gray-800">Escrito por el modelo a partir de los n&uacute;meros de arriba. Es una lectura de lo que pasa, <b>no</b> una recomendaci&oacute;n de compra o venta.</p></div>`;
+    caja.dataset.escrita = '1';
 }
 
 //: La explicación de lo macro. Va DENTRO de la caja, entre lo que salió y lo
@@ -2354,6 +2428,10 @@ async function cargaCalendario() {
     } catch (e) {
         d = null;
     }
+    // La foto se guarda: al desplegar un dato macro hay que saber CUÁL es, y
+    // volver a pedir el calendario entero para leer un nombre sería pagar la
+    // petición dos veces por la misma respuesta.
+    window._calendarioData = d;
     // Cada caja se pinta por su cuenta: que FRED no conteste no puede dejar
     // sin resultados, ni al revés. Son dos preguntas distintas.
     cajaR.innerHTML = vxResultadosHTML(d);
@@ -13781,6 +13859,10 @@ const VX_ES2EN = {
     "Todas las empresas de EE.UU. que reportan. Las que forman los once sectores llevan su ETF al lado y van primero; pasa el cursor para ver si reporta antes de abrir o tras el cierre.": "Every US company that reports. The ones that make up the eleven sectors carry their ETF beside them and come first; hover to see whether it reports before the open or after the close.",
     "empresas · próximos 14 días": "companies · next 14 days",
     "fuera de los once sectores": "outside the eleven sectors",
+    "Escribiendo la explicación de este dato…": "Writing the explanation for this figure…",
+    "Escrito por el modelo a partir de los números de arriba. Es una lectura de lo que pasa,": "Written by the model from the figures above. It is a reading of what is happening,",
+    "No se pudo pedir la explicación.": "The explanation could not be requested.",
+    "Sin explicación disponible.": "No explanation available.",
     "retrasado": "delayed",
     "más que no caben en la caja.": "more that do not fit in the box.",
     "más repartidas entre los días, que no caben en la caja.": "more spread across the days that do not fit in the box.",

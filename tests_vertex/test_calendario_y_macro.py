@@ -437,17 +437,26 @@ class TestLaNotaPideTodoLoQuePidioKevin:
     @pytest.mark.parametrize("seccion", [
         "Qué le hace al dólar",           # el dólar
         "economía de EE.UU.",             # la economía de EE.UU.
-        "resto del mundo",                # y la del mundo
         "Qué hace la Fed",                # las decisiones de la Fed
         "Los tipos y los bonos",          # intereses y bonos
         "para la bolsa",                  # la bolsa
         "Sector por sector",              # cada sector
-        "Qué viene y qué vigilar",        # los próximos, con fecha
+        "Qué vigilar de estos mismos datos",
     ])
     def test_la_nota_macro_pide_cada_pieza(self, seccion):
         import vertex_api as V
 
         assert seccion in V._MACRO_LECTURA_SYSTEM
+
+    @pytest.mark.parametrize("fuera", [
+        "para la gente", "resto del mundo",
+    ])
+    def test_y_NO_pide_lo_que_Kevin_quito(self, fuera):
+        """Las quitó el 23/08: «qué significa para la gente» y «para el resto
+        del mundo». Sin este caso vuelven en el primer retoque del prompt."""
+        import vertex_api as V
+
+        assert fuera not in V._MACRO_LECTURA_SYSTEM
 
     def test_la_nota_macro_avisa_de_que_mas_alto_no_es_mejor(self):
         """La regla que impide repetir con palabras el error del color."""
@@ -627,3 +636,123 @@ class TestLaNotaNoSePuedeCORTAR:
         topes = [int(x) for x in re.findall(r"max_tokens=(\d+)", fuente)]
         assert topes and max(topes) >= minimo, (
             f"{ruta} escribe con {topes}: se corta antes de acabar")
+
+
+
+class TestCadaDatoSeExplicaSOLO:
+    """«Cada dato tiene su flechita y cuando presiono para que se amplíe ahí se
+    genera lo que es explícame los datos y ahí sale la explicación solo de ese
+    dato.» — Kevin, 23/08/2026.
+
+    Antes había UN botón que escribía una nota con los ocho datos dentro.
+    Obligaba a buscar en un muro de texto el que interesaba, y mezclaba en el
+    mismo párrafo un IPC en línea con unas nóminas desplomadas: dos cosas que
+    no se leen juntas.
+    """
+
+    @pytest.mark.parametrize("seccion", [
+        "Qué salió", "Qué mide y por qué importa", "El dólar",
+        "La economía de EE.UU.", "La Fed", "Los tipos y los bonos",
+        "La bolsa", "Sector por sector", "Qué vigilar de este mismo dato",
+    ])
+    def test_el_prompt_de_UN_dato_pide_cada_pieza(self, seccion):
+        import vertex_api as V
+
+        assert seccion in V._MACRO_DATO_SYSTEM
+
+    @pytest.mark.parametrize("fuera", ["para la gente", "resto del mundo"])
+    def test_y_no_pide_lo_que_Kevin_quito(self, fuera):
+        import vertex_api as V
+
+        assert fuera not in V._MACRO_DATO_SYSTEM
+
+    def test_pide_palabras_llanas_y_lo_dice_con_un_ejemplo(self):
+        """«Palabras simples que cualquier persona pueda entender y directo.»
+
+        Se exige el EJEMPLO y no solo la orden: «escribe sencillo» lo cumple
+        cualquier texto en su propia opinión. Un ejemplo de qué NO decir y qué
+        decir en su lugar es lo que de verdad cambia la salida.
+        """
+        import vertex_api as V
+
+        assert "se comprimen los múltiplos" in V._MACRO_DATO_SYSTEM
+
+    def test_avisa_de_que_mas_alto_no_es_mejor(self):
+        import vertex_api as V
+
+        assert "MÁS ALTO NO ES «MEJOR»" in V._MACRO_DATO_SYSTEM
+
+    def test_el_bloque_de_datos_lleva_la_direccion_resuelta(self):
+        """Dárselo hecho es más barato que corregirlo con una regla."""
+        import vertex_api as V
+
+        alto = V._macro_dato_datos({"evento": "Nonfarm Payrolls",
+                                    "fecha": "2026-08-07 12:30", "salio": 280.0,
+                                    "esperado": 180.0, "anterior": 175.0,
+                                    "mejor": "alto", "bueno": True,
+                                    "sorpresa": 100.0})
+        assert "MÁS ALTO ES MEJOR" in alto and "Sorprendió BIEN." in alto
+        bajo = V._macro_dato_datos({"evento": "Unemployment Rate",
+                                    "fecha": "2026-08-07 12:30", "salio": 4.4,
+                                    "esperado": 4.1, "anterior": 4.2,
+                                    "mejor": "bajo", "bueno": False,
+                                    "sorpresa": 0.3})
+        assert "MÁS BAJO ES MEJOR" in bajo and "Sorprendió MAL." in bajo
+
+    def test_una_DECISION_de_tipos_no_se_juzga(self):
+        d = None
+        import vertex_api as V
+
+        d = V._macro_dato_datos({"evento": "Fed Interest Rate Decision",
+                                 "fecha": "2026-08-06 18:00", "salio": 5.5,
+                                 "esperado": 5.5, "anterior": 5.25,
+                                 "mejor": None, "bueno": None, "sorpresa": 0.0})
+        assert "no digas que es buena ni mala noticia" in d
+
+    def test_un_dato_EN_LINEA_se_dice_asi(self):
+        import vertex_api as V
+
+        d = V._macro_dato_datos({"evento": "CPI YoY", "fecha": "2026-08-12 12:30",
+                                 "salio": 3.4, "esperado": 3.4, "anterior": 3.5,
+                                 "mejor": "bajo", "bueno": None, "sorpresa": 0.0})
+        assert "EN LÍNEA" in d and "ya estaba en el precio" in d
+
+
+class TestElPanelDespliegaDatoAdato:
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_cada_fila_lleva_su_flecha(self, html):
+        assert "vx-flecha" in html and "vxMacroDespliega(" in html
+
+    def test_la_flecha_dice_si_esta_abierta(self, html):
+        """`aria-expanded` no es decoración: es lo único que le dice a un lector
+        de pantalla que esa fila se puede abrir y si lo está."""
+        assert 'aria-expanded="false"' in html and "aria-expanded', 'true'" in html
+
+    def test_se_pide_la_explicacion_de_UN_evento(self, html):
+        """Se mide el HECHO —que se pide un evento concreto—, no la forma
+        exacta del literal: el `?` vive dentro de la consulta para que el
+        guardián del idioma no lea la ruta como una frase sin traducir, y atar
+        el caso a la cadena entera lo rompía en cuanto se movía esa coma."""
+        i = html.index("async function vxMacroDespliega")
+        trozo = html[i:i + 3000]
+        assert "'?evento=' + encodeURIComponent(f.evento)" in trozo
+        assert "/api/dashboard/macro/lectura${q}" in trozo
+
+    def test_no_se_vuelve_a_pedir_lo_ya_escrito(self, html):
+        """Cerrar y volver a abrir no puede costar otra llamada al modelo."""
+        assert "dataset.escrita" in html
+
+    def test_el_boton_GLOBAL_ya_no_esta(self, html):
+        """Era el que escribía los ocho datos de golpe."""
+        assert "cargaMacroLectura()" not in html.replace(
+            "async function cargaMacroLectura(", "")
+
+    def test_el_texto_del_modelo_se_ESCAPA_antes_de_marcar_negritas(self, html):
+        """Al revés de como suele hacerse, y la única forma de que un
+        `<img onerror>` en la respuesta no acabe ejecutándose."""
+        i = html.index("async function vxMacroDespliega")
+        trozo = html[i:i + 3000]
+        assert trozo.index("_vcEsc(d.texto)") < trozo.index("<b class=")
