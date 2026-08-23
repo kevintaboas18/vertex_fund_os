@@ -175,6 +175,43 @@ Cuando trabajas TÚ sobre el repositorio, el protocolo sigue siendo tuyo:
 `calibracion.md` con el track record real. Las predicciones se guardan
 automáticamente (`Reportes/*/*/prediccion.json`) — nunca editarlas.
 
+## El árbol se rebobina solo (contenedor remoto)
+
+El contenedor donde corre el agente es efímero y **rebobina el disco entero a
+un commit viejo sin avisar**. En la sesión del 22/08/2026 pasó seis veces. Se
+lleva por delante el código escrito, `.git` incluido —el reflog se queda sin
+una sola entrada del día—, así que **ningún archivo del repositorio sobrevive**:
+ni un guardián, ni un hook, ni una marca. Lo único que sobrevive es **el remoto**.
+
+Lo peligroso no es perder el trabajo, que se recupera. Es esto:
+
+1. **Leer un archivo creyendo que tiene lo de hoy** y tiene lo de hace tres
+   días. El diagnóstico que sale de ahí es sobre código que ya no existe, y no
+   falla nada: solo se razona sobre lo que no es.
+2. **Correr la batería creyendo que mide lo nuevo** y medir el árbol viejo.
+   Sale verde, y ese verde no significa nada. Pasó: 45 minutos y 1.078 en
+   verde sobre un árbol de dos días antes.
+3. **Commitear encima de un historial rebobinado.**
+
+**Antes de leer código para diagnosticar, antes de fiarse de una batería y
+antes de cada commit:**
+
+```bash
+bash scripts/guardia_arbol.sh
+```
+
+Y si dice que se rebobinó:
+
+```bash
+git fetch origin <rama> && git reset --hard origin/<rama>
+```
+
+La batería web avisa sola por `stderr` —que `--no-header` no apaga— cuando el
+árbol está por detrás del remoto. Pero **eso solo funciona si el guardián está
+en disco**, y tras una reversión no lo está: se rebobina con todo lo demás. El
+aviso automático es una red de seguridad, no la defensa. La defensa es
+preguntarle al remoto antes de fiarse de nada.
+
 ## Re-ejecución
 
 Recalcula el análisis ante: nuevo 10-K/10-Q, earnings, revisión material de estimados, financiamiento, adquisición, evento legal mayor, ruptura técnica confirmada o data vencida (stale-data threshold).
