@@ -3361,6 +3361,13 @@ function vxLecturaHTML(d, fn) {
 
 /** La rotación del día, contada en palabras por el modelo.
  *
+ *  La respuesta cae en `sectoresLecturaCaja`, que está PEGADO al botón dentro
+ *  de la tarjeta. Antes iba a `sectoresLectura`, un div que vive después de la
+ *  caja de resultados y de toda la tabla macro: en el móvil, varias pantallas
+ *  más abajo. Se pulsaba, la nota se escribía, y no se veía nada —ni el
+ *  «Leyendo el mercado…» ni el texto—, así que parecía que el botón estaba
+ *  muerto. Lo estaba para quien lo miraba.
+ *
  *  No se pide sola al entrar: son unos segundos de espera y un coste de API
  *  para algo que no todo el mundo quiere leer cada vez. Se pide al pulsar, y
  *  entonces se guarda — el servidor la cachea un cuarto de hora, así que
@@ -3370,7 +3377,10 @@ function vxLecturaHTML(d, fn) {
  *  calculó el motor con los números. Esto las cuenta.
  */
 async function cargaLecturaMercado(refrescar) {
-    const caja = document.getElementById('sectoresLectura');
+    // Pegada al botón. El div de abajo se conserva como respaldo por si la
+    // tarjeta aún no se ha pintado, pero el sitio bueno es el de dentro.
+    const caja = document.getElementById('sectoresLecturaCaja')
+        || document.getElementById('sectoresLectura');
     if (!caja) return;
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
       <p class="text-xs text-gray-500">Leyendo el mercado y escribiendo la explicación…</p></div>`;
@@ -3447,6 +3457,7 @@ function pintaRotacion(rot) {
 
       <div class="border-t border-gray-800 pt-2">
         <button onclick="cargaLecturaMercado()" class="text-[11px] font-bold text-blue-400 hover:text-blue-300">Explícame qué está pasando &rsaquo;</button>
+        <div id="sectoresLecturaCaja" class="mt-2"></div>
       </div>
 
       ${rot.dispersion != null ? `<p class="text-[9px] text-gray-600 border-t border-gray-800 pt-2">Dispersi&oacute;n entre sectores hoy: <b class="text-gray-400">${Number(rot.dispersion).toFixed(2)}</b> &mdash; alta significa rotaci&oacute;n de verdad; baja, que todo se mueve en bloque.</p>` : ''}

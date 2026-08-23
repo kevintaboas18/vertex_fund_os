@@ -9686,6 +9686,19 @@ def _lectura_dentro(nombre: str, filas: list, amp: dict, ventana: str = "") -> s
     return "\n".join(partes)
 
 
+def _silencioso(fn, **kw):
+    """Corre algo en un hilo de fondo y se traga el fallo.
+
+    Lo que hay detrás es un calentamiento de caché: si sale mal, la sección de
+    la nota no aparece y ya está. Dejar que la excepción suba mataría un hilo
+    suelto y ensuciaría el log con algo que no es un problema.
+    """
+    try:
+        fn(**kw)
+    except Exception:                            # noqa: BLE001
+        pass
+
+
 def _rotacion_dentro_de_los_sectores(industrias: str) -> str:
     """La rotación de industria a industria DENTRO de cada sector.
 
@@ -9716,34 +9729,65 @@ def _rotacion_dentro_de_los_sectores(industrias: str) -> str:
             pares.append((ind, sec))
     if not pares:
         return ""
-    quiero = sorted({t for par in pares for t in par})
-    try:
-        datos = api_sectores(tickers=",".join(quiero))
-    except Exception:                            # noqa: BLE001
-        return ""
-    if not datos.get("ok"):
-        return ""
-    idx = {f["ticker"]: f for f in (datos.get("filas") or [])}
+    # ── Sector a sector, y SOLO lo que ya está en la caché ───────────────────
+    #
+    # Dos motivos, y los dos se descubrieron el 23/08 con el botón «Explícame
+    # qué está pasando» muerto en el panel de Kevin:
+    #
+    #  1. Pidiendo los sesenta tickers de golpe, la ruta los corta en
+    #     `_SECTORES_MAX_PEDIDOS` (25) y devuelve menos de la mitad. La sección
+    #     no podía salir completa nunca, y no lo decía. Preguntando por sector
+    #     son seis tickers por tanda: su ETF y sus industrias, muy por debajo
+    #     del tope.
+    #
+    #  2. Cada ticker cuesta DOS peticiones a FMP —la cotización y quince meses
+    #     de velas—, así que sesenta son ciento veinte llamadas ANTES de que el
+    #     modelo escriba la primera palabra. En el plan free eso no es lento: es
+    #     que la petición se agota y el panel no enseña nada.
+    #
+    # Así que esta sección es un extra que se apunta si ya está pagado: se usan
+    # los sectores que estén en la caché, se piden por detrás los que falten
+    # para que la próxima vez sí estén, y la nota sale HOY con lo que haya. Es
+    # el mismo trato que el resto del panel le da a lo que cuesta.
+    pedidos: dict[str, list[str]] = {}
+    for ind, sec in pares:
+        pedidos.setdefault(sec, []).append(ind)
 
     por_sector: dict[str, list] = {}
-    for ind, sec in pares:
-        fi, fs = idx.get(ind), idx.get(sec)
-        if not fi or not fs:
+    faltan: list[str] = []
+    for sec, inds in pedidos.items():
+        quiero = ",".join(sorted({sec, *inds}))
+        clave = ",".join(_sectores_pedidos(quiero))
+        with _SECTORES_LOCK:
+            hay = _SECTORES_CACHE.get(clave)
+        if not hay:
+            faltan.append(quiero)
             continue
-        ci, cs = (fi.get("cambios") or {}), (fs.get("cambios") or {})
-        # Tres ventanas y no una: una industria que le gana a su sector en la
-        # semana pero le pierde en el trimestre es un rebote, no una rotación.
-        # La diferencia de las tres juntas es lo que distingue las dos cosas.
-        trozos = []
-        for etiqueta, _ in _VENTANAS_ORDEN[:3]:  # 7D · 1M · 3M
-            a, b = ci.get(etiqueta), cs.get(etiqueta)
-            if a is not None and b is not None:
-                trozos.append(f"{etiqueta} {a - b:+.2f}pp")
-        if not trozos:
+        idx = {f["ticker"]: f for f in ((hay[1] or {}).get("filas") or [])}
+        fs = idx.get(sec)
+        if not fs:
             continue
-        por_sector.setdefault(sec, []).append(
-            (f"    {ind} ({fi.get('nombre', ind)}) vs {sec}: "
-             + " · ".join(trozos)))
+        for ind in inds:
+            fi = idx.get(ind)
+            if not fi:
+                continue
+            ci, cs = (fi.get("cambios") or {}), (fs.get("cambios") or {})
+            # Tres ventanas y no una: una industria que le gana a su sector en
+            # la semana pero le pierde en el trimestre es un rebote, no una
+            # rotación. La diferencia de las tres juntas es lo que las separa.
+            trozos = []
+            for etiqueta, _ in _VENTANAS_ORDEN[:3]:      # 7D · 1M · 3M
+                a, b = ci.get(etiqueta), cs.get(etiqueta)
+                if a is not None and b is not None:
+                    trozos.append(f"{etiqueta} {a - b:+.2f}pp")
+            if trozos:
+                por_sector.setdefault(sec, []).append(
+                    f"    {ind} ({fi.get('nombre', ind)}) vs {sec}: "
+                    + " · ".join(trozos))
+    for quiero in faltan:
+        threading.Thread(target=_silencioso, args=(api_sectores,),
+                         kwargs={"tickers": quiero},
+                         name="industrias", daemon=True).start()
     if not por_sector:
         return ""
     lineas = ["", "ROTACIÓN DENTRO DE CADA SECTOR (industria contra SU PROPIO "

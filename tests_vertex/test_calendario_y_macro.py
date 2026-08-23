@@ -360,31 +360,49 @@ class TestLaRotacionDentroDeUnSector:
     apuestas opuestas.
     """
 
+    #: Las filas del escenario. XLK sube 8% en 3M; los semis le GANAN y el
+    #: software le PIERDE. KRE le gana en la semana y le pierde en el
+    #: trimestre: eso es un rebote, no una rotación, y las tres ventanas son lo
+    #: que permite distinguirlo.
+    FILAS = {
+        "XLK": {"ticker": "XLK", "nombre": "Tecnología",
+                "cambios": {"7D": 2.0, "1M": 4.0, "3M": 8.0}},
+        "SMH": {"ticker": "SMH", "nombre": "Semiconductores",
+                "cambios": {"7D": 5.0, "1M": 9.0, "3M": 14.0}},
+        "IGV": {"ticker": "IGV", "nombre": "Software",
+                "cambios": {"7D": 0.5, "1M": 1.0, "3M": 3.0}},
+        "XLF": {"ticker": "XLF", "nombre": "Financiero",
+                "cambios": {"7D": 1.0, "1M": 2.0, "3M": 5.0}},
+        "KRE": {"ticker": "KRE", "nombre": "Bancos regionales",
+                "cambios": {"7D": 3.0, "1M": 1.0, "3M": 2.0}},
+    }
+
+    @classmethod
+    def _siembra(cls, V, *tandas):
+        """Deja en la caché las tandas indicadas, como si ya se hubieran pedido.
+
+        La sección lee de la CACHÉ y nunca espera por la red: es un extra que se
+        apunta si ya está pagado. Sembrarla es la única forma de medirla sin
+        inventarse una llamada que en producción no ocurre.
+        """
+        import time
+
+        for tanda in tandas:
+            clave = ",".join(V._sectores_pedidos(tanda))
+            with V._SECTORES_LOCK:
+                V._SECTORES_CACHE[clave] = (time.time(), {
+                    "ok": True,
+                    "filas": [cls.FILAS[t] for t in tanda.split(",")
+                              if t in cls.FILAS]})
+
     @pytest.fixture
     def rotacion(self, monkeypatch):
         import vertex_api as V
 
-        # XLK sube 8% en 3M. Los semis le GANAN, el software le PIERDE.
-        filas = {
-            "XLK": {"ticker": "XLK", "nombre": "Tecnología",
-                    "cambios": {"7D": 2.0, "1M": 4.0, "3M": 8.0}},
-            "SMH": {"ticker": "SMH", "nombre": "Semiconductores",
-                    "cambios": {"7D": 5.0, "1M": 9.0, "3M": 14.0}},
-            "IGV": {"ticker": "IGV", "nombre": "Software",
-                    "cambios": {"7D": 0.5, "1M": 1.0, "3M": 3.0}},
-            "XLF": {"ticker": "XLF", "nombre": "Financiero",
-                    "cambios": {"7D": 1.0, "1M": 2.0, "3M": 5.0}},
-            # KRE: le gana en la semana y le pierde en el trimestre. Es un
-            # rebote, no una rotación, y las tres ventanas son lo que permite
-            # distinguirlo.
-            "KRE": {"ticker": "KRE", "nombre": "Bancos regionales",
-                    "cambios": {"7D": 3.0, "1M": 1.0, "3M": 2.0}},
-        }
-        monkeypatch.setattr(
-            V, "api_sectores",
-            lambda tickers="": {"ok": True,
-                                "filas": [filas[t] for t in tickers.split(",")
-                                          if t in filas]})
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "api_sectores",
+                            lambda tickers="": {"ok": True, "filas": []})
+        self._siembra(V, "IGV,SMH,XLK", "KRE,XLF")
         return V._rotacion_dentro_de_los_sectores("SMH:XLK,IGV:XLK,KRE:XLF")
 
     def test_mide_la_industria_contra_SU_sector_y_no_contra_el_indice(self, rotacion):
@@ -409,6 +427,76 @@ class TestLaRotacionDentroDeUnSector:
     def test_se_agrupa_por_sector(self, rotacion):
         assert "  XLK:" in rotacion and "  XLF:" in rotacion
 
+    def test_con_la_cache_VACIA_no_espera_por_la_red(self, monkeypatch):
+        """La avería del 23/08: el botón «Explícame qué está pasando», muerto.
+
+        Pedir los sesenta tickers de golpe eran CIENTO VEINTE llamadas a FMP
+        —cada ticker cuesta la cotización y quince meses de velas— antes de que
+        el modelo escribiera la primera palabra. En el plan free eso no es
+        lento: la petición se agota y el panel no enseña nada.
+
+        Ahora la sección se salta y se pide por detrás. La nota sale hoy sin
+        ella; mañana sale con ella.
+        """
+        import time
+
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        llamadas = []
+
+        def _lento(tickers=""):
+            llamadas.append(tickers)
+            time.sleep(20)
+            return {"ok": True, "filas": []}
+
+        monkeypatch.setattr(V, "api_sectores", _lento)
+        t = time.time()
+        r = V._rotacion_dentro_de_los_sectores("SMH:XLK,IGV:XLK,KRE:XLF")
+        assert time.time() - t < 2.0, "la nota está esperando por la red"
+        assert r == "", "sin datos no se inventa la sección"
+        time.sleep(1)
+        assert llamadas, "no se pidió por detrás: mañana tampoco estará"
+
+    def test_pide_SECTOR_A_SECTOR_y_no_los_sesenta_de_golpe(self, monkeypatch):
+        """La ruta corta en `_SECTORES_MAX_PEDIDOS`. Pidiendo los sesenta de
+        golpe devolvía menos de la mitad y no lo decía, así que la sección no
+        podía salir completa NUNCA. Por sector son seis tickers por tanda."""
+        import time
+
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        tandas = []
+        monkeypatch.setattr(V, "api_sectores",
+                            lambda tickers="": (tandas.append(tickers)
+                                                or {"ok": True, "filas": []}))
+        V._rotacion_dentro_de_los_sectores("SMH:XLK,IGV:XLK,KRE:XLF,KBE:XLF")
+        time.sleep(1)
+        assert len(tandas) == 2, f"se esperaban dos tandas y salieron {tandas}"
+        for t in tandas:
+            assert len(t.split(",")) <= V._SECTORES_MAX_PEDIDOS, (
+                f"la tanda «{t}» pasa del tope de la ruta y volvería recortada")
+
+    def test_lo_que_YA_esta_sale_aunque_falte_el_resto(self, monkeypatch):
+        """Degrada bien: con tecnología en la caché y financiero no, sale la de
+        tecnología y se pide la otra. Todo o nada habría sido nada casi
+        siempre."""
+        import time
+
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        pedidas = []
+        monkeypatch.setattr(V, "api_sectores",
+                            lambda tickers="": (pedidas.append(tickers)
+                                                or {"ok": True, "filas": []}))
+        self._siembra(V, "IGV,SMH,XLK")          # solo tecnología
+        r = V._rotacion_dentro_de_los_sectores("SMH:XLK,IGV:XLK,KRE:XLF")
+        time.sleep(1)
+        assert "XLK:" in r and "XLF:" not in r
+        assert any("XLF" in p for p in pedidas), "no se pidió lo que faltaba"
+
     def test_sin_tabla_de_industrias_NO_revienta_la_nota(self, monkeypatch):
         """Esta sección es un extra. Tumbar la nota entera porque el proveedor
         no dio una industria sería cambiar mucho por muy poco."""
@@ -418,13 +506,20 @@ class TestLaRotacionDentroDeUnSector:
         assert V._rotacion_dentro_de_los_sectores("no-valido,;;") == ""
 
     def test_ni_aunque_el_proveedor_se_caiga(self, monkeypatch):
+        """El calentamiento de fondo se traga el fallo: si sale mal, la sección
+        no aparece y ya está. Dejar que la excepción subiera mataría un hilo
+        suelto y ensuciaría el log con algo que no es un problema."""
+        import time
+
         import vertex_api as V
 
         def _revienta(tickers=""):
             raise RuntimeError("FMP caído")
 
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
         monkeypatch.setattr(V, "api_sectores", _revienta)
         assert V._rotacion_dentro_de_los_sectores("SMH:XLK") == ""
+        time.sleep(0.5)                          # el hilo de fondo ya reventó
 
 
 class TestLaNotaPideTodoLoQuePidioKevin:
