@@ -55,3 +55,9 @@ almacen/
 # persona. En `main` estaría en claro para cualquiera con acceso al repo. Su
 # sitio es `Privado/privado.enc`, cifrado, en la rama `datos`.
 Perfil Inversionista/usuarios/
+
+# Registros de las baterías cuando se corren a mano (`.b_web.log`, `.b_nav.log`,
+# `.b_aud.log`…). Se excluían en `.git/info/exclude`, y ahí no duran: el
+# contenedor remoto rebobina `.git` entero y el archivo se va con él. Aquí sí,
+# porque esto viaja en el repositorio.
+.b_*.log
