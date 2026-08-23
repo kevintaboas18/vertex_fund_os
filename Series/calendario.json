@@ -431,19 +431,6 @@
         "bueno": false
       },
       {
-        "evento": "Core Inflation Rate YoY (Jul)",
-        "fecha": "2026-08-12 12:30",
-        "salio": 2.5,
-        "esperado": 2.5,
-        "anterior": 2.6,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
         "evento": "Core CPI YoY (Jul)",
         "fecha": "2026-08-12 12:30",
         "salio": 2.5,
@@ -470,6 +457,19 @@
         "bueno": null
       },
       {
+        "evento": "Core Inflation Rate YoY (Jul)",
+        "fecha": "2026-08-12 12:30",
+        "salio": 2.5,
+        "esperado": 2.5,
+        "anterior": 2.6,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
         "evento": "Inflation Rate YoY (Jul)",
         "fecha": "2026-08-12 12:30",
         "salio": 3.4,
@@ -481,6 +481,19 @@
         "mejor": "bajo",
         "sorpresa": 0.0,
         "bueno": null
+      },
+      {
+        "evento": "Unemployment Rate (Jul)",
+        "fecha": "2026-08-07 12:30",
+        "salio": 4.1,
+        "esperado": 4.2,
+        "anterior": 4.2,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "sorpresa": -0.10000000000000053,
+        "bueno": true
       },
       {
         "evento": "Nonfarm Payrolls Private (Jul)",
@@ -507,19 +520,6 @@
         "mejor": "alto",
         "sorpresa": -103.0,
         "bueno": false
-      },
-      {
-        "evento": "Unemployment Rate (Jul)",
-        "fecha": "2026-08-07 12:30",
-        "salio": 4.1,
-        "esperado": 4.2,
-        "anterior": 4.2,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "sorpresa": -0.10000000000000053,
-        "bueno": true
       }
     ],
     "proximos": [
@@ -608,20 +608,6 @@
         "retrasado": false
       },
       {
-        "evento": "Initial Jobless Claims (Aug/22)",
-        "fecha": "2026-08-27 12:30",
-        "salio": null,
-        "esperado": 209.0,
-        "anterior": 206.0,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 2,
-        "mejor": "bajo",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "Continuing Jobless Claims (Aug/15)",
         "fecha": "2026-08-27 12:30",
         "salio": null,
@@ -634,11 +620,25 @@
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
+      },
+      {
+        "evento": "Initial Jobless Claims (Aug/22)",
+        "fecha": "2026-08-27 12:30",
+        "salio": null,
+        "esperado": 209.0,
+        "anterior": 206.0,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 2,
+        "mejor": "bajo",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
       }
     ],
     "filas": [],
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-23T15:39:15.193046+00:00"
+  "generado": "2026-08-23T16:39:15.800351+00:00"
 }
