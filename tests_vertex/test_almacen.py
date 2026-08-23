@@ -81,6 +81,36 @@ def _prepara_respaldo(a, mensaje=""):
     assert motivo == "", mensaje or motivo
 
 
+def _contenido_del_respaldo(a):
+    """Lo que el respaldo GUARDA, descifrado. `None` si no hay respaldo.
+
+    Los casos de esta clase comparaban el `.enc` BYTE A BYTE contra el que
+    habían leído antes, y eso era una moneda al aire: Fernet mete un IV
+    aleatorio y una marca de tiempo en cada token, así que cifrar dos veces el
+    mismo contenido nunca da los mismos bytes. Basta con que algo reescriba el
+    respaldo —un reintento de `_prepara_respaldo`, una sincronización que trae
+    del remoto una copia anterior del MISMO contenido— para que la comparación
+    falle sin que se haya perdido nada.
+
+    Cazado el 22/08/2026 en la batería completa, y la traza lo dijo con
+    precisión: los dos blobs diferían en el índice 11, que en un token Fernet
+    cae dentro de la marca de tiempo. Mismo contenido, distinto envoltorio.
+
+    Lo que los casos quieren afirmar no es «los bytes no se han tocado» sino
+    «el respaldo bueno sigue ahí». Eso es el CONTENIDO, y el contenido sí es
+    determinista: el tar se construye con `_tar_estable`, que borra fechas y
+    dueños justo para que el mismo dato dé siempre los mismos bytes —medido,
+    cuatro empaquetados seguidos con el mismo SHA—.
+    """
+    import vertex_api as V
+
+    cifrado = a.lee("Privado/privado.enc")
+    if not cifrado:
+        return None
+    f = V._fernet()
+    return f.decrypt(cifrado) if f else cifrado
+
+
 def _aisla(tmp_path, monkeypatch, remoto):
     """Deja el proceso como si acabara de arrancar, apuntando a `tmp_path`.
 
@@ -1507,7 +1537,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
         _prepara_respaldo(a)
-        bueno = a.lee("Privado/privado.enc")
+        bueno = _contenido_del_respaldo(a)
         assert bueno and len(bueno) > 100
 
         # Ahora el desastre: la base se queda sin cuentas (restauración fallida)
@@ -1519,7 +1549,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         motivo = V._respalda_privado(a)
         assert motivo, "se sobrescribió el respaldo con una base sin cuentas"
         assert "no tiene ni una cuenta" in motivo, motivo
-        assert a.lee("Privado/privado.enc") == bueno, (
+        assert _contenido_del_respaldo(a) == bueno, (
             "el respaldo bueno se perdió: esto es el borrado de todas las cuentas")
 
     def test_y_tampoco_si_la_base_no_se_puede_ni_leer(self, tmp_path,
@@ -1530,12 +1560,12 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
         V._respalda_privado(a)
-        bueno = a.lee("Privado/privado.enc")
+        bueno = _contenido_del_respaldo(a)
 
         monkeypatch.setattr(V, "_cuenta_usuarios", lambda: -1)
         motivo = V._respalda_privado(a)
         assert "no se pudo leer" in motivo.lower(), motivo
-        assert a.lee("Privado/privado.enc") == bueno
+        assert _contenido_del_respaldo(a) == bueno
 
     def test_el_respaldo_no_ENCOGE_sin_que_nadie_borre(self, tmp_path,
                                                       monkeypatch):
@@ -1555,7 +1585,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
 
         a = self._almacen(tmp_path)
         _prepara_respaldo(a)
-        bueno = a.lee("Privado/privado.enc")
+        bueno = _contenido_del_respaldo(a)
         assert V._cuentas_en_el_respaldo(a) == 2, (
             "el respaldo tiene que saber cuántas cuentas guarda: es contra eso "
             "y no contra una marca del arranque contra lo que se compara")
@@ -1566,7 +1596,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         conn.close()
         motivo = V._respalda_privado(a)
         assert "menos de lo que había" in motivo, motivo
-        assert a.lee("Privado/privado.enc") == bueno
+        assert _contenido_del_respaldo(a) == bueno
 
     def test_un_paquete_SIN_base_dentro_no_se_construye(self, tmp_path,
                                                        monkeypatch):
@@ -1583,7 +1613,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
         V._respalda_privado(a)
-        bueno = a.lee("Privado/privado.enc")
+        bueno = _contenido_del_respaldo(a)
         assert bueno
 
         def _revienta(*args, **kw):
@@ -1596,7 +1626,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         monkeypatch.setattr(V, "_cuenta_usuarios", lambda: 1)
         motivo = V._respalda_privado(a)
         assert motivo, "se subió un paquete sin la base dentro"
-        assert a.lee("Privado/privado.enc") == bueno
+        assert _contenido_del_respaldo(a) == bueno
 
     def test_una_instalacion_NUEVA_sigue_pudiendo_subir_la_primera_cuenta(
             self, tmp_path):
@@ -1660,7 +1690,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
         _prepara_respaldo(a)
-        bueno = a.lee("Privado/privado.enc")
+        bueno = _contenido_del_respaldo(a)
 
         # Un paquete que sale a medias: la base de dentro tiene menos cuentas
         # que la viva. Por fuera es un tar impecable.
@@ -1683,7 +1713,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         # remoto, y atarlo a uno hacía el caso intermitente. Lo que no puede
         # variar es que el paquete a medias no suba y que el bueno siga ahí.
         assert motivo, "se subió un paquete a medias sin decir nada"
-        assert a.lee("Privado/privado.enc") == bueno
+        assert _contenido_del_respaldo(a) == bueno
 
     def test_y_un_paquete_bueno_SI_pasa_la_prueba(self, tmp_path):
         """El cerrojo no puede dejar el respaldo bloqueado siempre."""
@@ -2006,7 +2036,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
         _prepara_respaldo(a)
-        bueno = a.lee("Privado/privado.enc")
+        bueno = _contenido_del_respaldo(a)
 
         # La base se queda sin cuentas y el remoto deja de poder abrirse.
         conn = V._db()
@@ -2018,7 +2048,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         motivo = V._respalda_privado(a)
         assert motivo, "se sobrescribió un respaldo que ni se pudo leer"
         assert "no tiene ni una cuenta" in motivo, motivo
-        assert a.lee("Privado/privado.enc") == bueno, (
+        assert _contenido_del_respaldo(a) == bueno, (
             "el respaldo bueno se perdió por no poder comprobarlo")
 
     def test_pero_con_cuentas_vivas_un_remoto_ilegible_NO_frena(self, tmp_path,
