@@ -411,25 +411,12 @@
     "motivo": "",
     "recortadas": 0,
     "umbral": 10000000000.0,
-    "fuera": 1747,
+    "fuera": 1763,
     "medida": true,
     "motivo_tamano": ""
   },
   "macro": {
     "publicados": [
-      {
-        "evento": "Retail Sales Ex Gas/Autos MoM (Jul)",
-        "fecha": "2026-08-14 12:30",
-        "salio": -0.2,
-        "esperado": 0.3,
-        "anterior": 0.4,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 1,
-        "mejor": "alto",
-        "sorpresa": -0.5,
-        "bueno": false
-      },
       {
         "evento": "Retail Sales Ex Autos MoM (Jul)",
         "fecha": "2026-08-14 12:30",
@@ -459,27 +446,40 @@
       {
         "evento": "Retail Sales MoM (Jul)",
         "fecha": "2026-08-14 12:30",
-        "salio": -0.6,
-        "esperado": 0.1,
-        "anterior": 0.2,
+        "salio": -0.4,
+        "esperado": 0.3,
+        "anterior": 0.4,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "alto",
         "sorpresa": -0.7,
         "bueno": false
       },
       {
-        "evento": "Inflation Rate MoM (Jul)",
-        "fecha": "2026-08-12 12:30",
-        "salio": 0.1,
-        "esperado": 0.1,
-        "anterior": -0.4,
+        "evento": "Retail Sales Ex Gas/Autos MoM (Jul)",
+        "fecha": "2026-08-14 12:30",
+        "salio": -0.2,
+        "esperado": 0.3,
+        "anterior": 0.4,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "alto",
+        "sorpresa": -0.5,
+        "bueno": false
+      },
+      {
+        "evento": "Core CPI (Jul)",
+        "fecha": "2026-08-12 12:30",
+        "salio": 336.79,
+        "esperado": null,
+        "anterior": 336.07,
+        "unidad": "",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "bajo",
-        "sorpresa": 0.0,
+        "sorpresa": null,
         "bueno": null
       },
       {
@@ -496,20 +496,20 @@
         "bueno": null
       },
       {
-        "evento": "Core Inflation Rate YoY (Jul)",
+        "evento": "CPI s.a (Jul)",
         "fecha": "2026-08-12 12:30",
-        "salio": 2.5,
-        "esperado": 2.5,
-        "anterior": 2.6,
+        "salio": 332.81,
+        "esperado": 332.6,
+        "anterior": 332.57,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
-        "sorpresa": 0.0,
-        "bueno": null
+        "sorpresa": 0.20999999999997954,
+        "bueno": false
       },
       {
-        "evento": "Core CPI MoM (Jul)",
+        "evento": "Core Inflation Rate MoM (Jul)",
         "fecha": "2026-08-12 12:30",
         "salio": 0.2,
         "esperado": 0.2,
@@ -538,20 +538,6 @@
         "retrasado": true
       },
       {
-        "evento": "New Home Sales (Jul)",
-        "fecha": "2026-08-25 14:00",
-        "salio": null,
-        "esperado": 0.62,
-        "anterior": 0.628,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 2,
-        "mejor": "alto",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "CB Consumer Confidence (Aug)",
         "fecha": "2026-08-25 14:00",
         "salio": null,
@@ -566,27 +552,27 @@
         "retrasado": false
       },
       {
-        "evento": "PCE Price Index MoM (Jul)",
-        "fecha": "2026-08-26 12:30",
+        "evento": "New Home Sales (Jul)",
+        "fecha": "2026-08-25 14:00",
         "salio": null,
-        "esperado": 0.1,
-        "anterior": -0.1,
+        "esperado": 0.62,
+        "anterior": 0.628,
         "unidad": "",
         "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
+        "nivel": 2,
+        "mejor": "alto",
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
       },
       {
-        "evento": "Core PCE Price Index YoY (Jul)",
+        "evento": "PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": null,
-        "esperado": 3.3,
-        "anterior": 3.3,
+        "esperado": 3.7,
+        "anterior": 3.7,
         "unidad": "",
-        "impacto": "low",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
         "sorpresa": null,
@@ -608,11 +594,25 @@
         "retrasado": false
       },
       {
-        "evento": "PCE Price Index YoY (Jul)",
+        "evento": "Core PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": null,
-        "esperado": 3.7,
-        "anterior": 3.7,
+        "esperado": 3.3,
+        "anterior": 3.3,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "bajo",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "PCE Price Index MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 0.1,
+        "anterior": -0.1,
         "unidad": "",
         "impacto": "medium",
         "nivel": 1,
@@ -640,5 +640,5 @@
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-22T18:55:34.156530+00:00"
+  "generado": "2026-08-23T01:07:38.915424+00:00"
 }
