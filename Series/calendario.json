@@ -411,7 +411,7 @@
     "motivo": "",
     "recortadas": 0,
     "umbral": 10000000000.0,
-    "fuera": 1769,
+    "fuera": 1768,
     "medida": true,
     "motivo_tamano": ""
   },
@@ -444,6 +444,19 @@
         "bueno": null
       },
       {
+        "evento": "Inflation Rate YoY (Jul)",
+        "fecha": "2026-08-12 12:30",
+        "salio": 3.4,
+        "esperado": 3.4,
+        "anterior": 3.5,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
         "evento": "CPI YoY (Jul)",
         "fecha": "2026-08-12 12:30",
         "salio": 3.4,
@@ -470,19 +483,6 @@
         "bueno": null
       },
       {
-        "evento": "Inflation Rate YoY (Jul)",
-        "fecha": "2026-08-12 12:30",
-        "salio": 3.4,
-        "esperado": 3.4,
-        "anterior": 3.5,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
         "evento": "Unemployment Rate (Jul)",
         "fecha": "2026-08-07 12:30",
         "salio": 4.1,
@@ -496,19 +496,6 @@
         "bueno": true
       },
       {
-        "evento": "Nonfarm Payrolls Private (Jul)",
-        "fecha": "2026-08-07 12:30",
-        "salio": 30.0,
-        "esperado": 78.0,
-        "anterior": 30.0,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 1,
-        "mejor": "alto",
-        "sorpresa": -48.0,
-        "bueno": false
-      },
-      {
         "evento": "Non Farm Payrolls (Jul)",
         "fecha": "2026-08-07 12:30",
         "salio": -23.0,
@@ -519,6 +506,19 @@
         "nivel": 1,
         "mejor": "alto",
         "sorpresa": -103.0,
+        "bueno": false
+      },
+      {
+        "evento": "Nonfarm Payrolls Private (Jul)",
+        "fecha": "2026-08-07 12:30",
+        "salio": 30.0,
+        "esperado": 78.0,
+        "anterior": 30.0,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "alto",
+        "sorpresa": -48.0,
         "bueno": false
       }
     ],
@@ -640,5 +640,5 @@
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-23T16:39:15.800351+00:00"
+  "generado": "2026-08-23T22:13:56.930221+00:00"
 }
