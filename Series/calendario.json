@@ -431,20 +431,20 @@
         "bueno": false
       },
       {
-        "evento": "CPI YoY (Jul)",
+        "evento": "Core CPI YoY (Jul)",
         "fecha": "2026-08-12 12:30",
-        "salio": 3.4,
-        "esperado": 3.4,
-        "anterior": 3.5,
+        "salio": 2.5,
+        "esperado": 2.5,
+        "anterior": 2.6,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
         "sorpresa": 0.0,
         "bueno": null
       },
       {
-        "evento": "Inflation Rate YoY (Jul)",
+        "evento": "CPI YoY (Jul)",
         "fecha": "2026-08-12 12:30",
         "salio": 3.4,
         "esperado": 3.4,
@@ -470,13 +470,13 @@
         "bueno": null
       },
       {
-        "evento": "Core CPI YoY (Jul)",
+        "evento": "Inflation Rate YoY (Jul)",
         "fecha": "2026-08-12 12:30",
-        "salio": 2.5,
-        "esperado": 2.5,
-        "anterior": 2.6,
+        "salio": 3.4,
+        "esperado": 3.4,
+        "anterior": 3.5,
         "unidad": "",
-        "impacto": "medium",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "sorpresa": 0.0,
@@ -496,19 +496,6 @@
         "bueno": false
       },
       {
-        "evento": "Nonfarm Payrolls Private (Jul)",
-        "fecha": "2026-08-07 12:30",
-        "salio": 30.0,
-        "esperado": 78.0,
-        "anterior": 30.0,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 1,
-        "mejor": "alto",
-        "sorpresa": -48.0,
-        "bueno": false
-      },
-      {
         "evento": "Unemployment Rate (Jul)",
         "fecha": "2026-08-07 12:30",
         "salio": 4.1,
@@ -520,6 +507,19 @@
         "mejor": "bajo",
         "sorpresa": -0.10000000000000053,
         "bueno": true
+      },
+      {
+        "evento": "Nonfarm Payrolls Private (Jul)",
+        "fecha": "2026-08-07 12:30",
+        "salio": 30.0,
+        "esperado": 78.0,
+        "anterior": 30.0,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "alto",
+        "sorpresa": -48.0,
+        "bueno": false
       }
     ],
     "proximos": [
@@ -538,20 +538,6 @@
         "retrasado": true
       },
       {
-        "evento": "New Home Sales (Jul)",
-        "fecha": "2026-08-25 14:00",
-        "salio": null,
-        "esperado": 0.62,
-        "anterior": 0.628,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 2,
-        "mejor": "alto",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "CB Consumer Confidence (Aug)",
         "fecha": "2026-08-25 14:00",
         "salio": null,
@@ -559,6 +545,20 @@
         "anterior": 90.8,
         "unidad": "",
         "impacto": "high",
+        "nivel": 2,
+        "mejor": "alto",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "New Home Sales (Jul)",
+        "fecha": "2026-08-25 14:00",
+        "salio": null,
+        "esperado": 0.62,
+        "anterior": 0.628,
+        "unidad": "",
+        "impacto": "medium",
         "nivel": 2,
         "mejor": "alto",
         "sorpresa": null,
@@ -640,5 +640,5 @@
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-23T13:27:57.661237+00:00"
+  "generado": "2026-08-23T15:37:01.923171+00:00"
 }
