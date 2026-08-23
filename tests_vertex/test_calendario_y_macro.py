@@ -750,9 +750,21 @@ class TestElPanelDespliegaDatoAdato:
         assert "cargaMacroLectura()" not in html.replace(
             "async function cargaMacroLectura(", "")
 
-    def test_el_texto_del_modelo_se_ESCAPA_antes_de_marcar_negritas(self, html):
-        """Al revés de como suele hacerse, y la única forma de que un
-        `<img onerror>` en la respuesta no acabe ejecutándose."""
+    def test_la_explicacion_pasa_por_el_SITIO_UNICO_que_escapa(self, html):
+        """No arma el HTML por su cuenta: usa `vxProsaDelModelo`.
+
+        Este caso empezó comprobando el escapado aquí dentro, y esa era la
+        avería: había DOS sitios convirtiendo prosa del modelo en HTML —el de
+        la lectura del mercado y este—, los dos correctos hoy y los dos por
+        mantener mañana. Se unificaron, así que aquí lo que hay que exigir es
+        que se pase por el único, y que nadie vuelva a escapar por su cuenta.
+
+        Que ese sitio único escape ANTES de marcar las negritas lo mide
+        `test_el_panel_escapa_ANTES_de_marcar_las_negritas`.
+        """
         i = html.index("async function vxMacroDespliega")
         trozo = html[i:i + 3000]
-        assert trozo.index("_vcEsc(d.texto)") < trozo.index("<b class=")
+        assert "vxProsaDelModelo(d.texto" in trozo, (
+            "la explicación por dato arma el HTML por su cuenta: es la segunda "
+            "copia del mismo paso, y una de las dos acabará sin escapar")
+        assert "_vcEsc(d.texto)" not in trozo
