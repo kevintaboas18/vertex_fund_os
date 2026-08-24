@@ -6853,3 +6853,141 @@ class TestUnaProbabilidadQueNoEsCeroNoSeEscribeCERO:
         """Cuando el motor no pudo calcularla no hay número que redondear."""
         i = html.index("function vcToque(p)")
         assert "if (pc <= 0) return '0%';" in html[i:i + 700]
+
+
+class TestLaFranjaDeSaludNombraLasDosFuentesDeOpciones:
+    """La franja decía «OK» con 4 de los 6 sub-agentes apagados.
+
+    Enumeraba siete fuentes —FMP, EDGAR, FRED, Gemini, Finnhub, OpenAI,
+    Plaid— y ninguna era de las que alimenta el tab de Proyecciones. Con la
+    cookie de MarketSnack caducada, Agresividad, Convicción, Inusualidad y
+    Contexto IV salían en «pendiente» y la franja de arriba seguía verde:
+    el aviso existía sólo DENTRO del scorecard, así que había que pedir un
+    ticker para enterarse de por qué el scorecard venía a medias.
+    """
+
+    @pytest.fixture(scope="class")
+    def salud(self, client):
+        import vertex_api as V
+
+        V._DH_CACHE.update(ts=0, data=None)
+        cab = ({"x-vertex-token": V.VERTEX_API_TOKEN} if V.VERTEX_API_TOKEN else {})
+        r = client.get("/api/data-health", headers=cab)
+        assert r.status_code == 200, r.text[:200]
+        return r.json()
+
+    def test_las_dos_estan_y_son_criticas(self, salud):
+        por_clave = {s["key"]: s for s in salud["sources"]}
+        assert "marketsnack" in por_clave, sorted(por_clave)
+        assert "massive" in por_clave, sorted(por_clave)
+        assert por_clave["marketsnack"]["critical"] is True
+        assert por_clave["massive"]["critical"] is True
+
+    def test_cada_una_dice_QUE_se_apaga_si_falta(self, salud):
+        """«Falta una key» no dice nada. «Falta ESTO y por eso Agresividad,
+        Convicción, Inusualidad y Contexto IV se quedan sin dato» sí."""
+        por_clave = {s["key"]: s for s in salud["sources"]}
+        rol = por_clave["marketsnack"]["role"]
+        for cat in ("Agresividad", "Convicción", "Inusualidad", "Contexto IV"):
+            assert cat in rol, rol
+        assert "GEX" in por_clave["massive"]["role"]
+
+    def test_la_cookie_se_anuncia_como_lo_que_es(self, salud, monkeypatch):
+        """No es una API key: caduca sola y hay que re-pegarla a mano."""
+        por_clave = {s["key"]: s for s in salud["sources"]}
+        nota = (por_clave["marketsnack"]["note"] or "")
+        assert "COOKIE" in nota or "MARKETSNACK_COOKIE" in nota, nota
+
+
+class TestLoQueLaFranjaDiceSaleDelTRAFICOReal:
+    """Sondear las dos fuentes cada 90 s cuesta dos llamadas para contar lo
+    que la consulta de verdad ya sabe — y respondería por una cookie que
+    puede haber caducado entre medias. Se anota lo observado."""
+
+    def test_una_cinta_muerta_llega_a_la_franja(self, client, monkeypatch):
+        # La cookie se PONE aquí a propósito. Sin esto el caso sólo mide algo
+        # en la máquina de quien la tenga configurada, y en CI pasaría en
+        # vacío: verde sin haber comprobado nada, que es justo la avería que
+        # este archivo persigue.
+        import vertex_api as V
+
+        monkeypatch.setenv("MARKETSNACK_COOKIE", "sesion-de-prueba")
+        V._anota_fuente_tito("marketsnack", False, "Sesión inválida o expirada.")
+        V._DH_CACHE.update(ts=0, data=None)
+        cab = ({"x-vertex-token": V.VERTEX_API_TOKEN} if V.VERTEX_API_TOKEN else {})
+        d = client.get("/api/data-health", headers=cab).json()
+        V._DH_CACHE.update(ts=0, data=None)   # no dejar el estado a los demás
+        ms = [s for s in d["sources"] if s["key"] == "marketsnack"][0]
+        assert ms["configured"] is True
+        assert ms["live"] is False, ms
+        assert "expirada" in (ms["note"] or "")
+        assert d["status"] == "down"
+
+    def test_una_cinta_VIVA_no_pinta_rojo(self, client, monkeypatch):
+        """La contraparte: si sólo se probara el fallo, un `live` clavado en
+        False pasaría el caso de arriba y nadie lo notaría."""
+        import vertex_api as V
+
+        monkeypatch.setenv("MARKETSNACK_COOKIE", "sesion-de-prueba")
+        V._anota_fuente_tito("marketsnack", True)
+        V._DH_CACHE.update(ts=0, data=None)
+        cab = ({"x-vertex-token": V.VERTEX_API_TOKEN} if V.VERTEX_API_TOKEN else {})
+        d = client.get("/api/data-health", headers=cab).json()
+        V._DH_CACHE.update(ts=0, data=None)
+        ms = [s for s in d["sources"] if s["key"] == "marketsnack"][0]
+        assert ms["live"] is True, ms
+
+    def test_lo_observado_CADUCA_en_vez_de_mentir(self, client):
+        """Media hora después, «contestó mal» ya no es «ahora mismo»."""
+        import vertex_api as V
+
+        V._anota_fuente_tito("marketsnack", False, "vieja")
+        V._FUENTES_TITO["marketsnack"]["ts"] -= V._FUENTES_TITO_VIGENCIA + 60
+        vivo, nota = V._fuente_tito_vista("marketsnack")
+        assert vivo is None and nota is None
+
+    def test_el_tape_anota_las_DOS_salidas(self):
+        """Si sólo se anotara el fallo, la franja se quedaría en rojo para
+        siempre después de la primera cookie caducada."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._tito_tape)
+        assert '_anota_fuente_tito("marketsnack", True)' in fuente
+        assert '_anota_fuente_tito("marketsnack", False' in fuente
+
+    def test_la_cadena_se_anota_en_LOS_DOS_sitios_que_la_piden(self):
+        """`/api/tito-scorecard` y `/api/projection-targets`. Anotar en uno
+        deja el otro sin decir nada."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V)
+        assert fuente.count('_anota_fuente_tito("massive", True)') == 2
+        assert fuente.count('_anota_fuente_tito("massive", False') == 2
+
+
+class TestElVerdeDeLaFranjaEsAlcanzable:
+    """Leía `d.qd_live`, que se fue con Quant Data. Siempre `undefined`: el
+    verde no salía nunca y la franja vivía en ámbar pasara lo que pasara.
+    Un ámbar permanente se vuelve invisible, y entonces el rojo tampoco se ve."""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_ya_no_se_lee_una_clave_que_el_servidor_no_manda(self, html):
+        assert "d.qd_live" not in html
+        assert "qdLive" not in html
+
+    def test_el_estado_sale_de_la_lista_de_fuentes(self, html):
+        i = html.index("function renderDataHealth(d)")
+        trozo = html[i:i + 1600]
+        assert "const flojas = fuentes.filter" in trozo
+        assert "const todoOk = !down && flojas === 0;" in trozo
+
+    def test_el_pie_ya_no_promete_un_sondeo_que_no_existe(self, html):
+        assert "QD se reprueba" not in html
+        assert "se refresca cada 90s" in html

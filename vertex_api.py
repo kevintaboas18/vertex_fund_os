@@ -4540,7 +4540,9 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
 
     try:
         chain, bars, spot, _meta_cadena = _tito_chain_and_bars(tk)
+        _anota_fuente_tito("massive", True)
     except Exception as e:
+        _anota_fuente_tito("massive", False, _error_de_fuente(e, "Cadena de Massive"))
         # Sin cadena no hay Estructura, ni GEX, ni niveles, ni escenarios. Se
         # devuelve el motivo exacto de Massive en vez de un reporte a medias.
         return {"ok": False, "error": _error_de_fuente(e, "Cadena de Massive"),
@@ -5465,6 +5467,45 @@ def _tito_ticker(ticker, default=""):
         return None, str(e)
 
 
+# ── Lo que las dos fuentes del agente de opciones hicieron la última vez ──────
+#
+# La franja de salud enumeraba FMP, EDGAR, FRED, Gemini, Finnhub, OpenAI y
+# Plaid — todas del agente de ACCIONES — y decía «OK» mientras el tab de
+# Proyecciones corría con 2 de sus 6 sub-agentes. Las dos fuentes de las que
+# depende ese tab, **Massive** (la cadena) y **MarketSnack** (la cinta), no
+# estaban en la lista: no había forma de mirar la franja y enterarse.
+#
+# No se sondea la red para saberlo. Cada consulta real del scorecard ya habla
+# con las dos, así que aquí se anota lo que pasó y la franja lo lee. Un sondeo
+# extra costaría dos llamadas cada 90 s para contar lo que el tráfico de
+# verdad ya sabe, y respondería por una cookie que puede haber caducado entre
+# medias. Lo observado caduca solo: pasados `_FUENTES_TITO_VIGENCIA` segundos
+# vuelve a «configurada», que es lo que honestamente se sabe.
+_FUENTES_TITO_VIGENCIA = 1800          # 30 min: más viejo que eso no es «ahora»
+_FUENTES_TITO = {
+    "marketsnack": {"ok": None, "ts": 0.0, "error": None},
+    "massive":     {"ok": None, "ts": 0.0, "error": None},
+}
+
+
+def _anota_fuente_tito(nombre, ok, error=None):
+    """Deja constancia de la última respuesta real de Massive o MarketSnack."""
+    reg = _FUENTES_TITO.get(nombre)
+    if reg is None:
+        return
+    reg["ok"] = bool(ok)
+    reg["ts"] = time.time()
+    reg["error"] = None if ok else (str(error)[:200] or None)
+
+
+def _fuente_tito_vista(nombre):
+    """`(live, nota)` de lo observado, o `(None, None)` si ya no es reciente."""
+    reg = _FUENTES_TITO.get(nombre) or {}
+    if reg.get("ok") is None or (time.time() - reg.get("ts", 0.0)) > _FUENTES_TITO_VIGENCIA:
+        return None, None
+    return reg["ok"], reg.get("error")
+
+
 def _tito_tape(ticker):
     """Las DOS descargas de tape de su `/api/flow`, no una.
 
@@ -5502,7 +5543,9 @@ def _tito_tape(ticker):
         trades = fetch_flow(ticker, period="5d", min_premium=MIN_PREMIUM,
                             max_pages=LEAN_MAX_PAGES).trades
         error = None
+        _anota_fuente_tito("marketsnack", True)
     except MarketSnackError as e:
+        _anota_fuente_tito("marketsnack", False, e)
         # Sin tape el motor sigue corriendo con la cadena (GEX + estructura),
         # pero 4 de las 6 categorías quedan sin dato. Se reporta el motivo en
         # vez de devolver un número que aparenta estar completo.
@@ -10794,7 +10837,9 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
 
     try:
         chain, bars, spot, meta_cadena = _tito_chain_and_bars(tk)
+        _anota_fuente_tito("massive", True)
     except Exception as e:
+        _anota_fuente_tito("massive", False, _error_de_fuente(e, "Cadena de Massive"))
         return {"ok": False, "error": _error_de_fuente(e, "Cadena de Massive"),
                 "source": "massive"}
 
@@ -16013,11 +16058,15 @@ def data_health():
     now = time.time()
     if _DH_CACHE["data"] and now - _DH_CACHE["ts"] < 90:
         return _DH_CACHE["data"]
-    # Las CUATRO fuentes de datos del sistema, las mismas que el motor de
-    # Victor: FMP, FinnHub, FRED y EDGAR. Aquí estaban Quant Data (plan API
-    # inactivo, 403 en todo) y yfinance (raspaba un endpoint sin documentar);
-    # las dos salieron del proyecto, así que anunciarlas como fuentes era
-    # decir que el sistema se apoya en algo que ya no existe.
+    # Las fuentes del agente de ACCIONES: FMP, EDGAR, FRED, Gemini, FinnHub,
+    # OpenAI y Plaid. Aquí estaban Quant Data (plan API inactivo, 403 en todo)
+    # y yfinance (raspaba un endpoint sin documentar); las dos salieron del
+    # proyecto, así que anunciarlas como fuentes era decir que el sistema se
+    # apoya en algo que ya no existe.
+    #
+    # Las del agente de OPCIONES —Massive y MarketSnack— se añaden más abajo,
+    # después de esta lista, porque su estado sale del tráfico real y no de una
+    # variable de entorno.
     _fmp_ok = bool((os.environ.get("FMP_API_KEY") or "").strip())
     sources = [
         {"key": "fmp", "label": "FMP", "role": "precio · estados · consenso", "critical": True,
@@ -16038,6 +16087,43 @@ def data_health():
         {"key": "plaid", "label": "Plaid", "role": "portafolio", "critical": False,
          "configured": bool(PLAID_CLIENT_ID and PLAID_SECRET), "live": None,
          "note": None if (PLAID_CLIENT_ID and PLAID_SECRET) else "Sin Plaid: el portafolio usa el snapshot guardado (/api/portfolio/import)"},
+    ]
+    # ── Las DOS fuentes del agente de OPCIONES ───────────────────────────────
+    #
+    # Faltaban. La franja listaba siete fuentes, todas del agente de acciones, y
+    # se pintaba «OK» mientras Proyecciones corría con 2 de sus 6 sub-agentes
+    # porque la cookie de MarketSnack había caducado. El aviso existía, pero
+    # sólo DENTRO del scorecard: había que pedir un ticker para verlo. La franja
+    # es lo que se mira antes de pedir nada, así que aquí van.
+    #
+    # `live` no sale de un sondeo sino de la última consulta REAL (ver
+    # `_anota_fuente_tito`). Mientras nadie haya pedido un scorecard es `None`
+    # —«configurada», que es la verdad: hay credencial, no se ha probado—, y en
+    # cuanto se pide, la franja refleja lo que de verdad contestaron.
+    _ms_ok = bool((os.environ.get("MARKETSNACK_COOKIE") or "").strip())
+    _mv_ok = bool((os.environ.get("MASSIVE_API_KEY") or "").strip())
+    _ms_live, _ms_err = _fuente_tito_vista("marketsnack")
+    _mv_live, _mv_err = _fuente_tito_vista("massive")
+    # La cookie CADUCA: estar configurada no es estar viva, y ésa es justo la
+    # avería que se veía como si no pasara nada. La nota lo dice siempre.
+    _ms_nota = ("Falta MARKETSNACK_COOKIE" if not _ms_ok else
+                (_ms_err or "Cinta viva") if _ms_live is True else
+                (_ms_err or "La cinta no contestó") if _ms_live is False else
+                "Es una COOKIE de sesión y caduca: si Agresividad · Convicción · "
+                "Inusualidad · Contexto IV salen en «pendiente», re-pégala "
+                "(DevTools → Network → /api/flow_feed → header Cookie)")
+    _mv_nota = ("Falta MASSIVE_API_KEY" if not _mv_ok else
+                (_mv_err or "Cadena viva") if _mv_live is True else
+                (_mv_err or "La cadena no contestó") if _mv_live is False else
+                "Cadena de opciones y barras diarias del tab Proyecciones")
+    sources += [
+        {"key": "marketsnack", "label": "MarketSnack",
+         "role": "cinta · Agresividad · Convicción · Inusualidad · Contexto IV",
+         "critical": True, "configured": _ms_ok,
+         "live": _ms_live if _ms_ok else None, "note": _ms_nota},
+        {"key": "massive", "label": "Massive",
+         "role": "cadena · GEX · Estructura", "critical": True,
+         "configured": _mv_ok, "live": _mv_live if _mv_ok else None, "note": _mv_nota},
     ]
     n_crit_down = sum(1 for s in sources if s["critical"] and (not s["configured"] or s["live"] is False))
     # `ok` era un True literal, asi que la respuesta se contradecia a si misma:

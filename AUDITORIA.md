@@ -9477,8 +9477,92 @@ buscaba el literal `Targets a ${h} días`, que ya lleva un condicional dentro.
 Ahora mide el hecho —que el encabezado nombra días y salen del horizonte o del
 DTE real— en vez de la forma del código.
 
+### «¿Por qué los agentes no están trabajando?» — 2 de 6 sub-agentes
+
+Kevin manda una captura de NVDA: **«2 de 6 sub-agentes con dato»**, con
+Agresividad, Convicción, Inusualidad y Contexto IV en *pendiente*, y Estructura
+y Confirmación de Precio con 7/10.
+
+**No hay nada roto en el código.** Lo comprobado, en orden:
+
+1. El diff de esta sesión no toca el camino del flujo. De todo el motor sólo
+   cambió `engine/wbj/tito/drift.py`; ni `flow.py`, ni `ivcontext.py`, ni
+   `scorecard.py`, ni `marketsnack.py`.
+2. Corriendo `run_scorecard` sobre el árbol de hoy con tape de prueba, las
+   cuatro categorías puntúan: Agresividad 10, Convicción 8, Inusualidad 9,
+   Contexto IV 5. El camino está intacto.
+3. Las cuatro apagadas son **exactamente** las cuatro que `_FUENTE` mapea a
+   `marketsnack`. Las dos que puntúan son las de las otras dos fuentes:
+   `structure` → Massive, `validation` → memoria. El dibujo es el de **una
+   fuente caída**, no el de un motor averiado.
+4. Cotejado el cliente contra el de Víctor (`web/lib/marketsnack.ts` de
+   `agente-tito-metralleta`, HEAD `53d5a20`): el port es fiel y además cubre un
+   caso que el suyo no —200 con HTML del login—, porque `urllib` sigue el
+   redirect que su `redirect: "manual"` corta.
+5. El «Solo N de 6 sub-agentes tienen dato; la confianza está recortada» es
+   texto **suyo** (`prediction.py`), y `weighted_score` divide por el peso
+   ACTIVO a propósito. El panel está diciendo la verdad.
+
+`MARKETSNACK_COOKIE` no es una API key: es una **cookie de sesión** y caduca
+sola. En un servidor no hay navegador que la refresque. Eso lo arregla Kevin
+re-pegándola; no es algo que yo pueda ni deba obtener.
+
+#### Lo que SÍ estaba mal, y es mío: la franja no lo decía
+
+La píldora de salud de la barra superior enumeraba **siete** fuentes —FMP,
+EDGAR, FRED, Gemini, Finnhub, OpenAI, Plaid— y **ninguna** era de las que
+alimentan el tab de Proyecciones. Massive y MarketSnack no estaban en la lista.
+
+Resultado: la franja se podía mirar entera sin enterarse de que la cinta
+llevaba días muerta. El aviso existía, sí, pero sólo **dentro** del scorecard
+—había que pedir un ticker para verlo—, y la franja es justo lo que se mira
+*antes* de pedir nada. Kevin no tenía forma de saberlo desde fuera, y de ahí
+«creaste un problema».
+
+Añadidas las dos, y marcadas **críticas**: sin ellas el tab de Proyecciones no
+existe.
+
+- `marketsnack` — rol: *cinta · Agresividad · Convicción · Inusualidad ·
+  Contexto IV*. La nota dice, siempre, que es una cookie y que caduca, con la
+  receta para re-pegarla.
+- `massive` — rol: *cadena · GEX · Estructura*.
+
+`live` **no** sale de un sondeo. Sondear cada 90 s costaría dos llamadas para
+contar lo que la consulta de verdad ya sabe, y respondería por una cookie que
+puede haber caducado entre medias. Cada scorecard real ya habla con las dos, así
+que `_anota_fuente_tito` apunta lo que pasó y la franja lo lee. Lo observado
+**caduca solo** a los 30 min (`_FUENTES_TITO_VIGENCIA`) y vuelve a
+«configurada», que es lo honesto: hay credencial, no se ha probado.
+
+#### Y el verde de la franja era inalcanzable
+
+Mirando eso salió otro: `renderDataHealth` leía `d.qd_live`, que se fue con
+Quant Data cuando el proveedor salió del proyecto. Siempre `undefined`, así que
+**el verde no salía nunca**: la franja vivía en ámbar pasara lo que pasara. Un
+ámbar permanente se vuelve invisible en una semana, y entonces el rojo tampoco
+se ve — que es exactamente lo que le pasó a esta avería.
+
+Los tres estados salen ahora de la propia lista: rojo si algo crítico está
+caído o sin configurar, ámbar si falta algo opcional, verde sólo cuando no
+falta nada. Y el pie ya no promete «QD se reprueba cada 90 s» de un proveedor
+que no existe.
+
+Doce guardianes nuevos en `tests_vertex/test_tito_wiring.py`, verificados en
+rojo antes del arreglo (5 de ellos caen sin él). El de la cinta muerta **pone**
+la cookie con `monkeypatch` en vez de saltarse el caso cuando no la hay: si no,
+en CI pasaría en vacío, que es la misma clase de avería que persigue.
+
 ### Estado
 
-**3.466 tests del motor · 932 de la capa web (7 nuevos) · 144 de navegador ·
+**3.478 tests del motor · 1.053 de la capa web (12 nuevos) · 148 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
-verde. 0 fallos, salvo el inestable de `test_almacen.py` ya declarado.**
+verde. 0 fallos.**
+
+Una nota honesta sobre el intermitente del almacén: en una corrida completa
+falló `TestUnRespaldoVACIONoPISAaUnoLLENO::test_el_paquete_se_ABRE_y_se_cuenta_
+antes_de_subirlo`, y esa corrida venía justo después de otra que **maté a
+media ejecución** mientras tenía el clon del almacén abierto. En la corrida
+limpia siguiente —las 1.053 de la capa web enteras— pasó. No lo doy por
+arreglado: lo dejo declarado como intermitente con esa pista, porque el que
+Kevin me pidió arreglar era otro (`e2cecc3`, bytes de Fernet) y ése sí está
+cerrado.

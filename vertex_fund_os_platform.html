@@ -10416,9 +10416,18 @@ async function loadDataHealth(force) {
 function renderDataHealth(d) {
     const dot = document.getElementById('dhDot'), lbl = document.getElementById('dhLabel');
     const down = d.status === 'down';
-    const qdLive = d.qd_live;
-    if (dot) dot.className = 'w-2 h-2 rounded-full ' + (down ? 'bg-red-500' : (qdLive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'));
-    if (lbl) { lbl.textContent = down ? 'revisar' : (qdLive ? 'OK' : 'config'); lbl.className = down ? 'text-red-400' : (qdLive ? 'text-white' : 'text-amber-400'); }
+    // La clave viva de Quant Data se fue con el proveedor y nadie quito la
+    // lectura del payload aqui: quedaba
+    // siempre `undefined`, asi que el verde era INALCANZABLE y la franja vivia
+    // en ambar pasara lo que pasara. Un ambar permanente no avisa de nada.
+    // Ahora los tres estados salen de la propia lista: rojo si algo critico
+    // esta caido o sin configurar, ambar si falta algo opcional, verde solo
+    // cuando no falta nada.
+    const fuentes = d.sources || [];
+    const flojas = fuentes.filter(s => !s.configured || s.live === false).length;
+    const todoOk = !down && flojas === 0;
+    if (dot) dot.className = 'w-2 h-2 rounded-full ' + (down ? 'bg-red-500' : (todoOk ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'));
+    if (lbl) { lbl.textContent = down ? 'revisar' : (todoOk ? 'OK' : 'config'); lbl.className = down ? 'text-red-400' : (todoOk ? 'text-white' : 'text-amber-400'); }
     const list = document.getElementById('dhList');
     if (list) list.innerHTML = (d.sources || []).map(s => {
         const color = !s.configured ? (s.critical ? 'bg-red-500' : 'bg-gray-600')
@@ -10432,7 +10441,7 @@ function renderDataHealth(d) {
         </div>`;
     }).join('');
     const ca = document.getElementById('dhCheckedAt');
-    if (ca && d.checked_at) ca.textContent = 'Chequeado ' + new Date(d.checked_at * 1000).toLocaleTimeString() + ' · QD se reprueba cada 90s';
+    if (ca && d.checked_at) ca.textContent = 'Chequeado ' + new Date(d.checked_at * 1000).toLocaleTimeString() + ' · se refresca cada 90s';
 }
 function toggleDataHealth(ev) {
     if (ev) ev.stopPropagation();
@@ -14536,6 +14545,18 @@ const VX_ES2EN = {
     "Vencimiento largo (90+ días)": "Long expiry (90+ days)",
     "análisis completo del agente": "the agent's full analysis",
     "macro · tasa libre de riesgo": "macro · risk-free rate",
+    "precio · estados · consenso": "price · statements · consensus",
+    "tesis · IA": "thesis · AI",
+    "cadena · GEX · Estructura": "chain · GEX · Structure",
+    "cinta · Agresividad · Convicción · Inusualidad · Contexto IV": "tape · Aggression · Conviction · Unusuality · IV Context",
+    "Falta MARKETSNACK_COOKIE": "MARKETSNACK_COOKIE missing",
+    "Falta MASSIVE_API_KEY": "MASSIVE_API_KEY missing",
+    "Cinta viva": "Tape live",
+    "Cadena viva": "Chain live",
+    "La cinta no contestó": "The tape did not answer",
+    "La cadena no contestó": "The chain did not answer",
+    "Cadena de opciones y barras diarias del tab Proyecciones": "Options chain and daily bars for the Projections tab",
+    "Es una COOKIE de sesión y caduca: si Agresividad · Convicción · Inusualidad · Contexto IV salen en «pendiente», re-pégala (DevTools → Network → /api/flow_feed → header Cookie)": "It is a session COOKIE and it expires: if Aggression · Conviction · Unusuality · IV Context show as «pending», paste it again (DevTools → Network → /api/flow_feed → Cookie header)",
     "por tener el strike a más de": "for having the strike more than",
     "por vencer demasiado pronto,": "for expiring too soon,",
     "¿El precio valida o absorbe?": "Does price validate or absorb?",
@@ -14607,7 +14628,7 @@ const VX_ES2EN = {
     "Guardrails — Tus Reglas": "Guardrails — your rules",
     "HHI (índice Herfindahl)": "HHI (Herfindahl index)",
     "Máxima quema de theta (": "Maximum theta burn (",
-    "QD se reprueba cada 90s": "QD is re-tested every 90s",
+    "se refresca cada 90s": "refreshed every 90s",
     "Track Record del Agente": "Agent track record",
     "Una posición por línea.": "One position per line.",
     "contra el determinista.": "against the deterministic one.",
@@ -15200,8 +15221,8 @@ const VX_PAT = [
      'Each position will sit between $1% and $2% of your capital: $3 – $4 of $5.'],
     [/^faltan (\d+) días de mercado para el IV Rank real; hasta entonces se usa el proxy de volatilidad realizada$/,
      '$1 market days short of the real IV rank; until then the realised-volatility proxy is used'],
-    [/^Chequeado (.+) · QD se reprueba cada 90s$/,
-     'Checked $1 · QD is re-tested every 90s'],
+    [/^Chequeado (.+) · se refresca cada 90s$/,
+     'Checked $1 · refreshed every 90s'],
     [/^\((.+) años\)$/, '($1 years)'],
     [/^Máxima quema de theta \((.+)\)$/, 'Maximum theta burn ($1)'],
     [/^No se pudo diagnosticar: (.+)$/, 'Could not diagnose: $1'],

@@ -138,6 +138,15 @@ la tabla completa. Las que **no pueden faltar** en un despliegue público:
 - `VERTEX_ORIGIN` — la URL pública, para CORS.
 - `EDGAR_USER_AGENT` — identidad ante la SEC (tu nombre + email real).
 - `VERTEX_DB_KEY` — cifra el `access_token` de Plaid guardado en la base.
+- `MASSIVE_API_KEY` — la cadena de opciones y las barras diarias. Sin ella el
+  tab de **Proyecciones** no tiene nada que calcular.
+- `MARKETSNACK_COOKIE` — la cinta. **No es una API key: es una cookie de sesión
+  y caduca sola.** Cuando caduca, cuatro de los seis sub-agentes del agente de
+  opciones (Agresividad, Convicción, Inusualidad, Contexto IV) salen en
+  *pendiente* y el panel avisa «N de 6 sub-agentes con dato». Se re-pega a mano
+  desde el navegador: DevTools → Network → `/api/flow_feed` → header `Cookie`.
+  Las dos salen en la píldora de salud de la barra superior, con su estado
+  real sacado de la última consulta (`AUDITORIA.md`, «2 de 6 sub-agentes»).
 
 ## Auditoría en curso
 
