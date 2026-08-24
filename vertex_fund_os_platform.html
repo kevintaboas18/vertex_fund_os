@@ -7677,13 +7677,14 @@ function renderVictorTargets(d) {
       ${veredicto}
       ${noFiable ? '' : `
       ${parcial ? `<p class="text-[10px] text-amber-400 leading-snug mb-2">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
-      <p class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mb-1">Targets a ${esDrift && p.dte_real ? p.dte_real : h} días <span class="text-gray-600 normal-case font-normal tracking-normal">(${_vcEsc(HZ_LABEL[h] || (h + ' días'))})${
-        // Con Drift el plazo que se proyecta es el DTE REAL del vencimiento,
-        // no el objetivo redondo del botón. Poner «320 días» encima de una
-        // proyección calculada a 392 es contar dos plazos distintos en la
-        // misma tarjeta: el resumen de arriba ya dice el real.
+      <p class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mb-1">Targets a ${h} días <span class="text-gray-600 normal-case font-normal tracking-normal">(${_vcEsc(HZ_LABEL[h] || (h + ' días'))})${
+        // El plazo del título ES el del cálculo. Antes se proyectaba al DTE
+        // del vencimiento —pulsabas «1 año» y salía a 392 días— y aquí había
+        // que explicar la diferencia. Ya no la hay: se proyecta a los días que
+        // dice el botón. De dónde salen los NIVELES —el vencimiento real— lo
+        // dice el aviso de Drift de arriba, que es otra cosa.
         esDrift && p.dte_real && Number(p.dte_real) !== Number(h)
-          ? ` · <span>el bot&oacute;n dice</span> ${h}<span>, el vencimiento est&aacute; a</span> ${p.dte_real}` : ''
+          ? ` · <span>niveles del vencimiento a</span> ${p.dte_real} <span>d&iacute;as</span>` : ''
       } · desde $${Number(d.spot).toFixed(2)}</span></p>
       <div class="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2">
         ${card(p.bear, 'Bajista', 'text-red-400', 'bear')}
@@ -14860,6 +14861,8 @@ const VX_ES2EN = {
     "de probabilidad de tocarse. La confianza mide la nitidez del mapa y el acierto histórico, no que el precio vaya a llegar: para decidir un contrato manda esta probabilidad.":
         "chance of being touched. Confidence measures how sharp the map is and the historical hit rate, not that price will get there: for choosing a contract, this probability is what rules.",
     "el botón dice": "the button says",
+    "niveles del vencimiento a": "levels from the expiration at",
+    "días": "days",
     ", el vencimiento está a": ", the expiration is at",
     "Con solo tres niveles los escenarios se solapan: el imán coincide con uno de los muros. Dos de los tres targets salen iguales.":
         "With only three levels the scenarios overlap: the magnet coincides with one of the walls. Two of the three targets come out equal.",

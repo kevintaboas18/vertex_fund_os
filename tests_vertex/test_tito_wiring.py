@@ -1061,22 +1061,24 @@ class TestElHorizonteSeVeYSeCambia:
         assert "'Esta semana'" in r and "'2 semanas'" in r and "'1 mes'" in r
 
     def test_cada_target_dice_su_plazo(self):
-        """El encabezado y cada tarjeta nombran el plazo.
+        """El encabezado y cada tarjeta nombran el plazo, y es EL DEL CÁLCULO.
 
-        Ya no se busca el literal `Targets a ${h} días`: con Drift el plazo
-        que se proyecta es el **DTE real del vencimiento**, no el objetivo
-        redondo del botón —«320 días» encima de una proyección calculada a 392
-        son dos plazos distintos en la misma tarjeta—, así que la expresión
-        lleva un condicional dentro. Lo que se fija es el HECHO: que el
-        encabezado escribe días y que sale del horizonte o del DTE real.
+        Este caso cambió dos veces y las dos por lo mismo, así que conviene que
+        quede escrito: durante un tiempo los plazos de Drift se proyectaban al
+        DTE real del vencimiento, de modo que pulsar «1 año» calculaba a 392
+        días. El encabezado tuvo que aprender a decir esa diferencia.
+
+        Desde el 23/08/2026 ya no la hay —«no son 392 días, son 320»—: se
+        proyecta a los días que dice el botón. De dónde salen los NIVELES, que
+        es el vencimiento real, lo cuenta el aviso de Drift, que es otra cosa.
+
+        Así que aquí se vuelve a exigir el literal: el título del plazo tiene
+        que ser el horizonte, sin condicionales.
         """
-        import re as _re
-
         r = self._render()
-        cab = _re.search(r"Targets a \$\{([^}]*)\} días", r)
-        assert cab, "el encabezado dejó de nombrar el plazo"
-        assert "dte_real" in cab.group(1) and "h" in cab.group(1), (
-            f"el encabezado no usa ni el horizonte ni el DTE real: {cab.group(1)}")
+        assert "Targets a ${h} días" in r, (
+            "el encabezado ya no nombra el plazo elegido: si vuelve a llevar un "
+            "condicional, es que se está proyectando a otro número de días")
         assert "a ${h} días" in r          # y también en cada card
 
     def test_la_cobertura_parcial_NO_esconde_los_targets(self):
@@ -6549,30 +6551,54 @@ class TestDriftEnLaRuta:
             for k in ("bear", "base", "bull"):
                 assert k in g["paths"], f"{h}d: falta la ruta {k}"
 
-    def test_el_cono_se_dibuja_al_DTE_REAL_no_al_objetivo_redondo(
+    def test_el_cono_se_dibuja_al_PLAZO_ELEGIDO_no_al_del_vencimiento(
             self, client, cadena_larga):
-        """Un cono de 320 días sobre un contrato que vence a 330 mentiría
-        diez días de volatilidad, y el ancho del cono es lo que decide si un
-        target es alcanzable."""
+        """«No son 392 días, son 320.» — Kevin, 23/08/2026.
+
+        Este caso decía lo contrario hasta hoy, y por un motivo que parecía
+        bueno: los niveles salen de un vencimiento concreto, así que se
+        proyectaba a los días de ESE vencimiento. El efecto en pantalla era que
+        pulsar «1 año» calculaba a 392 días —el mensual más cercano a 320 caía
+        ahí— y devolvía setenta y dos días de volatilidad de más: el cono más
+        ancho y la probabilidad, mayor de la que toca.
+
+        La pregunta que hace quien pulsa ese botón es «¿toca este nivel en 320
+        días?». De dónde sale el nivel y en cuánto tiempo se pregunta si se
+        toca son dos cosas distintas, y el vencimiento se sigue publicando al
+        lado como procedencia.
+        """
         from wbj.tito.expected_move import expected_move
 
         d = client.get("/api/projection-targets?ticker=DEMO").json()
-        iv = d["gex"]["iv"]                      # viene REDONDEADO en el payload
+        distintos = 0
         for h, v in d["targets_drift"].items():
             real = float(v["dte_real"])
             if real == float(h):
                 continue                         # no distingue nada: son iguales
+            distintos += 1
+            iv = float(v["iv_usada"])            # la de ESE plazo
             pintado = d["chart_geometry"][h]["em"]["sigma_pct"]
             # No se compara por igualdad: el `iv` del payload está redondeado a
             # 4 decimales y el motor usó el crudo, así que las dos σ difieren en
             # la cuarta cifra. Lo que se mide es CUÁL de los dos plazos se usó,
             # que es la pregunta de verdad.
             con_real = expected_move(d["spot"], iv, real).sigma_pct
-            con_objetivo = expected_move(d["spot"], iv, float(h)).sigma_pct
-            assert abs(pintado - con_real) < abs(pintado - con_objetivo), (
-                f"{h}d: el cono se dibujó al plazo REDONDO ({h} días) y el "
-                f"vencimiento está a {real}. σ pintada {pintado}, con el real "
-                f"{con_real}, con el redondo {con_objetivo}")
+            con_elegido = expected_move(d["spot"], iv, float(h)).sigma_pct
+            assert abs(pintado - con_elegido) < abs(pintado - con_real), (
+                f"{h}d: el cono se dibujó a los días del VENCIMIENTO ({real}) "
+                f"en vez de al plazo elegido ({h}). σ pintada {pintado}, con el "
+                f"elegido {con_elegido}, con el del vencimiento {con_real}")
+        assert distintos, (
+            "en este escenario ningún vencimiento cae lejos de su plazo, así "
+            "que el caso no está midiendo nada")
+
+    def test_y_el_vencimiento_se_SIGUE_publicando(self, client, cadena_larga):
+        """De dónde salen los niveles no se pierde: es lo que explica por qué
+        el muro está donde está."""
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        for h, v in d["targets_drift"].items():
+            assert v.get("vencimiento"), f"{h}d sin vencimiento"
+            assert v.get("dte_real") is not None, f"{h}d sin dte_real"
 
     def test_los_horizontes_del_AGENTE_siguen_con_SU_geometria(
             self, client, cadena_larga):

@@ -5076,10 +5076,21 @@ def _tito_targets_drift(r, drift, cierres=None):
             ))
         if len(niveles) < 2:
             continue                       # con un solo nivel no hay rango
-        # Se proyecta al DTE REAL del vencimiento, no al objetivo redondo: un
-        # cono de 320 días sobre un contrato que vence a 330 mentiría diez días
-        # de volatilidad.
-        dias = int(b.get("dte_real") or 0)
+        # Se proyecta al PLAZO QUE SE ELIGIÓ —90, 120, 320—, no al DTE del
+        # vencimiento del que salen los niveles.
+        #
+        # Lo hacía al revés y Kevin lo cazó: pulsabas «1 año» y el cálculo se
+        # hacía a 392 días, porque el mensual más cercano a 320 caía ahí. La
+        # pregunta que hace quien pulsa ese botón es «¿toca este nivel en 320
+        # días?», y proyectar a 392 la contesta con setenta y dos días de
+        # volatilidad de más: el cono sale más ancho y la probabilidad, mayor
+        # de la que corresponde.
+        #
+        # Los niveles siguen saliendo del vencimiento real —ahí es donde hay
+        # interés abierto, y sin contratos no hay muro ni imán—, y ese
+        # vencimiento se publica al lado. Una cosa es de dónde sale el nivel y
+        # otra en cuánto tiempo se pregunta si se toca.
+        dias = int(b.get("dte_objetivo") or 0)
         if dias <= 0:
             continue
         # La volatilidad de SU ventana, no la de 21 sesiones del motor. Solo
@@ -5292,10 +5303,10 @@ def _tito_geometria_drift(r, targets):
     misma fórmula estaba escrita dos veces y nada garantizaba que las dos
     copias siguieran coincidiendo.
 
-    Se dibuja al **DTE REAL** del vencimiento, no al objetivo redondo: un cono
-    de 320 días sobre un contrato que vence a 330 mentiría diez días de
-    volatilidad, y el ancho del cono es lo que decide si un target es
-    alcanzable.
+    Se dibuja al PLAZO ELEGIDO —90, 120, 320—, el mismo con el que se
+    calcularon los targets. Dibujar el cono a los días del vencimiento y las
+    probabilidades al plazo elegido sería enseñar dos preguntas distintas en la
+    misma pantalla, que es justo la contradicción que se vino a cerrar.
     """
     if not targets:
         return {}
@@ -5310,7 +5321,12 @@ def _tito_geometria_drift(r, targets):
         return {}
     geo = {}
     for h, t in targets.items():
-        dias = float(t.get("dte_real") or 0)
+        # El plazo elegido, que es la clave del diccionario. `dte_real` sigue
+        # publicado como procedencia de los niveles, no como horizonte.
+        try:
+            dias = float(int(h))
+        except (TypeError, ValueError):
+            continue
         if dias <= 0:
             continue
         # LA MISMA volatilidad con la que se calcularon los targets de este
