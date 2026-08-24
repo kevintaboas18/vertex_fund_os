@@ -118,3 +118,4 @@ referencia, niveles de confirmación/invalidación y advertencias de riesgo.
 | [`RESUME.md`](RESUME.md) | Estado actual |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | Correr en local y desplegar en Render |
 | `Cerebro/` | La metodología completa (no modificar sin bump de versión) |
+| [`docs/notebooklm-mcp.md`](docs/notebooklm-mcp.md) | MCP de NotebookLM: qué hace, cómo autenticarlo y por qué no puede alimentar un score |
