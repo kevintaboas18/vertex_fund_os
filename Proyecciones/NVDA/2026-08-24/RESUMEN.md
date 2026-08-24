@@ -4,7 +4,7 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 70.0 / 100 |
-| Spot | $209.31 |
+| Spot | $209.29 |
 | Régimen de gamma | positive |
 | Nodo imán | $220.00 |
 | Gamma flip | $208.22 |
@@ -25,9 +25,9 @@
 
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
-| 10 días | $205.00 | $220.00 | $223.08 | 42.0 |
-| 20 días | $205.00 | $220.00 | $229.04 | 40.0 |
-| 30 días | $190.00 | $220.00 | $233.73 | 39.0 |
+| 10 días | $205.00 | $220.00 | $223.06 | 42.0 |
+| 20 días | $205.00 | $220.00 | $229.03 | 40.0 |
+| 30 días | $190.00 | $220.00 | $233.71 | 39.0 |
 
 ## Niveles importantes
 
@@ -36,7 +36,7 @@
 | $190.66 | soporte | 71 | 32% | el precio reaccionó 4 veces aquí · 275,565 contratos abiertos de puts · confluencia precio + opciones |
 | $213.18 | resistencia | 66 | 80% | el precio reaccionó 4 veces aquí · 178,588 contratos abiertos de calls · confluencia precio + opciones |
 | $193.62 | soporte | 56 | 41% | el precio reaccionó 4 veces aquí · 149,865 contratos abiertos de puts · confluencia precio + opciones |
-| $195.45 | soporte | 54 | 47% | el precio reaccionó 3 veces aquí · 147,505 contratos abiertos de puts · confluencia precio + opciones |
+| $195.45 | soporte | 54 | 48% | el precio reaccionó 3 veces aquí · 147,505 contratos abiertos de puts · confluencia precio + opciones |
 | $215.30 | resistencia | 54 | 72% | el precio reaccionó 2 veces aquí · 173,298 contratos abiertos de calls · confluencia precio + opciones |
 | $197.61 | soporte | 50 | 55% | el precio reaccionó 3 veces aquí · 3,712 contratos abiertos de puts · confluencia precio + opciones |
 | $227.92 | resistencia | 46 | 32% | el precio reaccionó 1 vez aquí · 397,834 contratos abiertos de calls · confluencia precio + opciones |
@@ -64,7 +64,7 @@ _todavía no hay predicciones vencidas: el track record se llena solo_
 
 - ⚠ Sin tape de MarketSnack: Sesión de MarketSnack inválida o expirada. Actualiza MARKETSNACK_COOKIE.
 - ⚠ Solo 2 de 6 sub-agentes tienen dato (faltan: aggression, conviction, unusuality, iv_context). El puntaje se renormaliza sobre el peso activo, así que NO es comparable con el de un ticker con las 6 categorías.
-- ⚠ El backtest de Confirmación de Precio cubre 43 días; el documento pide 60. La tasa de acierto es provisional.
+- ⚠ El backtest de Confirmación de Precio cubre 45 días; el documento pide 60. La tasa de acierto es provisional.
 - ⚠ Las bandas de puntos del sub-agente 6 (Confirmación de Precio) son una PROPUESTA: su PDF no trae tabla de puntuación.
 
 ---
