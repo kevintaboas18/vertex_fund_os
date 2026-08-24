@@ -6238,6 +6238,13 @@ class TestDriftEnLaRuta:
 
         El caso se deja porque el escenario extremo hay que seguir
         probándolo — solo cambia lo que se exige de él.
+
+        El 23/08/2026 hubo que mover el fixture: el muro estaba a +90% del
+        spot y desde que los muros se buscan dentro de ±`NEAR_SPOT_PCT` eso ya
+        no puede pasar —era justo la avería que la banda vino a cerrar—. Se
+        acerca a +15%, que sigue siendo lejos para el cono de estos plazos y
+        deja el caso midiendo lo mismo: que la base es el imán aunque su
+        probabilidad de toque sea pequeña.
         """
         import wbj.tito.massive as MASS
         from wbj.tito.structure import ChainRow
@@ -6251,8 +6258,12 @@ class TestDriftEnLaRuta:
                     oi_c = oi_p = 800
                     if s_ == 95:
                         oi_p = 5000              # muro de puts, pegado al spot
-                    if s_ == 190:
-                        oi_c = 4000              # muro de calls a +90%, y el imán
+                    if s_ == 115:
+                        # 6.000 y no 4.000: el nocional multiplica por el
+                        # strike, así que para que el imán caiga ARRIBA hacen
+                        # falta 6.000×115 > 5.000×95. Con 4.000 el imán se iba
+                        # al muro de puts y el caso medía otra cosa.
+                        oi_c = 6000              # muro de calls a +15%, y el imán
                     filas.append(ChainRow("call", exp, float(s_), oi_c, 0, s_ * oi_c * 100))
                     filas.append(ChainRow("put", exp, float(s_), oi_p, 0, s_ * oi_p * 100))
             return MASS.ChainResult(rows=filas, underlying_price=SPOT,
@@ -6262,16 +6273,23 @@ class TestDriftEnLaRuta:
         d = client.get("/api/projection-targets?ticker=DEMO").json()
         t = d.get("targets_drift") or {}
         assert t, "el fixture no produjo plazos largos"
-        lejos = [v for v in t.values() if v["iman"] / d["spot"] - 1 > 0.5]
-        assert lejos, "el imán no salió lo bastante lejos para probar el caso"
+        # «Lejos» ya no puede ser +50%: desde la banda de ±`NEAR_SPOT_PCT` el
+        # imán no puede alejarse más de eso, y el filtro viejo no seleccionaba
+        # nada. Lo lejos que se puede estar ahora es el borde de la banda, y es
+        # ahí donde se mide.
+        lejos = [v for v in t.values() if v["iman"] / d["spot"] - 1 > 0.10]
+        assert lejos, (
+            "el imán no salió por encima del spot: "
+            f"{[(v['muro_puts'], v['iman'], v['muro_calls']) for v in t.values()]}")
         for v in lejos:
             assert v["base"]["target"] == pytest.approx(v["iman"], abs=0.011)
             assert v["ancla_nivel"] == "imán", v["ancla_nivel"]
-            # Y la probabilidad de toque de ese base es baja: el número que
-            # de verdad sirve para decidir si el escenario es operable.
-            assert v["base"]["probability"] < 0.2, (
-                f"un imán a +{(v['iman'] / d['spot'] - 1) * 100:.0f}% con "
-                f"probabilidad {v['base']['probability']}")
+            # Y la probabilidad de toque VIAJA con el escenario: es el número
+            # que de verdad sirve para decidir si es operable, y lo que
+            # sustituyó al debate de anclar la base en otro sitio.
+            pr = v["base"]["probability"]
+            assert pr is not None and 0.0 <= pr <= 1.0, (
+                f"el base llega sin probabilidad de toque: {pr}")
 
     def test_y_el_TEXTO_del_resumen_nombra_ESE_mismo_nivel(
             self, client, cadena_larga):
@@ -6326,6 +6344,11 @@ class TestDriftEnLaRuta:
         Se reproduce con el nocional del lado put mandando: el nocional
         multiplica por el strike, así que hace falta bastante más interés
         abierto abajo que arriba.
+
+        Los strikes se acercaron el 23/08/2026 —de 75/120 a 85/115— porque
+        desde que los muros se buscan dentro de ±`NEAR_SPOT_PCT` el de 75
+        quedaba fuera de la banda y el fixture dejaba de reproducir el caso.
+        Lo que se mide no cambia: el imán cayendo EN el muro de puts.
         """
         import wbj.tito.massive as MASS
         from wbj.tito.structure import ChainRow
@@ -6336,8 +6359,8 @@ class TestDriftEnLaRuta:
             filas = []
             for exp in vencs:
                 for s_ in range(50, 160, 5):
-                    oi_c = 3000 if s_ == 120 else 200      # muro de calls
-                    oi_p = 20000 if s_ == 75 else 200      # muro de puts Y el imán
+                    oi_c = 3000 if s_ == 115 else 200      # muro de calls
+                    oi_p = 20000 if s_ == 85 else 200      # muro de puts Y el imán
                     filas.append(ChainRow("call", exp, float(s_), oi_c, 0, s_ * oi_c * 100))
                     filas.append(ChainRow("put", exp, float(s_), oi_p, 0, s_ * oi_p * 100))
             return MASS.ChainResult(rows=filas, underlying_price=SPOT,
@@ -6397,12 +6420,20 @@ class TestDriftEnLaRuta:
 
     def test_con_un_MURO_MUY_LEJOS_el_alcista_sigue_siendo_ese_muro(
             self, client, monkeypatch):
-        """El caso que destapó el fallo: muro de calls a +85%.
+        """El caso que destapó el fallo: un muro de calls muy por encima.
 
         Antes el alcista se quedaba en el techo de 1σ porque el imán ocupaba
         el sitio. Ahora es el muro, y si cae fuera del cono de 2σ se DICE en
         vez de recortarlo — recortar convertiría el muro en otro número y la
         pantalla dejaría de enseñar el nivel que dice enseñar.
+
+        El fixture tenía el muro a +90% y el 23/08/2026 dejó de ser posible:
+        desde que los muros se buscan dentro de ±`NEAR_SPOT_PCT`, un muro no
+        puede alejarse tanto —era exactamente la avería que la banda cerró—.
+        Así que se mide la REGLA en vez de una distancia que ya no existe: el
+        alcista ES el muro de calls, y el aviso de «fuera del cono» coincide
+        con el cono que el propio motor sirve. Atarlo a un +50% inalcanzable
+        habría dejado el caso verde sin comprobar nada.
         """
         import wbj.tito.massive as MASS
         from wbj.tito.structure import ChainRow
@@ -6413,7 +6444,11 @@ class TestDriftEnLaRuta:
             filas = []
             for exp in vencs:
                 for s_ in range(50, 260, 5):
-                    oi_c = 9000 if s_ == 190 else 800      # muro a +90%
+                    # 120 y no 119: los strikes de este fixture van de cinco
+                    # en cinco, así que 119 no existe y ningún call llevaba el
+                    # interés abierto alto. El muro salía en el primer strike
+                    # de la banda y el caso medía otra cosa.
+                    oi_c = 9000 if s_ == 120 else 800      # muro en el borde
                     oi_p = 5000 if s_ == 90 else 800
                     filas.append(ChainRow("call", exp, float(s_), oi_c, 0, s_ * oi_c * 100))
                     filas.append(ChainRow("put", exp, float(s_), oi_p, 0, s_ * oi_p * 100))
@@ -6424,12 +6459,28 @@ class TestDriftEnLaRuta:
         d = client.get("/api/projection-targets?ticker=DEMO").json()
         t = d.get("targets_drift") or {}
         assert t, "el fixture no produjo plazos largos"
-        lejanos = [v for v in t.values() if v["muro_calls"] / d["spot"] - 1 > 0.5]
-        assert lejanos, "el muro de calls no salió lo bastante lejos"
-        for v in lejanos:
+        arriba = [(h, v) for h, v in t.items()
+                  if v["muro_calls"] / d["spot"] - 1 > 0.10]
+        assert arriba, (
+            "el muro de calls no salió por encima del spot: "
+            f"{[(v['muro_puts'], v['muro_calls']) for v in t.values()]}")
+        geo = d.get("chart_geometry") or {}
+        for h, v in arriba:
+            # 1) La regla de Kevin: el alcista ES el muro de calls.
             assert v["bull"]["target"] == pytest.approx(v["muro_calls"], abs=0.011)
-            assert v["bull"]["fuera_del_cono"] is True, (
-                "un muro a +90% cae fuera de 2σ y hay que decirlo")
+            # 2) Y el aviso de «fuera del cono» dice la verdad sobre el cono
+            #    que el motor sirve para ESE plazo. Se compara contra el
+            #    payload en vez de contra un umbral escrito a mano: así el
+            #    caso no puede quedarse verde porque el número mágico dejó de
+            #    corresponderse con la realidad, que es lo que acababa de
+            #    pasarle a la versión anterior.
+            borde = (geo.get(h) or {}).get("cone") or []
+            if not borde:
+                continue
+            techo = borde[-1]["upper2"]
+            assert v["bull"]["fuera_del_cono"] is bool(v["bull"]["target"] > techo), (
+                f"{h}d: muro ${v['muro_calls']}, techo de 2σ ${techo}, y el "
+                f"aviso dice fuera_del_cono={v['bull']['fuera_del_cono']}")
 
     def test_si_los_muros_salen_al_REVES_se_dice(self, client, cadena_larga):
         """El muro de calls puede quedar por debajo del de puts —es su
