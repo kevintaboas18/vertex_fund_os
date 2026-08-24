@@ -1,16 +1,16 @@
 {
-  "generado": "2026-08-23T15:33:19.420276+00:00",
+  "generado": "2026-08-24T15:41:39.604015+00:00",
   "sectores": {
     "XLK": {
       "pct": 50.0,
       "n": 12,
       "encima": [
+        "AAPL",
         "ACN",
         "ADBE",
         "CRM",
         "MSFT",
-        "NVDA",
-        "ORCL"
+        "NVDA"
       ],
       "miembros": 12,
       "motivo": null
@@ -76,11 +76,10 @@
       "motivo": null
     },
     "XLI": {
-      "pct": 50.0,
+      "pct": 40.0,
       "n": 10,
       "encima": [
         "DE",
-        "ETN",
         "LMT",
         "RTX",
         "UNP"
@@ -89,9 +88,11 @@
       "motivo": null
     },
     "XLP": {
-      "pct": 50.0,
+      "pct": 70.0,
       "n": 10,
       "encima": [
+        "CL",
+        "COST",
         "KO",
         "MDLZ",
         "PEP",
@@ -128,20 +129,18 @@
       "motivo": null
     },
     "XLRE": {
-      "pct": 50.0,
+      "pct": 30.0,
       "n": 10,
       "encima": [
         "AMT",
         "DLR",
-        "EQIX",
-        "PSA",
         "WELL"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLB": {
-      "pct": 60.0,
+      "pct": 70.0,
       "n": 10,
       "encima": [
         "APD",
@@ -149,6 +148,7 @@
         "ECL",
         "FCX",
         "NEM",
+        "NUE",
         "SHW"
       ],
       "miembros": 10,
