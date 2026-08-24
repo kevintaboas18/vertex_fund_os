@@ -411,7 +411,7 @@
     "motivo": "",
     "recortadas": 0,
     "umbral": 10000000000.0,
-    "fuera": 1775,
+    "fuera": 1774,
     "medida": true,
     "motivo_tamano": ""
   },
@@ -431,19 +431,6 @@
         "bueno": false
       },
       {
-        "evento": "CPI YoY (Jul)",
-        "fecha": "2026-08-12 12:30",
-        "salio": 3.4,
-        "esperado": 3.4,
-        "anterior": 3.5,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
         "evento": "Core CPI YoY (Jul)",
         "fecha": "2026-08-12 12:30",
         "salio": 2.5,
@@ -451,6 +438,19 @@
         "anterior": 2.6,
         "unidad": "",
         "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
+        "evento": "CPI YoY (Jul)",
+        "fecha": "2026-08-12 12:30",
+        "salio": 3.4,
+        "esperado": 3.4,
+        "anterior": 3.5,
+        "unidad": "",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "sorpresa": 0.0,
@@ -483,16 +483,16 @@
         "bueno": null
       },
       {
-        "evento": "Nonfarm Payrolls Private (Jul)",
+        "evento": "Non Farm Payrolls (Jul)",
         "fecha": "2026-08-07 12:30",
-        "salio": 30.0,
-        "esperado": 78.0,
-        "anterior": 30.0,
+        "salio": -23.0,
+        "esperado": 80.0,
+        "anterior": 20.0,
         "unidad": "",
-        "impacto": "low",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "alto",
-        "sorpresa": -48.0,
+        "sorpresa": -103.0,
         "bueno": false
       },
       {
@@ -509,16 +509,16 @@
         "bueno": true
       },
       {
-        "evento": "Non Farm Payrolls (Jul)",
+        "evento": "Nonfarm Payrolls Private (Jul)",
         "fecha": "2026-08-07 12:30",
-        "salio": -23.0,
-        "esperado": 80.0,
-        "anterior": 20.0,
+        "salio": 30.0,
+        "esperado": 78.0,
+        "anterior": 30.0,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "alto",
-        "sorpresa": -103.0,
+        "sorpresa": -48.0,
         "bueno": false
       }
     ],
@@ -538,20 +538,6 @@
         "retrasado": true
       },
       {
-        "evento": "New Home Sales (Jul)",
-        "fecha": "2026-08-25 14:00",
-        "salio": null,
-        "esperado": 0.62,
-        "anterior": 0.628,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 2,
-        "mejor": "alto",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "CB Consumer Confidence (Aug)",
         "fecha": "2026-08-25 14:00",
         "salio": null,
@@ -566,15 +552,15 @@
         "retrasado": false
       },
       {
-        "evento": "PCE Price Index YoY (Jul)",
-        "fecha": "2026-08-26 12:30",
+        "evento": "New Home Sales (Jul)",
+        "fecha": "2026-08-25 14:00",
         "salio": null,
-        "esperado": 3.7,
-        "anterior": 3.7,
+        "esperado": -1.3,
+        "anterior": 1.6,
         "unidad": "",
         "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
+        "nivel": 2,
+        "mejor": "alto",
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
@@ -587,6 +573,20 @@
         "anterior": 3.3,
         "unidad": "",
         "impacto": "low",
+        "nivel": 1,
+        "mejor": "bajo",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "PCE Price Index YoY (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 3.7,
+        "anterior": 3.7,
+        "unidad": "",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
         "sorpresa": null,
@@ -608,20 +608,6 @@
         "retrasado": false
       },
       {
-        "evento": "Continuing Jobless Claims (Aug/15)",
-        "fecha": "2026-08-27 12:30",
-        "salio": null,
-        "esperado": 1811.0,
-        "anterior": 1799.0,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 2,
-        "mejor": "bajo",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "Initial Jobless Claims (Aug/22)",
         "fecha": "2026-08-27 12:30",
         "salio": null,
@@ -634,11 +620,25 @@
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
+      },
+      {
+        "evento": "Continuing Jobless Claims (Aug/15)",
+        "fecha": "2026-08-27 12:30",
+        "salio": null,
+        "esperado": 1811.0,
+        "anterior": 1799.0,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 2,
+        "mejor": "bajo",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
       }
     ],
     "filas": [],
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-24T04:12:57.151855+00:00"
+  "generado": "2026-08-24T05:11:57.298280+00:00"
 }
