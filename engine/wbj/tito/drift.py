@@ -342,9 +342,50 @@ def _a_filas(chain, hoy: date) -> list[_Fila]:
     return fuera
 
 
+def _cerca_del_spot(filas: list[_Fila], spot: float,
+                    banda: float | None) -> list[_Fila]:
+    """Las filas cuyo strike cae dentro de ±`banda` del spot.
+
+    Sin `banda`, devuelve todas: es **exactamente lo que hace él**, que busca
+    el muro en la cadena entera del vencimiento.
+
+    Con banda, la avería que cierra es esta, medida en el panel el 23/08/2026
+    con TSLA a $357,61:
+
+        1 año   (389 DTE):  puts $300 · imán $300 · calls $410     ← sensato
+        3 meses ( 88 DTE):  puts $250 · imán $700 · calls $700
+        4 meses (116 DTE):  puts $10  · imán $990 · calls $990
+
+    Un muro de puts en $10 y un imán en $990 no son niveles de posicionamiento:
+    son los strikes de lotería de los extremos de la cadena. Un vencimiento
+    largo lista strikes desde casi cero hasta casi mil, y ahí siempre hay
+    alguien acumulando interés abierto barato. Como el muro es «el strike con
+    más contratos», esos extremos ganan y se llevan el imán detrás.
+
+    El de un año se salvaba por suerte —su interés abierto ya estaba cerca del
+    dinero—, no porque el método fuera distinto.
+
+    La banda no es un número inventado: es `NEAR_SPOT_PCT`, la MISMA ventana
+    de ±20% con la que el GEX del agente decide qué strikes importan. Y se
+    comprobó contra los números de arriba antes de escribirla: los tres
+    niveles del año caen dentro, así que ese plazo no se mueve ni un centavo;
+    los seis de tres y cuatro meses caen fuera.
+
+    Si en la banda no queda nada —una cadena fina, un subyacente ilíquido— se
+    devuelve la cadena entera. Un muro lejano es peor que uno cercano, pero
+    ninguno es peor que los dos.
+    """
+    if banda is None or not (spot > 0):
+        return filas
+    lo, hi = spot * (1 - banda), spot * (1 + banda)
+    dentro = [f for f in filas if lo <= f.strike <= hi]
+    return dentro or filas
+
+
 def drift_analysis(chain, spot: float, hoy: date,
                    iv: float | None = None,
-                   iman_entre_muros: bool = False) -> DriftAnalysis:
+                   iman_entre_muros: bool = False,
+                   banda_spot: float | None = None) -> DriftAnalysis:
     """El análisis completo: cuatro plazos, sus muros, su imán y su cono.
 
     `chain` son las `ChainRow` que Vertex ya tiene en memoria — **no se baja
@@ -355,6 +396,10 @@ def drift_analysis(chain, spot: float, hoy: date,
     muros. **No es suyo** —él lo busca en toda la cadena del vencimiento— y por
     eso viene apagado por defecto: así el análisis es literalmente el suyo, que
     es lo que compara `diff_drift.sh`. Ver `magneto`.
+
+    `banda_spot` limita los muros —y con ellos el imán— a los strikes que caen
+    a ±esa fracción del spot. Tampoco es suyo, y va apagado por el mismo
+    motivo. Ver `_cerca_del_spot`, donde está la avería que cierra.
     """
     filas = _a_filas(chain, hoy)
     if not filas:
@@ -390,8 +435,13 @@ def drift_analysis(chain, spot: float, hoy: date,
             continue
 
         propias = [f for f in filas if f.vencimiento == v]
-        mc = muro_calls(propias)
-        mp = muro_puts(propias)
+        # Los muros se buscan CERCA DEL DINERO si se pidió banda. El imán y el
+        # peso siguen midiéndose sobre el vencimiento ENTERO: la pregunta «qué
+        # fracción del dinero de este vencimiento está en este strike» pierde
+        # sentido si antes se tira media cadena.
+        candidatas = _cerca_del_spot(propias, spot, banda_spot)
+        mc = muro_calls(candidatas)
+        mp = muro_puts(candidatas)
         # El imán, dentro del rango de los dos muros si se pidió. Los muros se
         # calculan ANTES a propósito: son los que definen la banda.
         mag = (magneto(propias, suelo=(mp[0] if mp else None),

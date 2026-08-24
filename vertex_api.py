@@ -4901,8 +4901,21 @@ def _tito_drift(chain, r, now):
         # está fuera del rango que se acaba de declarar. Medido: con la acción
         # a $180 y los muros en 170/190, el mayor nocional de la cadena estaba
         # en un strike de $300 — contratos que se ejercen, no un imán.
+        # Y los muros, CERCA DEL DINERO. Sin banda, un vencimiento largo lista
+        # strikes desde casi cero hasta casi mil y el «mayor interés abierto»
+        # se lo lleva un extremo. Medido en el panel con TSLA a $357,61: a 116
+        # días salía muro de puts $10 e imán $990; a 88 días, imán $700. No son
+        # niveles de posicionamiento, son los strikes de lotería del borde de
+        # la cadena. El plazo de un año se salvaba por suerte —su interés
+        # abierto ya estaba cerca del dinero—, no por usar otro método.
+        #
+        # La banda es `NEAR_SPOT_PCT`: la MISMA ventana de ±20% con la que el
+        # GEX del agente decide qué strikes importan. Comprobado contra esos
+        # números antes de cablearla — los tres niveles del año caen dentro y
+        # no se mueven; los seis de tres y cuatro meses caen fuera.
         a = drift_analysis(chain, spot=r.spot, hoy=now.date(), iv=iv,
-                           iman_entre_muros=True)
+                           iman_entre_muros=True,
+                           banda_spot=_DRIFT_BANDA_SPOT)
     except Exception:
         return None
     return {
@@ -4942,6 +4955,16 @@ def _tito_drift(chain, r, now):
 #: bien, así que cambiarlo movería números que hoy funcionan sin que nadie lo
 #: haya pedido. Queda declarado aquí, no escondido.
 _DRIFT_IV_PROPIA = (90, 120)
+
+#: La banda alrededor del spot en la que se buscan los muros de Drift.
+#:
+#: Se toma prestada del GEX del agente en vez de escribir otro número: es la
+#: misma pregunta —«¿qué strikes están lo bastante cerca para importar?»— y dos
+#: respuestas distintas al mismo hecho se separan solas con el tiempo.
+try:                                             # pragma: no cover - import
+    from wbj.tito.gex import NEAR_SPOT_PCT as _DRIFT_BANDA_SPOT
+except Exception:                                # noqa: BLE001
+    _DRIFT_BANDA_SPOT = 0.2
 
 
 def _iv_del_plazo(cierres, dias: int, por_defecto: float) -> float:

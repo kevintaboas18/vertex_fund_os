@@ -15,7 +15,7 @@ Lo que se fija aquí, por orden de importancia:
 from __future__ import annotations
 
 import math
-from datetime import date
+from datetime import date, date as _date, timedelta as _timedelta
 
 import pytest
 
@@ -428,3 +428,121 @@ class TestDriftYElGexMidenCosasDISTINTAS:
 
         assert muro_drift == 140.0
         assert mayor_gex != muro_drift
+
+
+class TestLosMurosSeBuscanCERCADELDINERO:
+    """La avería del panel del 23/08/2026, con TSLA a $357,61.
+
+        1 año   (389 DTE):  puts $300 · imán $300 · calls $410     ← sensato
+        3 meses ( 88 DTE):  puts $250 · imán $700 · calls $700
+        4 meses (116 DTE):  puts $10  · imán $990 · calls $990
+
+    Un muro de puts en $10 y un imán en $990 sobre una acción de $357 no son
+    niveles de posicionamiento: son los strikes de lotería de los extremos de
+    la cadena. Un vencimiento largo lista strikes desde casi cero hasta casi
+    mil, y ahí siempre hay alguien acumulando interés abierto barato. Como el
+    muro es «el strike con más contratos», esos extremos ganan — y con
+    `iman_entre_muros`, el imán se va detrás.
+
+    El plazo de un año se salvaba por SUERTE: su interés abierto ya estaba
+    cerca del dinero. No usaba otro método.
+
+    La banda es `NEAR_SPOT_PCT`, la misma ventana de ±20% del GEX del agente.
+    Se comprobó contra los números de arriba ANTES de escribirla: los tres
+    niveles del año caen dentro y no se mueven; los seis de tres y cuatro
+    meses caen fuera.
+    """
+
+    SPOT = 357.61
+    HOY = _date(2026, 8, 24)
+    #: Los strikes que lista de verdad un vencimiento largo de TSLA.
+    STRIKES = [10, 50, 100, 150, 200, 250, 300, 350, 360, 400, 410, 450, 500,
+               700, 990]
+
+    @classmethod
+    def _tercer_viernes(cls, y, m):
+        d = _date(y, m, 1)
+        d += _timedelta(days=(4 - d.weekday()) % 7)
+        return d + _timedelta(days=14)
+
+    @classmethod
+    def _cadena(cls, con_loteria):
+        """`con_loteria` = etiquetas cuyos EXTREMOS llevan el interés abierto.
+
+        Todos los vencimientos llevan además estructura real cerca del dinero
+        —muro de calls en 410, de puts en 300—: sin eso el caso no probaría
+        que la banda RECUPERA el nivel bueno, solo que tira los malos.
+        """
+        vencs = {"90": cls._tercer_viernes(2026, 11),
+                 "120": cls._tercer_viernes(2026, 12),
+                 "320": cls._tercer_viernes(2027, 9)}
+        filas = []
+        for etiq, v in vencs.items():
+            for s in cls.STRIKES:
+                for ct in ("call", "put"):
+                    oi = 500
+                    if ct == "call" and s == 410:
+                        oi = 9000
+                    if ct == "put" and s == 300:
+                        oi = 9000
+                    if etiq in con_loteria:
+                        if ct == "call" and s in (700, 990):
+                            oi = 40000
+                        if ct == "put" and s == 10:
+                            oi = 40000
+                    filas.append(ChainRow(ct, v.isoformat(), float(s), oi,
+                                          int(oi * 0.3), oi * 100 * s))
+        return filas
+
+    @classmethod
+    def _niveles(cls, banda, con_loteria=("90", "120")):
+        a = drift_analysis(cls._cadena(con_loteria), spot=cls.SPOT,
+                           hoy=cls.HOY, iv=0.4, iman_entre_muros=True,
+                           banda_spot=banda)
+        return {b.dte_objetivo: (b.muro_puts, b.magneto, b.muro_calls)
+                for b in a.buckets}
+
+    def test_sin_banda_los_extremos_se_llevan_los_muros(self):
+        """El escenario tiene que reproducir la avería, o no mide nada."""
+        n = self._niveles(None)
+        assert n[90] == (10.0, 700.0, 700.0)
+        assert n[120] == (10.0, 700.0, 700.0)
+
+    def test_con_banda_los_de_tres_y_cuatro_meses_vuelven_al_dinero(self):
+        n = self._niveles(0.2)
+        assert n[90] == (300.0, 410.0, 410.0)
+        assert n[120] == (300.0, 410.0, 410.0)
+
+    def test_y_el_de_UN_ANO_no_se_mueve_ni_un_centavo(self):
+        """«Soluciónalo como está el de 1 año. No cambies más nada.»
+
+        Es la mitad del encargo, y la que se puede romper sin darse cuenta:
+        arreglar los plazos cortos moviendo el largo no es arreglarlo.
+        """
+        assert self._niveles(None)[320] == self._niveles(0.2)[320]
+
+    def test_sin_banda_el_analisis_es_LITERALMENTE_el_suyo(self):
+        """Apagada por defecto: `diff_drift.sh` compara contra su repo, y una
+        decisión de Vertex encendida por defecto seria una divergencia."""
+        con = drift_analysis(self._cadena(("90",)), spot=self.SPOT,
+                             hoy=self.HOY, iv=0.4)
+        assert all(b.muro_calls is not None for b in con.buckets)
+        # El de 90 conserva el extremo: sin banda, es lo que él haría.
+        n90 = next(b for b in con.buckets if b.dte_objetivo == 90)
+        assert n90.muro_calls == 700.0
+
+    def test_si_en_la_banda_no_queda_NADA_se_usa_la_cadena_entera(self):
+        """Una cadena fina o un subyacente ilíquido no pueden dejar el plazo
+        sin muros. Un muro lejano es peor que uno cercano; ninguno es peor que
+        los dos."""
+        from wbj.tito.drift import _cerca_del_spot, _a_filas
+
+        filas = _a_filas(self._cadena(()), self.HOY)
+        # Una banda absurda: no cabe ni un strike.
+        assert _cerca_del_spot(filas, self.SPOT, 0.0001) == filas
+
+    def test_sin_banda_no_filtra_nada(self):
+        from wbj.tito.drift import _cerca_del_spot, _a_filas
+
+        filas = _a_filas(self._cadena(()), self.HOY)
+        assert _cerca_del_spot(filas, self.SPOT, None) is filas
