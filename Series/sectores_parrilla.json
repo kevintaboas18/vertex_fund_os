@@ -22,11 +22,11 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 763.94,
-      "cambio_pct": -0.23,
+      "precio": 763.82,
+      "cambio_pct": -0.25,
       "rsi": 52.4,
       "sma200": 707.99,
-      "sma200_dist": 7.9,
+      "sma200_dist": 7.89,
       "cambios": {
         "7D": -1.16,
         "1M": 3.35,
@@ -65,11 +65,11 @@
     {
       "ticker": "RSP",
       "nombre": "S&P 500 equiponderado",
-      "precio": 221.87,
-      "cambio_pct": 0.09,
+      "precio": 221.73,
+      "cambio_pct": 0.03,
       "rsi": 60.8,
       "sma200": 202.17,
-      "sma200_dist": 9.74,
+      "sma200_dist": 9.68,
       "cambios": {
         "7D": 0.49,
         "1M": 3.89,
@@ -108,11 +108,11 @@
     {
       "ticker": "QQQ",
       "nombre": "Nasdaq 100",
-      "precio": 706.31,
-      "cambio_pct": -1.0,
+      "precio": 706.36,
+      "cambio_pct": -0.99,
       "rsi": 46.2,
       "sma200": 653.21,
-      "sma200_dist": 8.13,
+      "sma200_dist": 8.14,
       "cambios": {
         "7D": -3.29,
         "1M": 3.16,
@@ -151,11 +151,11 @@
     {
       "ticker": "XLK",
       "nombre": "Tecnología",
-      "precio": 180.12,
-      "cambio_pct": -1.74,
+      "precio": 180.11,
+      "cambio_pct": -1.75,
       "rsi": 44.5,
       "sma200": 158.56,
-      "sma200_dist": 13.6,
+      "sma200_dist": 13.59,
       "cambios": {
         "7D": -5.42,
         "1M": 2.34,
@@ -194,11 +194,11 @@
     {
       "ticker": "XLF",
       "nombre": "Financiero",
-      "precio": 58.23,
-      "cambio_pct": 1.3,
+      "precio": 58.29,
+      "cambio_pct": 1.41,
       "rsi": 61.4,
       "sma200": 53.25,
-      "sma200_dist": 9.35,
+      "sma200_dist": 9.46,
       "cambios": {
         "7D": 1.13,
         "1M": 3.41,
@@ -237,11 +237,11 @@
     {
       "ticker": "XLV",
       "nombre": "Salud",
-      "precio": 173.88,
-      "cambio_pct": -0.42,
+      "precio": 173.48,
+      "cambio_pct": -0.65,
       "rsi": 66.2,
       "sma200": 154.34,
-      "sma200_dist": 12.66,
+      "sma200_dist": 12.4,
       "cambios": {
         "7D": 4.08,
         "1M": 6.95,
@@ -280,11 +280,11 @@
     {
       "ticker": "XLY",
       "nombre": "Consumo discrecional",
-      "precio": 118.75,
-      "cambio_pct": 0.62,
+      "precio": 118.62,
+      "cambio_pct": 0.51,
       "rsi": 55.9,
       "sma200": 117.04,
-      "sma200_dist": 1.46,
+      "sma200_dist": 1.35,
       "cambios": {
         "7D": 1.73,
         "1M": 8.55,
@@ -323,11 +323,11 @@
     {
       "ticker": "XLC",
       "nombre": "Comunicaciones",
-      "precio": 112.05,
-      "cambio_pct": 0.58,
+      "precio": 112.19,
+      "cambio_pct": 0.71,
       "rsi": 54.3,
       "sma200": 114.04,
-      "sma200_dist": -1.74,
+      "sma200_dist": -1.62,
       "cambios": {
         "7D": 1.01,
         "1M": 5.31,
@@ -366,11 +366,11 @@
     {
       "ticker": "XLI",
       "nombre": "Industrial",
-      "precio": 178.98,
-      "cambio_pct": -0.7,
+      "precio": 179.25,
+      "cambio_pct": -0.55,
       "rsi": 39.9,
       "sma200": 169.7,
-      "sma200_dist": 5.47,
+      "sma200_dist": 5.63,
       "cambios": {
         "7D": -3.96,
         "1M": -2.04,
@@ -409,11 +409,11 @@
     {
       "ticker": "XLP",
       "nombre": "Consumo básico",
-      "precio": 87.28,
-      "cambio_pct": 1.5,
+      "precio": 87.16,
+      "cambio_pct": 1.36,
       "rsi": 59.6,
       "sma200": 82.93,
-      "sma200_dist": 5.24,
+      "sma200_dist": 5.1,
       "cambios": {
         "7D": 3.04,
         "1M": 3.71,
@@ -452,11 +452,11 @@
     {
       "ticker": "XLE",
       "nombre": "Energía",
-      "precio": 63.06,
-      "cambio_pct": -0.91,
+      "precio": 62.91,
+      "cambio_pct": -1.15,
       "rsi": 67.6,
       "sma200": 54.0,
-      "sma200_dist": 16.78,
+      "sma200_dist": 16.51,
       "cambios": {
         "7D": 0.9,
         "1M": 5.91,
@@ -495,11 +495,11 @@
     {
       "ticker": "XLU",
       "nombre": "Servicios públicos",
-      "precio": 42.83,
-      "cambio_pct": 0.15,
+      "precio": 42.89,
+      "cambio_pct": 0.29,
       "rsi": 34.0,
       "sma200": 44.74,
-      "sma200_dist": -4.27,
+      "sma200_dist": -4.13,
       "cambios": {
         "7D": -2.99,
         "1M": -7.41,
@@ -538,11 +538,11 @@
     {
       "ticker": "XLRE",
       "nombre": "Inmobiliario",
-      "precio": 45.09,
-      "cambio_pct": 0.01,
+      "precio": 44.99,
+      "cambio_pct": -0.2,
       "rsi": 52.5,
       "sma200": 42.92,
-      "sma200_dist": 5.06,
+      "sma200_dist": 4.83,
       "cambios": {
         "7D": 0.66,
         "1M": -1.8,
@@ -581,11 +581,11 @@
     {
       "ticker": "XLB",
       "nombre": "Materiales",
-      "precio": 53.95,
-      "cambio_pct": 0.76,
+      "precio": 53.86,
+      "cambio_pct": 0.6,
       "rsi": 63.5,
       "sma200": 49.64,
-      "sma200_dist": 8.69,
+      "sma200_dist": 8.51,
       "cambios": {
         "7D": 3.29,
         "1M": 5.27,
@@ -624,11 +624,11 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 15.79,
-      "cambio_pct": 4.36,
+      "precio": 15.8,
+      "cambio_pct": 4.43,
       "rsi": 49.2,
       "sma200": 18.46,
-      "sma200_dist": -14.47,
+      "sma200_dist": -14.41,
       "cambios": {
         "7D": 4.21,
         "1M": -14.8,
@@ -1164,7 +1164,7 @@
     },
     "entrando": [],
     "saliendo": [],
-    "dispersion": 0.9373,
+    "dispersion": 0.9613,
     "dia_rojo": [],
     "diagnostico": [
       "Rotación saludable fuera de las mega-caps hacia la economía real (financieros, industriales, materiales, energía)."
@@ -1576,5 +1576,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-24T14:42:27.226081+00:00"
+  "generado": "2026-08-24T14:49:49.660350+00:00"
 }
