@@ -6624,3 +6624,155 @@ class TestDriftEnLaRuta:
         dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
         assert dr["buckets"] == []
         assert "mensuales" in dr["motivo"]
+
+
+class TestLosPlazosDeDriftMidenSuPropiaVOLATILIDAD:
+    """«Sale todo un 0% de probabilidad que lo toque.» — Kevin, 23/08/2026.
+
+    Y solo a tres y cuatro meses; el año iba bien. La causa no estaba ni en
+    Drift ni en el agente: `estimate_iv` mide **21 sesiones** —lo correcto para
+    los horizontes del motor, 10/20/30— y esa misma cifra se estaba usando para
+    proyectar 92 y 119 días. La volatilidad de un mes no es la de un trimestre.
+
+    Medido con su caso (spot $216,63, IV de 21 sesiones 0,40, muro de calls de
+    Drift en $380):
+
+        · a  92 días el cono de 2σ llegaba a $324: el muro quedaba FUERA y su
+          probabilidad salía 0,37%, que la pantalla escribía como «0%».
+        · a 392 días el cono llega a $496, el muro cae dentro y sale 11,8%.
+
+    De ahí que el año funcionara y los otros dos no.
+    """
+
+    @staticmethod
+    def _serie_con_dos_regimenes():
+        """Calma el último mes, tormenta antes. Sin esa diferencia el caso no
+        mide nada: las dos ventanas darían lo mismo y pasaría con el arreglo
+        apagado."""
+        import math
+        import random
+
+        random.seed(7)
+        cierres, px = [], 150.0
+        for i in range(400):
+            px *= math.exp(random.gauss(0, 0.010 if i > 375 else 0.030))
+            cierres.append(px)
+        return cierres
+
+    def test_la_ventana_larga_ve_lo_que_la_de_21_sesiones_no(self):
+        import vertex_api as V
+        from wbj.tito.gex import estimate_iv
+
+        c = self._serie_con_dos_regimenes()
+        corta = estimate_iv(c)
+        larga = V._iv_del_plazo(c, 92, corta)
+        assert larga > corta * 1.5, (
+            f"la ventana del plazo ({larga:.3f}) no se separa de la del motor "
+            f"({corta:.3f}): el caso no está midiendo la diferencia")
+
+    def test_y_eso_saca_la_probabilidad_del_CERO(self):
+        """El síntoma exacto que vio Kevin, medido de punta a punta."""
+        import vertex_api as V
+        from wbj.tito.expected_move import prob_touch
+        from wbj.tito.gex import estimate_iv
+
+        c = self._serie_con_dos_regimenes()
+        spot, corta = c[-1], estimate_iv(c)
+        muro = spot * 1.55
+        antes = prob_touch(spot, muro, corta, 92)
+        ahora = prob_touch(spot, muro, V._iv_del_plazo(c, 92, corta), 92)
+        assert round(antes * 100) == 0, "el escenario ya no reproduce el «0%»"
+        assert ahora > 0.01, f"sigue pegada al cero: {ahora}"
+
+    def test_SIN_historia_suficiente_se_usa_la_del_motor(self):
+        """No se inventa una volatilidad con cuatro velas: con menos ventana
+        que las 21 del motor, la medida sería peor que la que ya había."""
+        import vertex_api as V
+
+        c = self._serie_con_dos_regimenes()[-30:]
+        assert V._iv_del_plazo(c, 92, 0.33) == 0.33
+
+    def test_ni_con_un_plazo_invalido(self):
+        import vertex_api as V
+
+        assert V._iv_del_plazo(self._serie_con_dos_regimenes(), 0, 0.33) == 0.33
+
+    def test_los_topes_son_los_MISMOS_que_los_del_motor(self):
+        """Una volatilidad de 0 colapsa el cono a una línea —y «nunca una sola
+        línea» es la regla de visualización nº1—; una de 400% lo hace inútil."""
+        import vertex_api as V
+
+        plana = [100.0] * 400
+        assert V._iv_del_plazo(plana, 92, 0.4) == 0.05
+
+    def test_SOLO_tocan_los_plazos_de_tres_y_cuatro_meses(self):
+        """«Solo los 3 meses y 4 meses.»
+
+        El de 320 comparte el mismo desajuste, pero a ese plazo el cono ya es
+        tan ancho que los muros caen dentro y las probabilidades salen bien.
+        Cambiarlo movería números que hoy funcionan sin que nadie lo pidiera.
+        """
+        import vertex_api as V
+
+        assert V._DRIFT_IV_PROPIA == (90, 120)
+
+    def test_y_el_AGENTE_no_se_toca(self):
+        """10, 20 y 30 días siguen con `estimate_iv` tal cual. Es la condición
+        que puso Kevin: arreglar los plazos largos sin mover el agente."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._tito_targets_drift)
+        assert "_DRIFT_IV_PROPIA" in fuente
+        # La IV del motor sigue siendo la de partida y el respaldo.
+        assert "_iv_del_plazo(cierres or [], dias, iv)" in fuente
+        # Y `estimate_iv` no se ha tocado: es el port literal del suyo.
+        from wbj.tito.gex import estimate_iv
+        assert "[-22:]" in inspect.getsource(estimate_iv)
+
+    def test_el_cono_de_la_grafica_usa_LA_MISMA_iv_que_los_targets(self):
+        """Dibujarlo con otra era la contradicción que se veía: el número decía
+        una cosa y la gráfica otra, en la misma pantalla."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._tito_geometria_drift)
+        assert 'iv_h = float(t.get("iv_usada") or 0) or iv' in fuente
+        assert "cone_points(spot, iv_h, dias" in fuente
+        assert "prediction_path(spot, float(objetivo), iv_h, dias" in fuente
+
+    def test_se_PUBLICA_con_que_volatilidad_se_calculo_cada_plazo(self):
+        """Sin decirlo, dos horizontes con conos de anchura distinta parecerían
+        un error de cálculo."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._tito_targets_drift)
+        assert '"iv_usada"' in fuente and '"iv_ventana"' in fuente
+
+
+class TestUnaProbabilidadQueNoEsCeroNoSeEscribeCERO:
+    """`Math.round(0.004 * 100)` es 0, y «0%» al lado de un nivel dice que es
+    imposible llegar. No lo es: es poco probable, que es otra cosa."""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_existe_el_ayudante(self, html):
+        assert "function vcToque(p)" in html
+
+    def test_lo_usan_LOS_DOS_sitios_que_pintan_el_toque(self, html):
+        """La gráfica y las tarjetas. Arreglar uno solo dejaba los dos números
+        de la misma pantalla diciendo cosas distintas."""
+        assert html.count("vcToque(") >= 3          # la función + los dos usos
+        assert "Math.round(c.probability * 100)" not in html
+        assert "Math.round(s.probability * 100)" not in html
+
+    def test_un_cero_de_VERDAD_sigue_diciendo_cero(self, html):
+        """Cuando el motor no pudo calcularla no hay número que redondear."""
+        i = html.index("function vcToque(p)")
+        assert "if (pc <= 0) return '0%';" in html[i:i + 700]

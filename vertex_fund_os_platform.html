@@ -6426,6 +6426,24 @@ function vcMovEsperadoHTML(geo, sigma1, sigma2, spot, horizon) {
  *  El nombre lleva `Proj` porque el área de research ya tiene su propio
  *  `renderVictorChart(hostId)`; sin el sufijo esta declaración lo pisaba
  *  (misma global, hoisting) y las gráficas de Quant/Research reventaban. */
+/** Una probabilidad de toque, en palabras que no mienten.
+ *
+ *  `Math.round(0.004 * 100)` es 0, y escribir «0%» al lado de un nivel dice
+ *  que es imposible llegar. No lo es: es poco probable, que es otra cosa. Es
+ *  lo que Kevin vio en los plazos de 3 y 4 meses, donde los muros de Drift
+ *  quedaban lejos y todas las probabilidades se redondeaban a cero.
+ *
+ *  Cero de verdad —cuando el motor no pudo calcularla— sí se dice como cero,
+ *  porque ahí no hay número que redondear.
+ */
+function vcToque(p) {
+    if (p == null || !isFinite(p)) return '—';
+    const pc = p * 100;
+    if (pc <= 0) return '0%';
+    if (pc < 1) return '<1%';
+    return Math.round(pc) + '%';
+}
+
 function renderVictorProjChart(containerId, d, horizon) {
     const cont = document.getElementById(containerId);
     if (!cont) return;
@@ -6581,7 +6599,7 @@ function renderVictorProjChart(containerId, d, horizon) {
         }
         parts.push(`<rect x="${x}" y="${c.y - h / 2}" width="${VC.PADDING.right - 15}" height="${h}" rx="5" fill="${c.color}" opacity="0.14"/>`);
         parts.push(`<text x="${x + 6}" y="${c.y - 3}" font-size="10.5" font-weight="700" fill="${c.color}">${c.label} $${Number(c.target).toFixed(2)}</text>`);
-        parts.push(`<text x="${x + 6}" y="${c.y + 9}" font-size="8.5" fill="${C.axis}">${(c.change_pct >= 0 ? '+' : '') + Number(c.change_pct).toFixed(1)}% · toque ${Math.round(c.probability * 100)}%</text>`);
+        parts.push(`<text x="${x + 6}" y="${c.y + 9}" font-size="8.5" fill="${C.axis}">${(c.change_pct >= 0 ? '+' : '') + Number(c.change_pct).toFixed(1)}% · toque ${vcToque(c.probability)}</text>`);
     }
 
     cont.innerHTML = `<svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" style="display:block">${parts.join('')}</svg>`
@@ -7527,6 +7545,7 @@ function renderVictorTargets(d) {
     const avisoDrift = !esDrift ? '' :
         `<div class="bg-sky-500/10 border border-sky-500/30 rounded-xl p-3 mb-2">
            <p class="text-[11px] font-black text-sky-300"><span>Niveles de Drift</span> &middot; <span>vencimiento</span> <b>${_vcEsc(p.vencimiento || '')}</b> (<b>${p.dte_real} DTE</b>)</p>
+           ${p.iv_usada == null ? '' : `<p class="text-[10px] text-sky-200/70 mt-0.5"><span>Volatilidad usada:</span> <b>${(p.iv_usada * 100).toFixed(0)}%</b> &mdash; <span>${_vcEsc(p.iv_ventana || '')}</span><span>. Es lo que decide el ancho del cono y si un nivel es alcanzable.</span></p>`}
            <p class="text-[10px] text-sky-200/80 mt-1 leading-snug">${
              [['Muro de puts', p.muro_puts, 'muro de puts'],
               ['im\u00e1n', p.iman, 'im\u00e1n'],
@@ -7572,7 +7591,7 @@ function renderVictorTargets(d) {
     const card = (s, name, col, clave) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
         <p class="text-[10px] uppercase font-bold mb-1 ${col}">${name}</p>
         <p class="text-lg font-black text-white">$${Number(s.target).toFixed(2)}</p>
-        <p class="text-[9px] ${s.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}">${(s.change_pct >= 0 ? '+' : '') + Number(s.change_pct).toFixed(1)}% · toque ${Math.round(s.probability * 100)}%</p>
+        <p class="text-[9px] ${s.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}">${(s.change_pct >= 0 ? '+' : '') + Number(s.change_pct).toFixed(1)}% · toque ${vcToque(s.probability)}</p>
         ${_recortado(clave) ? `<p class="text-[8px] text-amber-400 mt-0.5" title="El escenario pedía más de lo que la volatilidad da a este plazo: el target se topó en el borde del cono de 2σ.">recortado al cono 2&sigma;</p>` : ''}
         <p class="text-[8px] text-gray-500 mt-1 leading-tight">${_vcEsc(s.driver)}</p>
         <p class="text-[8px] text-gray-600 mt-0.5">a ${h} días</p></div>`;
@@ -14833,6 +14852,10 @@ const VX_ES2EN = {
     "4 meses": "4 months",
     "1 año": "1 year",
     "Niveles de Drift": "Drift levels",
+    "Volatilidad usada:": "Volatility used:",
+    "la de este plazo": "the one measured over this horizon",
+    "la del motor": "the engine's",
+    ". Es lo que decide el ancho del cono y si un nivel es alcanzable.": ". It is what sets the width of the cone and whether a level is reachable.",
     "Ese base tiene solo un": "That base has only a",
     "de probabilidad de tocarse. La confianza mide la nitidez del mapa y el acierto histórico, no que el precio vaya a llegar: para decidir un contrato manda esta probabilidad.":
         "chance of being touched. Confidence measures how sharp the map is and the historical hit rate, not that price will get there: for choosing a contract, this probability is what rules.",

@@ -4635,7 +4635,8 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     out["drift"] = _tito_drift(chain or [], r, now)
     # Los targets a 90/120/320 días. La matemática del agente sin tocar; lo
     # único distinto son los niveles, que ahí son los TRES de Drift.
-    out["targets_drift"] = _tito_targets_drift(r, out["drift"])
+    out["targets_drift"] = _tito_targets_drift(
+        r, out["drift"], [b.close for b in bars])
     _geo_drift = _tito_geometria_drift(r, out["targets_drift"])
     # El spot no salió de una sesión en curso sino del cierre anterior. Va al
     # payload SIEMPRE que sea así, porque el spot ancla los nodos del GEX, la
@@ -4933,7 +4934,59 @@ def _tito_drift(chain, r, now):
     }
 
 
-def _tito_targets_drift(r, drift):
+#: Los plazos de Drift a los que se les mide la volatilidad de SU ventana.
+#:
+#: Solo 90 y 120 —«solo los 3 meses y 4 meses», dijo Kevin—. El de 320 se deja
+#: exactamente como estaba: comparte el mismo desajuste, pero a ese plazo el
+#: cono ya es tan ancho que los muros caen dentro y las probabilidades salen
+#: bien, así que cambiarlo movería números que hoy funcionan sin que nadie lo
+#: haya pedido. Queda declarado aquí, no escondido.
+_DRIFT_IV_PROPIA = (90, 120)
+
+
+def _iv_del_plazo(cierres, dias: int, por_defecto: float) -> float:
+    """Volatilidad realizada medida sobre una ventana COMPARABLE al plazo.
+
+    El motor estima la IV con `estimate_iv`, que mira **21 sesiones**. Para sus
+    horizontes —10, 20 y 30 días— eso es lo correcto y no se toca. Pero esa
+    misma cifra se estaba usando para proyectar 92 y 119 días, y la volatilidad
+    de un mes no es la de un trimestre.
+
+    Lo que hacía en pantalla, medido con el caso real de Kevin (spot $216,63,
+    IV de 21 sesiones 0,40, muro de calls de Drift en $380):
+
+        · a 92 días el cono de 2σ llegaba a $324. El muro quedaba FUERA, y su
+          probabilidad de toque salía 0,37% → la pantalla escribía «0%».
+        · a 392 días el cono llega a $496, el muro cae dentro y sale 11,8%.
+
+    De ahí que el año funcionara y los tres y cuatro meses no. No era un fallo
+    de Drift ni del agente: era la volatilidad de una ventana aplicada a otra.
+
+    La ventana se toma proporcional al plazo (252 sesiones al año) y nunca más
+    corta que las 21 del motor: con menos historia que eso, la medida es peor
+    que la que ya había. Si no hay suficiente, se devuelve la del motor y no se
+    inventa nada.
+    """
+    import math as _m
+
+    if dias <= 0:
+        return por_defecto
+    ventana = max(22, int(round(dias * 252 / 365)) + 1)
+    c = [float(x) for x in cierres if isinstance(x, (int, float)) and x > 0]
+    if len(c) < ventana:
+        return por_defecto                       # sin historia: la del motor
+    c = c[-ventana:]
+    rets = [_m.log(b / a) for a, b in zip(c, c[1:])]
+    if len(rets) < 3:
+        return por_defecto
+    media = sum(rets) / len(rets)
+    var = sum((x - media) ** 2 for x in rets) / (len(rets) - 1)
+    # Los mismos topes que `estimate_iv`: una volatilidad de 0 colapsa el cono
+    # a una línea y una de 400% lo hace inútil.
+    return min(3.0, max(0.05, _m.sqrt(var) * _m.sqrt(252)))
+
+
+def _tito_targets_drift(r, drift, cierres=None):
     """Los targets a 90/120/320 días, con los niveles de Drift.
 
     **Qué cambia y qué NO.** Lo que pidió Kevin, literal: «en los targets
@@ -5029,8 +5082,13 @@ def _tito_targets_drift(r, drift):
         dias = int(b.get("dte_real") or 0)
         if dias <= 0:
             continue
+        # La volatilidad de SU ventana, no la de 21 sesiones del motor. Solo
+        # para los plazos declarados en `_DRIFT_IV_PROPIA`; el resto sigue
+        # exactamente como estaba.
+        iv_b = (_iv_del_plazo(cierres or [], dias, iv)
+                if int(b.get("dte_objetivo") or 0) in _DRIFT_IV_PROPIA else iv)
         try:
-            p = predict_pro(spot=r.spot, iv=iv, horizon_days=dias, nodes=niveles,
+            p = predict_pro(spot=r.spot, iv=iv_b, horizon_days=dias, nodes=niveles,
                             scores=sub, regime=r.gex.regime,
                             callvpct=_tito_call_pct(r),
                             hit_rate=_hit.get("value"),
@@ -5039,7 +5097,7 @@ def _tito_targets_drift(r, drift):
         except Exception:                  # noqa: BLE001 — ilustra, no decide
             continue
         # Los tres escenarios SON los tres niveles de Drift.
-        _esc = _tito_escenarios_drift(b, r.spot, iv, dias)
+        _esc = _tito_escenarios_drift(b, r.spot, iv_b, dias)
         _e = lambda s: {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
                         "probability": _r(s.probability, 3), "driver": s.driver,
                         "fuera_del_cono": False}
@@ -5056,6 +5114,11 @@ def _tito_targets_drift(r, drift):
             # De dónde salieron los niveles y sobre qué contrato. Sin esto, un
             # target a 320 días parecería salir del mismo sitio que el de 20.
             "niveles_de": "drift",
+            # Con qué volatilidad se calculó ESTE plazo. Sin decirlo, dos
+            # horizontes con conos de anchura distinta parecerían un error.
+            "iv_usada": _r(iv_b, 4),
+            "iv_ventana": ("la de este plazo"
+                           if abs(iv_b - iv) > 1e-9 else "la del motor"),
             # Con TRES niveles —y solo tres, que es lo que se pidió— los
             # escenarios pueden colapsar: si el imán coincide con uno de los
             # muros, no queda nivel por ese lado y el bajista sale igual que
@@ -5250,14 +5313,18 @@ def _tito_geometria_drift(r, targets):
         dias = float(t.get("dte_real") or 0)
         if dias <= 0:
             continue
+        # LA MISMA volatilidad con la que se calcularon los targets de este
+        # plazo. Dibujar el cono con otra era la contradicción que Kevin veía:
+        # el número decía una cosa y la gráfica otra, sobre la misma pantalla.
+        iv_h = float(t.get("iv_usada") or 0) or iv
         try:
-            cono = cone_points(spot, iv, dias, _CONO_STEPS)
+            cono = cone_points(spot, iv_h, dias, _CONO_STEPS)
             rutas = {}
             for clave, seed in _ESCENARIOS:
                 objetivo = (t.get(clave) or {}).get("target")
                 if objetivo is None:
                     continue
-                ruta = prediction_path(spot, float(objetivo), iv, dias, _RUTA_STEPS)
+                ruta = prediction_path(spot, float(objetivo), iv_h, dias, _RUTA_STEPS)
                 rutas[clave] = {
                     "seed": seed, "target": round(ruta.target, 4),
                     "clamped": bool(ruta.clamped),
