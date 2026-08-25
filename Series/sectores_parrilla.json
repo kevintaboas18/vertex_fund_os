@@ -151,11 +151,11 @@
     {
       "ticker": "XLK",
       "nombre": "Tecnología",
-      "precio": 181.78,
-      "cambio_pct": 0.96,
+      "precio": 181.74,
+      "cambio_pct": 0.94,
       "rsi": 47.5,
       "sma200": 158.73,
-      "sma200_dist": 14.52,
+      "sma200_dist": 14.5,
       "cambios": {
         "7D": -2.09,
         "1M": 4.27,
@@ -452,11 +452,11 @@
     {
       "ticker": "XLE",
       "nombre": "Energía",
-      "precio": 62.07,
-      "cambio_pct": -1.65,
+      "precio": 62.06,
+      "cambio_pct": -1.66,
       "rsi": 59.5,
       "sma200": 54.09,
-      "sma200_dist": 14.76,
+      "sma200_dist": 14.74,
       "cambios": {
         "7D": -2.54,
         "1M": 6.34,
@@ -466,27 +466,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 25607421,
+          "medio": 25609607,
           "relativo": 0.83,
           "respalda": false
         },
         "1M": {
-          "medio": 26318156,
+          "medio": 26318676,
           "relativo": 0.85,
           "respalda": false
         },
         "3M": {
-          "medio": 31381743,
+          "medio": 31381916,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 42225306,
+          "medio": 42225393,
           "relativo": 1.37,
           "respalda": true
         },
         "1A": {
-          "medio": 39231455,
+          "medio": 39231499,
           "relativo": 1.27,
           "respalda": true
         }
@@ -630,11 +630,11 @@
       "sma200": 18.45,
       "sma200_dist": -16.2,
       "cambios": {
-        "7D": -2.4,
-        "1M": -17.19,
-        "3M": -9.11,
-        "6M": -20.92,
-        "1A": 8.72
+        "7D": -2.46,
+        "1M": -17.25,
+        "3M": -9.17,
+        "6M": -20.97,
+        "1A": 8.65
       },
       "volumen": {
         "7D": {
@@ -820,7 +820,7 @@
         "cuadrante": "weakening",
         "fuerza": 4.435,
         "impulso": -2.348,
-        "volumen_rel": 1.0435,
+        "volumen_rel": 1.0439,
         "flujo": null,
         "roc_5": -2.348,
         "roc_20": 4.2735,
@@ -1165,7 +1165,7 @@
     },
     "entrando": [],
     "saliendo": [],
-    "dispersion": 0.7191,
+    "dispersion": 0.7185,
     "dia_rojo": [],
     "diagnostico": [
       "Rotación saludable fuera de las mega-caps hacia la economía real (financieros, industriales, materiales, energía).",
@@ -1560,5 +1560,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-25T22:03:58.921036+00:00"
+  "generado": "2026-08-25T22:33:15.588455+00:00"
 }
