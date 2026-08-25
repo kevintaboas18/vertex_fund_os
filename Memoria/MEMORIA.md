@@ -8,6 +8,7 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [AMZN](tesis/AMZN.md) | 2026-08-18 | DESFAVORABLE | 45 | acciones |
 | [APH](tesis/APH.md) | 2026-08-13 | ESPECULATIVO | 56 | acciones |
 | [GOOGL](tesis/GOOGL.md) | 2026-08-25 | Oportunidad Moderada | 60 | opciones |
+| [GOOG](tesis/GOOG.md) | 2026-08-25 | Oportunidad Moderada | 60 | opciones |
 | [META](tesis/META.md) | 2026-08-16 | ESPECULATIVO | 50 | acciones |
 | [MSFT](tesis/MSFT.md) | 2026-08-18 | ESPECULATIVO | 56 | acciones |
 | [NBIS](tesis/NBIS.md) | 2026-08-24 | DESFAVORABLE | 26 | acciones |
