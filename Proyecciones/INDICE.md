@@ -2,7 +2,7 @@
 
 Scorecard de flujo 0-100: 6 sub-agentes sobre la cadena de opciones y la cinta, con escenarios a 10 / 20 / 30 días.
 
-Generado por `vertex_archivo.reconstruye_indice` · 107 análisis · 2026-08-25 13:31 UTC
+Generado por `vertex_archivo.reconstruye_indice` · 107 análisis · 2026-08-25 13:34 UTC
 
 | Fecha | Ticker | Veredicto | Archivo |
 |---|---|---|---|
