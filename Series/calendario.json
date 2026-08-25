@@ -8,7 +8,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 101186807040.0,
+        "cap": 100210279950.0,
         "nombre": "Intuit Inc."
       },
       {
@@ -17,7 +17,7 @@
         "sector": "XLI",
         "sector_nombre": "Industrial",
         "cuando": null,
-        "cap": 49133868019.0,
+        "cap": 49469628424.0,
         "nombre": "HEICO Corporation"
       },
       {
@@ -26,7 +26,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 30739533937.0,
+        "cap": 30575323892.0,
         "nombre": "Zoom Communications, Inc."
       },
       {
@@ -35,7 +35,7 @@
         "sector": "XLY",
         "sector_nombre": "Consumo discrecional",
         "cuando": null,
-        "cap": 15320797266.0,
+        "cap": 11873553806.0,
         "nombre": "DICK'S Sporting Goods, Inc."
       },
       {
@@ -44,7 +44,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 11262907723.0,
+        "cap": 11800948869.0,
         "nombre": "Semtech Corporation"
       },
       {
@@ -53,7 +53,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 5049594080000.0,
+        "cap": 5139647758000.0,
         "nombre": "NVIDIA Corporation"
       },
       {
@@ -62,7 +62,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 194161679510.0,
+        "cap": 194273688031.0,
         "nombre": "CrowdStrike Holdings, Inc."
       },
       {
@@ -71,7 +71,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 171220140000.0,
+        "cap": 171056340000.0,
         "nombre": "Salesforce, Inc."
       },
       {
@@ -80,7 +80,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 75540508506.0,
+        "cap": 76778422342.0,
         "nombre": "Synopsys, Inc."
       },
       {
@@ -89,7 +89,7 @@
         "sector": "XLV",
         "sector_nombre": "Salud",
         "cuando": null,
-        "cap": 43333541760.0,
+        "cap": 43542541440.0,
         "nombre": "Agilent Technologies, Inc."
       },
       {
@@ -98,7 +98,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 40360660082.0,
+        "cap": 39935058659.0,
         "nombre": "Veeva Systems Inc."
       },
       {
@@ -107,7 +107,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 33400054400.0,
+        "cap": 34505301025.0,
         "nombre": "Everpure, Inc."
       },
       {
@@ -116,7 +116,7 @@
         "sector": "XLY",
         "sector_nombre": "Consumo discrecional",
         "cuando": null,
-        "cap": 28003676494.0,
+        "cap": 27718729696.0,
         "nombre": "Williams-Sonoma, Inc."
       },
       {
@@ -125,7 +125,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 26137067340.0,
+        "cap": 26713216830.0,
         "nombre": "HP Inc."
       },
       {
@@ -134,7 +134,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 21756736400.0,
+        "cap": 21811556000.0,
         "nombre": "Okta, Inc."
       },
       {
@@ -143,7 +143,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 18024937600.0,
+        "cap": 18111440000.0,
         "nombre": "Nutanix, Inc."
       },
       {
@@ -152,7 +152,7 @@
         "sector": "XLP",
         "sector_nombre": "Consumo básico",
         "cuando": null,
-        "cap": 13453072450.0,
+        "cap": 13360086250.0,
         "nombre": "The J. M. Smucker Company"
       },
       {
@@ -161,7 +161,7 @@
         "sector": "XLI",
         "sector_nombre": "Industrial",
         "cuando": null,
-        "cap": 11440499925.0,
+        "cap": 11436895845.0,
         "nombre": "Dycom Industries, Inc."
       },
       {
@@ -170,7 +170,7 @@
         "sector": "XLI",
         "sector_nombre": "Industrial",
         "cuando": null,
-        "cap": 10713653730.0,
+        "cap": 10755961245.0,
         "nombre": "Donaldson Company, Inc."
       },
       {
@@ -179,7 +179,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 200804386140.0,
+        "cap": 214869188100.0,
         "nombre": "Marvell Technology, Inc."
       },
       {
@@ -188,7 +188,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 53719574759.0,
+        "cap": 53478235738.0,
         "nombre": "Autodesk, Inc."
       },
       {
@@ -197,7 +197,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 52165770609.0,
+        "cap": 51856678923.0,
         "nombre": "Workday, Inc."
       },
       {
@@ -206,17 +206,8 @@
         "sector": "XLP",
         "sector_nombre": "Consumo básico",
         "cuando": null,
-        "cap": 27646124469.0,
+        "cap": 27224803973.0,
         "nombre": "Dollar General Corporation"
-      },
-      {
-        "ticker": "DLTR",
-        "fecha": "2026-08-27",
-        "sector": "XLP",
-        "sector_nombre": "Consumo básico",
-        "cuando": null,
-        "cap": 26279931250.0,
-        "nombre": "Dollar Tree, Inc."
       },
       {
         "ticker": "AFRM",
@@ -224,8 +215,17 @@
         "sector": "XLF",
         "sector_nombre": "Financiero",
         "cuando": null,
-        "cap": 25747000985.0,
+        "cap": 25715788440.0,
         "nombre": "Affirm Holdings, Inc."
+      },
+      {
+        "ticker": "DLTR",
+        "fecha": "2026-08-27",
+        "sector": "XLP",
+        "sector_nombre": "Consumo básico",
+        "cuando": null,
+        "cap": 25638066750.0,
+        "nombre": "Dollar Tree, Inc."
       },
       {
         "ticker": "ULTA",
@@ -233,7 +233,7 @@
         "sector": "XLY",
         "sector_nombre": "Consumo discrecional",
         "cuando": null,
-        "cap": 23160921194.0,
+        "cap": 22802463422.0,
         "nombre": "Ulta Beauty, Inc."
       },
       {
@@ -242,7 +242,7 @@
         "sector": "XLY",
         "sector_nombre": "Consumo discrecional",
         "cuando": null,
-        "cap": 20811209008.0,
+        "cap": 20459362110.0,
         "nombre": "Burlington Stores, Inc."
       },
       {
@@ -251,7 +251,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 20179234472.0,
+        "cap": 20098962119.0,
         "nombre": "Rubrik, Inc."
       },
       {
@@ -260,7 +260,7 @@
         "sector": "XLY",
         "sector_nombre": "Consumo discrecional",
         "cuando": null,
-        "cap": 18437897160.0,
+        "cap": 18275606570.0,
         "nombre": "Best Buy Co., Inc."
       },
       {
@@ -269,7 +269,7 @@
         "sector": "XLP",
         "sector_nombre": "Consumo básico",
         "cuando": null,
-        "cap": 13254336775.0,
+        "cap": 13042465500.0,
         "nombre": "Hormel Foods Corporation"
       },
       {
@@ -278,7 +278,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 287633943338.0,
+        "cap": 298073244733.0,
         "nombre": "Dell Technologies Inc."
       },
       {
@@ -287,7 +287,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 285983500000.0,
+        "cap": 285258150000.0,
         "nombre": "Palo Alto Networks, Inc."
       },
       {
@@ -296,7 +296,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 32389132684.0,
+        "cap": 32946525938.0,
         "nombre": "MongoDB, Inc."
       },
       {
@@ -305,7 +305,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 1706829400800.0,
+        "cap": 1719222849124.0,
         "nombre": "Broadcom Inc."
       },
       {
@@ -314,7 +314,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 111875548000.0,
+        "cap": 111651991000.0,
         "nombre": "Snowflake Inc."
       },
       {
@@ -323,7 +323,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 69441232641.0,
+        "cap": 71449652122.0,
         "nombre": "Hewlett Packard Enterprise Company"
       },
       {
@@ -332,7 +332,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 36668285240.0,
+        "cap": 37189286510.0,
         "nombre": "NetApp, Inc."
       },
       {
@@ -341,7 +341,7 @@
         "sector": "XLY",
         "sector_nombre": "Consumo discrecional",
         "cuando": null,
-        "cap": 14527194615.0,
+        "cap": 14240211743.0,
         "nombre": "Five Below, Inc."
       },
       {
@@ -350,7 +350,7 @@
         "sector": "XLP",
         "sector_nombre": "Consumo básico",
         "cuando": null,
-        "cap": 13407337043.0,
+        "cap": 13178829385.0,
         "nombre": "Brown-Forman Corporation"
       },
       {
@@ -359,7 +359,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 52650609338.0,
+        "cap": 54049152207.0,
         "nombre": "Ciena Corporation"
       },
       {
@@ -368,7 +368,7 @@
         "sector": "XLI",
         "sector_nombre": "Industrial",
         "cuando": null,
-        "cap": 30792489891.0,
+        "cap": 30033324476.0,
         "nombre": "Copart, Inc."
       },
       {
@@ -377,7 +377,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 28470578972.0,
+        "cap": 28414627476.0,
         "nombre": "Zscaler, Inc."
       },
       {
@@ -386,7 +386,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 23272722240.0,
+        "cap": 23269836953.0,
         "nombre": "Samsara Inc."
       },
       {
@@ -395,7 +395,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 15976070596.0,
+        "cap": 15940270344.0,
         "nombre": "Guidewire Software, Inc."
       },
       {
@@ -404,7 +404,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 11945519200.0,
+        "cap": 11876779000.0,
         "nombre": "DocuSign, Inc."
       },
       {
@@ -413,7 +413,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 410294146800.0,
+        "cap": 419671516885.0,
         "nombre": "Oracle Corporation"
       },
       {
@@ -422,7 +422,7 @@
         "sector": "XLY",
         "sector_nombre": "Consumo discrecional",
         "cuando": null,
-        "cap": 31609955629.0,
+        "cap": 31730221554.0,
         "nombre": "Casey's General Stores, Inc."
       },
       {
@@ -431,14 +431,14 @@
         "sector": "XLI",
         "sector_nombre": "Industrial",
         "cuando": null,
-        "cap": 19625553905.0,
+        "cap": 19488010572.0,
         "nombre": "FedEx Freight Holding Company, Inc."
       }
     ],
     "motivo": "",
     "recortadas": 0,
     "umbral": 10000000000.0,
-    "fuera": 1590,
+    "fuera": 1634,
     "medida": true,
     "motivo_tamano": ""
   },
@@ -458,11 +458,37 @@
         "bueno": false
       },
       {
+        "evento": "Core CPI YoY (Jul)",
+        "fecha": "2026-08-12 12:30",
+        "salio": 2.5,
+        "esperado": 2.5,
+        "anterior": 2.6,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
         "evento": "CPI YoY (Jul)",
         "fecha": "2026-08-12 12:30",
         "salio": 3.4,
         "esperado": 3.4,
         "anterior": 3.5,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
+        "evento": "Core Inflation Rate YoY (Jul)",
+        "fecha": "2026-08-12 12:30",
+        "salio": 2.5,
+        "esperado": 2.5,
+        "anterior": 2.6,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
@@ -484,32 +510,6 @@
         "bueno": null
       },
       {
-        "evento": "Core CPI YoY (Jul)",
-        "fecha": "2026-08-12 12:30",
-        "salio": 2.5,
-        "esperado": 2.5,
-        "anterior": 2.6,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
-        "evento": "Core Inflation Rate YoY (Jul)",
-        "fecha": "2026-08-12 12:30",
-        "salio": 2.5,
-        "esperado": 2.5,
-        "anterior": 2.6,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
         "evento": "Unemployment Rate (Jul)",
         "fecha": "2026-08-07 12:30",
         "salio": 4.1,
@@ -523,19 +523,6 @@
         "bueno": true
       },
       {
-        "evento": "Nonfarm Payrolls Private (Jul)",
-        "fecha": "2026-08-07 12:30",
-        "salio": 30.0,
-        "esperado": 78.0,
-        "anterior": 30.0,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 1,
-        "mejor": "alto",
-        "sorpresa": -48.0,
-        "bueno": false
-      },
-      {
         "evento": "Non Farm Payrolls (Jul)",
         "fecha": "2026-08-07 12:30",
         "salio": -23.0,
@@ -546,6 +533,19 @@
         "nivel": 1,
         "mejor": "alto",
         "sorpresa": -103.0,
+        "bueno": false
+      },
+      {
+        "evento": "Nonfarm Payrolls Private (Jul)",
+        "fecha": "2026-08-07 12:30",
+        "salio": 30.0,
+        "esperado": 78.0,
+        "anterior": 30.0,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "alto",
+        "sorpresa": -48.0,
         "bueno": false
       }
     ],
@@ -667,5 +667,5 @@
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-25T12:56:35.293720+00:00"
+  "generado": "2026-08-25T13:41:09.105032+00:00"
 }
