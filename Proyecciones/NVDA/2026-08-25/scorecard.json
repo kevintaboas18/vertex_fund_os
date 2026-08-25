@@ -1011,11 +1011,11 @@
   "subagents": {
     "aggression": {
       "score": 4.0,
-      "ratio": 0.3616,
-      "premium_ask": 22489824.0,
-      "premium_bid": 39702384.0,
+      "ratio": 0.3712,
+      "premium_ask": 23353824.0,
+      "premium_bid": 39561984.0,
       "premium_mid": 0,
-      "n": 239
+      "n": 243
     },
     "conviction": {
       "score": 6.0,
@@ -1225,6 +1225,86 @@
         }
       ],
       "outcomes": [
+        {
+          "id": 3340925569,
+          "timestamp": "2026-08-25T13:30:10.037Z",
+          "type": "call",
+          "strike": 100.0,
+          "expiration": "2027-03-19",
+          "premium": 113500,
+          "direction": "alcista",
+          "entry_price": 210.78,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
+        {
+          "id": 3340916245,
+          "timestamp": "2026-08-25T13:30:05.762Z",
+          "type": "call",
+          "strike": 220.0,
+          "expiration": "2026-09-04",
+          "premium": 128000,
+          "direction": "alcista",
+          "entry_price": 210.81,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
+        {
+          "id": 3340913353,
+          "timestamp": "2026-08-25T13:30:04.781Z",
+          "type": "call",
+          "strike": 165.0,
+          "expiration": "2026-12-18",
+          "premium": 517500,
+          "direction": "alcista",
+          "entry_price": 210.81,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
+        {
+          "id": 3340890542,
+          "timestamp": "2026-08-25T13:30:00.873Z",
+          "type": "call",
+          "strike": 205.0,
+          "expiration": "2026-08-31",
+          "premium": 105000,
+          "direction": "alcista",
+          "entry_price": 211.03,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
         {
           "id": 3340823504,
           "timestamp": "2026-08-24T19:59:44.658Z",
@@ -1644,92 +1724,12 @@
           "days_elapsed": 0,
           "validated": false,
           "resolved": false
-        },
-        {
-          "id": 3340787492,
-          "timestamp": "2026-08-24T19:58:49.327Z",
-          "type": "call",
-          "strike": 240.0,
-          "expiration": "2027-12-17",
-          "premium": 124200,
-          "direction": "alcista",
-          "entry_price": 208.51,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 0,
-          "validated": false,
-          "resolved": false
-        },
-        {
-          "id": 3340787491,
-          "timestamp": "2026-08-24T19:58:49.324Z",
-          "type": "call",
-          "strike": 240.0,
-          "expiration": "2027-12-17",
-          "premium": 124200,
-          "direction": "alcista",
-          "entry_price": 208.51,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 0,
-          "validated": false,
-          "resolved": false
-        },
-        {
-          "id": 3340787490,
-          "timestamp": "2026-08-24T19:58:49.322Z",
-          "type": "call",
-          "strike": 240.0,
-          "expiration": "2027-12-17",
-          "premium": 124200,
-          "direction": "alcista",
-          "entry_price": 208.51,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 0,
-          "validated": false,
-          "resolved": false
-        },
-        {
-          "id": 3340787489,
-          "timestamp": "2026-08-24T19:58:49.320Z",
-          "type": "call",
-          "strike": 240.0,
-          "expiration": "2027-12-17",
-          "premium": 124200,
-          "direction": "alcista",
-          "entry_price": 208.51,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 0,
-          "validated": false,
-          "resolved": false
         }
       ],
       "coverage": {
         "days": 46,
-        "flows": 1268,
-        "pending": 368,
+        "flows": 1271,
+        "pending": 371,
         "below_target": true
       }
     }
@@ -1960,7 +1960,7 @@
     "El backtest de Confirmación de Precio cubre 46 días; el documento pide 60. La tasa de acierto es provisional.",
     "Las bandas de puntos del sub-agente 6 (Confirmación de Precio) son una PROPUESTA: su PDF no trae tabla de puntuación."
   ],
-  "notable_trades": 239,
+  "notable_trades": 243,
   "conviction_trades": 692,
   "conviction_window": "30d",
   "top_flows": [
@@ -4271,8 +4271,19 @@
     "motivo": null,
     "evals": [
       {
-        "date": "2026-08-24",
+        "date": "2026-08-25",
         "horizon_days": 10,
+        "matured": false,
+        "spot": 208.48,
+        "base": 210.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-08-25",
+        "horizon_days": 20,
         "matured": false,
         "spot": 208.48,
         "base": 220.0,
@@ -4282,8 +4293,8 @@
         "direction_hit": null
       },
       {
-        "date": "2026-08-24",
-        "horizon_days": 20,
+        "date": "2026-08-25",
+        "horizon_days": 30,
         "matured": false,
         "spot": 208.48,
         "base": 220.0,
@@ -4388,17 +4399,6 @@
         "base": 225.0,
         "actual_close": 208.48,
         "error_pct": -7.37,
-        "best": "bear",
-        "direction_hit": null
-      },
-      {
-        "date": "2026-08-11",
-        "horizon_days": 30,
-        "matured": false,
-        "spot": 219.51,
-        "base": 220.0,
-        "actual_close": 208.48,
-        "error_pct": -5.25,
         "best": "bear",
         "direction_hit": null
       }
@@ -4622,16 +4622,16 @@
   "spot_previo": true,
   "flow_clusters": [
     {
-      "start_sec": 1787597399,
+      "start_sec": 1787597402,
       "end_sec": 1787601584,
-      "count": 239,
-      "premium": 62192208.0,
+      "count": 238,
+      "premium": 62051808.0,
       "direction": "bid",
       "score": 9.0,
-      "unidirectionality": 0.6384,
+      "unidirectionality": 0.6376,
       "bet": "bajista",
       "bet_label": "Vendieron CALLS",
-      "call_premium": 34074620.0,
+      "call_premium": 33934220.0,
       "put_premium": 28117588.0,
       "strikes": [
         50.0,
@@ -4674,6 +4674,25 @@
         450.0,
         460.0
       ]
+    },
+    {
+      "start_sec": 1787664600,
+      "end_sec": 1787664610,
+      "count": 4,
+      "premium": 864000.0,
+      "direction": "ask",
+      "score": 6.0,
+      "unidirectionality": 1.0,
+      "bet": "alcista",
+      "bet_label": "Compraron CALLS",
+      "call_premium": 864000.0,
+      "put_premium": 0,
+      "strikes": [
+        100.0,
+        165.0,
+        205.0,
+        220.0
+      ]
     }
   ],
   "company": {
@@ -4682,8 +4701,8 @@
     "exchange": "Nasdaq",
     "sector": "SEMICONDUCTORS & RELATED DEVICES",
     "price": 208.48,
-    "change": 2.64,
-    "change_percent": 1.27,
+    "change": 2.62,
+    "change_percent": 1.26,
     "market_cap": 5049594080000.0,
     "day_volume": 0,
     "day_low": 0.0,
@@ -4771,5 +4790,5 @@
   ],
   "fecha": "2026-08-25",
   "agente": "opciones",
-  "guardado_en": "2026-08-25T12:57:13+00:00"
+  "guardado_en": "2026-08-25T13:31:28+00:00"
 }
