@@ -14875,8 +14875,7 @@ const VX_ES2EN = {
     "1 año": "1 year",
     "Niveles de Drift": "Drift levels",
     "Volatilidad usada:": "Volatility used:",
-    "la de este plazo": "the one measured over this horizon",
-    "la del motor": "the engine's",
+    "la del motor, 21 sesiones": "the engine's, 21 sessions",
     ". Es lo que decide el ancho del cono y si un nivel es alcanzable.": ". It is what sets the width of the cone and whether a level is reachable.",
     "Ese base tiene solo un": "That base has only a",
     "de probabilidad de tocarse. La confianza mide la nitidez del mapa y el acierto histórico, no que el precio vaya a llegar: para decidir un contrato manda esta probabilidad.":
@@ -15068,6 +15067,14 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    // La ventana con la que se midio la volatilidad de un plazo de Drift.
+    // Lleva el numero de sesiones dentro, asi que no cabe en el diccionario.
+    // La de «faltan cierres» va PRIMERO: la otra es un prefijo suyo y, puesta
+    // antes, se la comeria y dejaria el aviso a medias en ingles.
+    [/^la del motor, 21 sesiones: faltan cierres para las (\d+) de este plazo$/,
+     'the engine, 21 sessions: not enough closes for the $1 this horizon needs'],
+    [/^la de este plazo, (\d+) sesiones$/,
+     'the one measured over this horizon, $1 sessions'],
     // ── DRIFT SENTIMENT ─────────────────────────────────────────────────
     //
     // Las frases del motor (`drift.py`) llevan strikes y días dentro, así que

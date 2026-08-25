@@ -4951,12 +4951,20 @@ def _tito_drift(chain, r, now):
 
 #: Los plazos de Drift a los que se les mide la volatilidad de SU ventana.
 #:
-#: Solo 90 y 120 —«solo los 3 meses y 4 meses», dijo Kevin—. El de 320 se deja
-#: exactamente como estaba: comparte el mismo desajuste, pero a ese plazo el
-#: cono ya es tan ancho que los muros caen dentro y las probabilidades salen
-#: bien, así que cambiarlo movería números que hoy funcionan sin que nadie lo
-#: haya pedido. Queda declarado aquí, no escondido.
-_DRIFT_IV_PROPIA = (90, 120)
+#: **Los tres largos.** Empezó siendo solo 90 y 120 —«solo los 3 meses y 4
+#: meses», dijo Kevin— y el de 320 se dejó como estaba porque a ese plazo el
+#: cono ya es tan ancho que las probabilidades salían bien. Salían bien por
+#: compensación, no porque la medida fuera buena, así que ahora va con los
+#: otros dos.
+#:
+#: Los 10/20/30 del agente NO entran, y eso no es una omisión: es la misma
+#: medida. Caminando hacia adelante sobre 49 tickers del almacén, a 30 días
+#: las dos ventanas empatan (14,88% de error medio con 21 sesiones, 14,80%
+#: con la del plazo). A 90 y 120 el hueco se abre —13,6% → 10,8% y 14,4% →
+#: 11,0%— y sobre todo se estabiliza: los casos en que la estimación se queda
+#: más de un 25% POR DEBAJO de la realidad caen del 27,4% al 15,3% y del 32,8%
+#: al 18,1%. Ésos eran los «0% de probabilidad» de la pantalla.
+_DRIFT_IV_PROPIA = (90, 120, 320)
 
 #: La banda alrededor del spot en la que se buscan los muros de Drift.
 #:
@@ -4967,6 +4975,16 @@ try:                                             # pragma: no cover - import
     from wbj.tito.gex import NEAR_SPOT_PCT as _DRIFT_BANDA_SPOT
 except Exception:                                # noqa: BLE001
     _DRIFT_BANDA_SPOT = 0.2
+
+
+def _ventana_del_plazo(dias: int) -> int:
+    """Cuántas sesiones mide `_iv_del_plazo` para un horizonte de `dias`.
+
+    Vive aparte porque hacen falta DOS respuestas del mismo cálculo: el número
+    para medir, y el número para decirlo en pantalla. Tenerlo escrito dos veces
+    era la forma segura de que un día dijeran cosas distintas.
+    """
+    return max(22, int(round(max(0, dias) * 252 / 365)) + 1)
 
 
 def _iv_del_plazo(cierres, dias: int, por_defecto: float) -> float:
@@ -4996,7 +5014,7 @@ def _iv_del_plazo(cierres, dias: int, por_defecto: float) -> float:
 
     if dias <= 0:
         return por_defecto
-    ventana = max(22, int(round(dias * 252 / 365)) + 1)
+    ventana = _ventana_del_plazo(dias)
     c = [float(x) for x in cierres if isinstance(x, (int, float)) and x > 0]
     if len(c) < ventana:
         return por_defecto                       # sin historia: la del motor
@@ -5121,8 +5139,26 @@ def _tito_targets_drift(r, drift, cierres=None):
         # La volatilidad de SU ventana, no la de 21 sesiones del motor. Solo
         # para los plazos declarados en `_DRIFT_IV_PROPIA`; el resto sigue
         # exactamente como estaba.
-        iv_b = (_iv_del_plazo(cierres or [], dias, iv)
-                if int(b.get("dte_objetivo") or 0) in _DRIFT_IV_PROPIA else iv)
+        #
+        # Y se apunta CUÁL se acabó usando, que a 320 días deja de ser un
+        # detalle: la ventana de ese plazo son 222 sesiones y Massive entrega
+        # un año (~250). Le alcanza, pero por poco — un listado nuevo, una
+        # página truncada o un rate limit la dejan corta y `_iv_del_plazo`
+        # devuelve la del motor. Sin esta distinción, «la del motor» tapaba
+        # dos casos que no son el mismo: «este plazo no la pide» y «la pide,
+        # pero no hay historia». El segundo hay que poder verlo en pantalla.
+        _propia = dias in _DRIFT_IV_PROPIA
+        _sesiones = _ventana_del_plazo(dias)
+        _hay = sum(1 for x in (cierres or [])
+                   if isinstance(x, (int, float)) and not isinstance(x, bool) and x > 0)
+        iv_b = _iv_del_plazo(cierres or [], dias, iv) if _propia else iv
+        if not _propia:
+            _ventana_txt = "la del motor, 21 sesiones"
+        elif _hay >= _sesiones:
+            _ventana_txt = f"la de este plazo, {_sesiones} sesiones"
+        else:
+            _ventana_txt = (f"la del motor, 21 sesiones: faltan cierres para las "
+                            f"{_sesiones} de este plazo")
         try:
             p = predict_pro(spot=r.spot, iv=iv_b, horizon_days=dias, nodes=niveles,
                             scores=sub, regime=r.gex.regime,
@@ -5153,8 +5189,10 @@ def _tito_targets_drift(r, drift, cierres=None):
             # Con qué volatilidad se calculó ESTE plazo. Sin decirlo, dos
             # horizontes con conos de anchura distinta parecerían un error.
             "iv_usada": _r(iv_b, 4),
-            "iv_ventana": ("la de este plazo"
-                           if abs(iv_b - iv) > 1e-9 else "la del motor"),
+            # No se deduce de comparar `iv_b` con `iv`: pueden coincidir por
+            # casualidad —dos ventanas distintas dando el mismo número— y
+            # entonces la etiqueta mentiría sobre lo que de verdad se midió.
+            "iv_ventana": _ventana_txt,
             # Con TRES niveles —y solo tres, que es lo que se pidió— los
             # escenarios pueden colapsar: si el imán coincide con uno de los
             # muros, no queda nivel por ese lado y el bajista sale igual que

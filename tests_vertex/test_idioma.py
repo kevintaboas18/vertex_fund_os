@@ -120,7 +120,13 @@ class TestElDiccionarioEstaSano:
         """Un patrón que captura `$1` y no lo devuelve BORRA un dato en pantalla."""
         texto = PANEL.read_text(encoding="utf-8")
         bloque = texto.split("const VX_PAT = [", 1)[1].split("\n];", 1)[0]
-        for linea in re.findall(r"\[/(.+?)/,\s*\n?\s*'(.*?)'\]", bloque, re.S):
+        # Las dos comillas. Con solo las simples, una entrada escrita con
+        # dobles no se saltaba: el `(.+?)` seguía buscando y se tragaba la
+        # entrada SIGUIENTE, así que el recuento de grupos salía de un patrón
+        # y el de `$n` de otro. El aviso llegaba, pero señalando al inocente.
+        pares = re.findall(r"\[/(.+?)/,\s*\n?\s*'(.*?)'\]", bloque, re.S)
+        pares += re.findall(r'\[/(.+?)/,\s*\n?\s*"(.*?)"\]', bloque, re.S)
+        for linea in pares:
             patron, salida = linea
             grupos = len(re.findall(r"(?<!\\)\((?!\?)", patron))
             usados = {int(n) for n in re.findall(r"\$(\d)", salida)}

@@ -6782,16 +6782,21 @@ class TestLosPlazosDeDriftMidenSuPropiaVOLATILIDAD:
         plana = [100.0] * 400
         assert V._iv_del_plazo(plana, 92, 0.4) == 0.05
 
-    def test_SOLO_tocan_los_plazos_de_tres_y_cuatro_meses(self):
-        """«Solo los 3 meses y 4 meses.»
+    def test_LOS_TRES_plazos_largos_y_solo_ellos(self):
+        """Empezó siendo 90 y 120 —«solo los 3 meses y 4 meses»—. El de 320 se
+        dejó porque a ese plazo el cono ya es tan ancho que las probabilidades
+        salían bien; salían bien por compensación, no porque la medida fuera
+        buena, así que Kevin pidió alinearlo con los otros dos.
 
-        El de 320 comparte el mismo desajuste, pero a ese plazo el cono ya es
-        tan ancho que los muros caen dentro y las probabilidades salen bien.
-        Cambiarlo movería números que hoy funcionan sin que nadie lo pidiera.
+        Los 10/20/30 del agente NO entran, y eso es una medida, no una
+        omisión: a 30 días las dos ventanas empatan (14,88% de error medio con
+        21 sesiones contra 14,80% con la del plazo).
         """
         import vertex_api as V
 
-        assert V._DRIFT_IV_PROPIA == (90, 120)
+        assert V._DRIFT_IV_PROPIA == (90, 120, 320)
+        for corto in (10, 20, 30):
+            assert corto not in V._DRIFT_IV_PROPIA
 
     def test_y_el_AGENTE_no_se_toca(self):
         """10, 20 y 30 días siguen con `estimate_iv` tal cual. Es la condición
@@ -6829,6 +6834,93 @@ class TestLosPlazosDeDriftMidenSuPropiaVOLATILIDAD:
 
         fuente = inspect.getsource(V._tito_targets_drift)
         assert '"iv_usada"' in fuente and '"iv_ventana"' in fuente
+
+
+class TestLaEtiquetaDeLaVentanaNoPUEDEMentir:
+    """A 320 días la ventana son 222 sesiones y Massive entrega un año (~250).
+
+    Le alcanza, pero por poco: un listado nuevo, una página truncada o un rate
+    limit la dejan corta y `_iv_del_plazo` devuelve la del motor. «La del
+    motor» a secas tapaba dos casos que no son el mismo —«este plazo no la
+    pide» y «la pide, pero no hay historia»— y el segundo hay que verlo.
+    """
+
+    def test_la_ventana_se_calcula_en_UN_solo_sitio(self):
+        """Escrita dos veces, un día dirían cosas distintas: se mediría con
+        una y se anunciaría la otra."""
+        import inspect
+
+        import vertex_api as V
+
+        assert "ventana = _ventana_del_plazo(dias)" in inspect.getsource(V._iv_del_plazo)
+        assert "_ventana_del_plazo(dias)" in inspect.getsource(V._tito_targets_drift)
+
+    def test_las_sesiones_de_cada_plazo(self):
+        import vertex_api as V
+
+        assert V._ventana_del_plazo(90) == 63
+        assert V._ventana_del_plazo(120) == 84
+        assert V._ventana_del_plazo(320) == 222
+
+    def test_nunca_baja_de_las_21_del_motor(self):
+        """Con menos historia que ésa la medida es PEOR que la que ya había."""
+        import vertex_api as V
+
+        for corto in (0, 1, 10, 20, 30):
+            assert V._ventana_del_plazo(corto) >= 22
+
+    def test_el_de_320_ya_mide_su_ventana(self):
+        """El caso que pidió Kevin: con un año de cierres, 320 deja de usar la
+        de 21 sesiones."""
+        import math
+        import random
+
+        import vertex_api as V
+
+        rnd = random.Random(7)
+        # 250 cierres: un tramo tranquilo y otro movido, para que la ventana
+        # larga y la corta NO puedan dar el mismo número por casualidad.
+        c, x = [], 100.0
+        for i in range(250):
+            x *= math.exp(rnd.gauss(0, 0.004 if i < 150 else 0.030))
+            c.append(x)
+        largo = V._iv_del_plazo(c, 320, 0.40)
+        assert largo != 0.40, "320 siguió cayendo al respaldo del motor"
+        # Y de verdad mide su ventana, no otra.
+        corto = V._iv_del_plazo(c, 90, 0.40)
+        assert abs(largo - corto) > 1e-6, "las dos ventanas dieron lo mismo"
+
+    def test_sin_historia_suficiente_lo_DICE_en_vez_de_callarse(self):
+        """Es el caso fino de 320: cae al motor y hay que poder verlo."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._tito_targets_drift)
+        assert "faltan cierres para las" in fuente
+        assert '_ventana_txt = "la del motor, 21 sesiones"' in fuente
+        assert 'f"la de este plazo, {_sesiones} sesiones"' in fuente
+
+    def test_la_etiqueta_NO_se_deduce_comparando_numeros(self):
+        """Dos ventanas distintas pueden dar el mismo número por casualidad, y
+        entonces `abs(iv_b - iv) > 1e-9` etiquetaba al revés."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._tito_targets_drift)
+        assert '"iv_ventana": _ventana_txt,' in fuente
+        assert 'abs(iv_b - iv) > 1e-9' not in fuente
+
+    def test_las_tres_etiquetas_se_traducen(self):
+        """Dos llevan un número dentro, así que no caben en el diccionario y
+        van por patrón. La de «faltan cierres» tiene que ir ANTES: la otra es
+        un prefijo suyo y se la comería."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert '"la del motor, 21 sesiones": ' in html
+        i_falta = html.index("faltan cierres para las (")
+        i_plazo = html.index("la de este plazo, (")
+        assert i_falta < i_plazo, "el patrón corto se come al largo"
 
 
 class TestUnaProbabilidadQueNoEsCeroNoSeEscribeCERO:

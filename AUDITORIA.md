@@ -9552,9 +9552,71 @@ rojo antes del arreglo (5 de ellos caen sin él). El de la cinta muerta **pone**
 la cookie con `monkeypatch` en vez de saltarse el caso cuando no la hay: si no,
 en CI pasaría en vacío, que es la misma clase de avería que persigue.
 
+### Los 320 días, con la volatilidad de su ventana
+
+Kevin: «la de 320 días hazlo como haces las de 3 meses y 4 meses», y la
+pregunta que venía con ella —«¿o la de 21 sesiones es para las de
+10/20/30? ¿o para ambas?»—.
+
+**Las 21 sesiones son para 10/20/30.** No es una omisión, es una medida.
+Caminando hacia adelante sobre los 49 tickers del almacén (~250 sesiones cada
+uno), comparando cada estimación contra la volatilidad que DE VERDAD ocurrió
+en el plazo siguiente:
+
+| plazo | error medio 21s | error medio ventana | subestima >25%: 21s → ventana |
+|---|---|---|---|
+| 30 d | 14,88% | 14,80% | 22,3% → 21,8% |
+| 60 d | 13,84% | 12,06% | 24,0% → 18,8% |
+| 90 d | 13,57% | 10,84% | 27,4% → 15,3% |
+| 120 d | 14,42% | 10,96% | 32,8% → 18,1% |
+
+A 30 días empatan: cambiar el agente no compraría nada. A partir de ~2 meses
+el hueco se abre, y lo que más se mueve no es el error medio sino la
+**dispersión** (a 90 días 48,0% → 29,9%; a 120, 28,0% → 18,5%) y los casos en
+que la estimación se queda muy por debajo de la realidad. Ésos eran los «0% de
+probabilidad de toque» de la pantalla.
+
+`_DRIFT_IV_PROPIA` pasa a `(90, 120, 320)`. Medido sobre los 49 tickers, el
+cambio a 320 días mueve el cono en **las dos direcciones** según el papel —más
+ancho en BAC, COST, CCL, AVGO; más estrecho en AMZN, CRWV, AAPL—, que es lo
+que tiene que pasar: no es un cono más generoso, es uno que corresponde.
+
+#### El margen fino de 320, dicho en pantalla
+
+La ventana de 320 días son **222 sesiones** y Massive entrega un año (~250).
+Le alcanza, pero por poco: un listado nuevo, una página truncada o un rate
+limit la dejan corta y `_iv_del_plazo` devuelve la del motor.
+
+`iv_ventana` decía «la del motor» comparando `iv_b` con `iv`, y eso tapaba dos
+casos que no son el mismo —«este plazo no la pide» y «la pide, pero no hay
+historia»—. Peor: dos ventanas distintas pueden dar el mismo número por
+casualidad, y entonces la etiqueta mentía sobre lo que se midió. Ahora sale de
+lo que se hizo, no de comparar resultados, y son tres:
+
+- `la del motor, 21 sesiones` — el plazo no pide la suya.
+- `la de este plazo, N sesiones` — se midió con la suya.
+- `la del motor, 21 sesiones: faltan cierres para las N de este plazo` — la
+  pidió y no había historia. Éste es el que a 320 hay que poder ver.
+
+`_ventana_del_plazo(dias)` sale a función propia porque hacen falta dos
+respuestas del mismo cálculo: el número para medir y el número para decirlo.
+Escrito dos veces era la forma segura de que un día dijeran cosas distintas.
+
+#### Un guardián de i18n que señalaba al inocente
+
+Al añadir el patrón nuevo saltó `test_los_patrones_conservan_lo_que_capturan`
+acusando a un patrón de capturar 2 grupos y usar 1. No era verdad: mi entrada
+llevaba la traducción entre comillas **dobles** —la única del archivo— y el
+guardián solo leía las simples, así que su `(.+?)` no paraba ahí y se tragaba
+la entrada SIGUIENTE. Contaba los grupos de un patrón y los `$n` de otro.
+
+Dos arreglos: la traducción se reescribe sin apóstrofes para que quepa en
+comillas simples, y el guardián lee **las dos** comillas. Verificado en rojo:
+una entrada con dobles que se come su `$1` —lo que antes pasaba— ahora cae.
+
 ### Estado
 
-**3.478 tests del motor · 1.053 de la capa web (12 nuevos) · 148 de navegador ·
+**3.478 tests del motor · 1.060 de la capa web (19 nuevos) · 148 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
 verde. 0 fallos.**
 
