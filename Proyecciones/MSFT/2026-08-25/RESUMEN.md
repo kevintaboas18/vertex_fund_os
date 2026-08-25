@@ -4,7 +4,7 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 56.0 / 100 |
-| Spot | $489.25 |
+| Spot | $489.64 |
 | Régimen de gamma | positive |
 | Nodo imán | $510.00 |
 | Gamma flip | $482.88 |
@@ -33,16 +33,16 @@
 
 | Precio | Tipo | Fuerza | P(toque) | Por qué |
 |---|---|---|---|---|
-| $512.57 | resistencia | 77 | 67% | el precio reaccionó 4 veces aquí · 96,231 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $512.57 | resistencia | 77 | 68% | el precio reaccionó 4 veces aquí · 96,231 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
 | $491.49 | resistencia | 73 | 92% | el precio reaccionó 7 veces aquí · 62,142 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $505.52 | resistencia | 64 | 75% | el precio reaccionó 2 veces aquí · 116,216 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $466.90 | soporte | 62 | 77% | el precio reaccionó 3 veces aquí · 34,013 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $477.15 | soporte | 56 | 90% | el precio reaccionó 1 vez aquí · 55,468 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $505.52 | resistencia | 64 | 76% | el precio reaccionó 2 veces aquí · 116,216 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $466.90 | soporte | 62 | 76% | el precio reaccionó 3 veces aquí · 34,013 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $477.15 | soporte | 56 | 89% | el precio reaccionó 1 vez aquí · 55,468 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
 | $519.30 | resistencia | 56 | 60% | el precio reaccionó 1 vez aquí · 70,736 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $473.04 | soporte | 55 | 85% | el precio reaccionó 2 veces aquí · 50,612 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $473.04 | soporte | 55 | 84% | el precio reaccionó 2 veces aquí · 50,612 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
 | $483.74 | soporte | 54 | 98% | el precio reaccionó 1 vez aquí · 37,563 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
 | $500.00 | resistencia | 47 | 82% | 132,750 contratos abiertos de calls · venta de calls por dinero real |
-| $525.00 | resistencia | 45 | 54% | 101,662 contratos abiertos de calls · venta de calls por dinero real |
+| $525.00 | resistencia | 45 | 55% | 101,662 contratos abiertos de calls · venta de calls por dinero real |
 | $455.00 | soporte | 38 | 62% | 13,649 contratos abiertos de puts · venta de puts por dinero real |
 | $460.00 | soporte | 36 | 68% | 33,703 contratos abiertos de puts · venta de puts por dinero real |
 
