@@ -438,7 +438,7 @@
     "motivo": "",
     "recortadas": 0,
     "umbral": 10000000000.0,
-    "fuera": 1349,
+    "fuera": 1540,
     "medida": true,
     "motivo_tamano": ""
   },
@@ -458,11 +458,11 @@
         "bueno": false
       },
       {
-        "evento": "Core Inflation Rate YoY (Jul)",
+        "evento": "CPI YoY (Jul)",
         "fecha": "2026-08-12 12:30",
-        "salio": 2.5,
-        "esperado": 2.5,
-        "anterior": 2.6,
+        "salio": 3.4,
+        "esperado": 3.4,
+        "anterior": 3.5,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
@@ -471,11 +471,11 @@
         "bueno": null
       },
       {
-        "evento": "CPI YoY (Jul)",
+        "evento": "Core Inflation Rate YoY (Jul)",
         "fecha": "2026-08-12 12:30",
-        "salio": 3.4,
-        "esperado": 3.4,
-        "anterior": 3.5,
+        "salio": 2.5,
+        "esperado": 2.5,
+        "anterior": 2.6,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
@@ -510,19 +510,6 @@
         "bueno": null
       },
       {
-        "evento": "Non Farm Payrolls (Jul)",
-        "fecha": "2026-08-07 12:30",
-        "salio": -23.0,
-        "esperado": 80.0,
-        "anterior": 20.0,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "alto",
-        "sorpresa": -103.0,
-        "bueno": false
-      },
-      {
         "evento": "Nonfarm Payrolls Private (Jul)",
         "fecha": "2026-08-07 12:30",
         "salio": 30.0,
@@ -547,6 +534,19 @@
         "mejor": "bajo",
         "sorpresa": -0.10000000000000053,
         "bueno": true
+      },
+      {
+        "evento": "Non Farm Payrolls (Jul)",
+        "fecha": "2026-08-07 12:30",
+        "salio": -23.0,
+        "esperado": 80.0,
+        "anterior": 20.0,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "alto",
+        "sorpresa": -103.0,
+        "bueno": false
       }
     ],
     "proximos": [
@@ -565,20 +565,6 @@
         "retrasado": true
       },
       {
-        "evento": "New Home Sales (Jul)",
-        "fecha": "2026-08-25 14:00",
-        "salio": null,
-        "esperado": 0.62,
-        "anterior": 0.628,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 2,
-        "mejor": "alto",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "CB Consumer Confidence (Aug)",
         "fecha": "2026-08-25 14:00",
         "salio": null,
@@ -586,6 +572,20 @@
         "anterior": 90.8,
         "unidad": "",
         "impacto": "high",
+        "nivel": 2,
+        "mejor": "alto",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "New Home Sales (Jul)",
+        "fecha": "2026-08-25 14:00",
+        "salio": null,
+        "esperado": -1.3,
+        "anterior": 1.6,
+        "unidad": "",
+        "impacto": "medium",
         "nivel": 2,
         "mejor": "alto",
         "sorpresa": null,
@@ -635,20 +635,6 @@
         "retrasado": false
       },
       {
-        "evento": "Continuing Jobless Claims (Aug/15)",
-        "fecha": "2026-08-27 12:30",
-        "salio": null,
-        "esperado": 1811.0,
-        "anterior": 1799.0,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 2,
-        "mejor": "bajo",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "Initial Jobless Claims (Aug/22)",
         "fecha": "2026-08-27 12:30",
         "salio": null,
@@ -661,11 +647,25 @@
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
+      },
+      {
+        "evento": "Continuing Jobless Claims (Aug/15)",
+        "fecha": "2026-08-27 12:30",
+        "salio": null,
+        "esperado": 1811.0,
+        "anterior": 1799.0,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 2,
+        "mejor": "bajo",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
       }
     ],
     "filas": [],
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-25T02:29:13.955412+00:00"
+  "generado": "2026-08-25T12:28:01.592616+00:00"
 }

@@ -3945,7 +3945,7 @@
     "motivo": null,
     "evals": [
       {
-        "date": "2026-08-24",
+        "date": "2026-08-25",
         "horizon_days": 10,
         "matured": false,
         "spot": 344.59,
@@ -3956,8 +3956,19 @@
         "direction_hit": null
       },
       {
-        "date": "2026-08-24",
+        "date": "2026-08-25",
         "horizon_days": 20,
+        "matured": false,
+        "spot": 344.59,
+        "base": 350.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-08-25",
+        "horizon_days": 30,
         "matured": false,
         "spot": 344.59,
         "base": 350.0,
@@ -4418,5 +4429,5 @@
   ],
   "fecha": "2026-08-25",
   "agente": "opciones",
-  "guardado_en": "2026-08-25T12:27:56+00:00"
+  "guardado_en": "2026-08-25T12:28:17+00:00"
 }
