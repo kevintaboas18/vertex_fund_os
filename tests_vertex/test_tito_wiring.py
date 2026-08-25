@@ -7049,16 +7049,39 @@ class TestLoQueLaFranjaDiceSaleDelTRAFICOReal:
         assert '_anota_fuente_tito("marketsnack", True)' in fuente
         assert '_anota_fuente_tito("marketsnack", False' in fuente
 
-    def test_la_cadena_se_anota_en_LOS_DOS_sitios_que_la_piden(self):
-        """`/api/tito-scorecard` y `/api/projection-targets`. Anotar en uno
-        deja el otro sin decir nada."""
+    def test_TODO_el_que_pide_la_cadena_anota_lo_que_paso(self):
+        """El contrato, no un recuento.
+
+        Este caso decía `count(...) == 2` porque en su día eran dos las rutas
+        que pedían cadena. Al añadir `/api/portfolio-drift` pasaron a ser tres
+        y el guardián cayó — con razón de fondo (algo cambió) y con la medida
+        equivocada: un número fijo obliga a editar el test cada vez que nace
+        una ruta, y ese edit es justo donde se cuela el olvido. Lo que de
+        verdad importa es que NADIE pida la cadena sin dejar constancia.
+        """
+        import ast
         import inspect
+        import textwrap
 
         import vertex_api as V
 
-        fuente = inspect.getsource(V)
-        assert fuente.count('_anota_fuente_tito("massive", True)') == 2
-        assert fuente.count('_anota_fuente_tito("massive", False') == 2
+        arbol = ast.parse(inspect.getsource(V))
+        pedidoras = []
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            cuerpo = ast.unparse(nodo)
+            if "_tito_chain_and_bars(" not in cuerpo:
+                continue
+            if nodo.name == "_tito_chain_and_bars":
+                continue                         # la propia función
+            pedidoras.append((nodo.name, cuerpo))
+        assert len(pedidoras) >= 3, [n for n, _ in pedidoras]
+        for nombre, cuerpo in pedidoras:
+            assert "_anota_fuente_tito('massive', True)" in cuerpo, (
+                f"{nombre} pide la cadena y no anota el acierto")
+            assert "_anota_fuente_tito('massive', False" in cuerpo, (
+                f"{nombre} pide la cadena y no anota el fallo")
 
 
 class TestElVerdeDeLaFranjaEsAlcanzable:

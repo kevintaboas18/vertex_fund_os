@@ -148,6 +148,33 @@ la tabla completa. Las que **no pueden faltar** en un despliegue público:
   Las dos salen en la píldora de salud de la barra superior, con su estado
   real sacado de la última consulta (`AUDITORIA.md`, «2 de 6 sub-agentes»).
 
+## El área de Portafolio
+
+Una sola fuente de verdad: **el snapshot** (Plaid si hay token, si no lo que
+cargaste en `/api/portfolio/import`). Ocho sub-pestañas — Holdings, Riesgo,
+Stress Test, What-If, Atribución, Guardrails, Optimizador, Opciones — más
+**Drift**, que es el puente con el agente de opciones.
+
+Lo que conecta con los agentes:
+
+| Puente | Qué lleva |
+|---|---|
+| `get_agent_views` → Black-Litterman | `upside_pct` y `conviction` del último reporte de cada ticker entran como *vistas* del optimizador |
+| `/api/portfolio-edge` | El libro cruzado con tu track record por ticker |
+| `/api/portfolio-drift` | Los tres niveles de Drift **solo** a 90/120/320 días, por contrato |
+
+Reglas que no se negocian aquí:
+
+- **La exposición de opciones NO es la prima.** Entra como delta-equivalente
+  (`delta × contratos × 100 × spot`) en el motor de riesgo, y el «Valor Total
+  del Portafolio» no la cuenta. Ver `_posiciones_con_opciones`.
+- **Sin dato de mercado, las griegas salen nulas.** No en cero: un cero es una
+  afirmación, y lo que pasa es que no se sabe.
+- **Los umbrales salen del perfil**, y cada regla dice si el suyo lo
+  contestaste tú (`origen: perfil`) o es heredado.
+- **Drift no puntúa.** Es contexto de posicionamiento. En cuanto publique un
+  score, el portafolio pasa a ser un tercer agente que nadie auditó.
+
 ## Auditoría en curso
 
 `AUDITORIA.md` tiene los 26 hallazgos de la auditoría inicial con su

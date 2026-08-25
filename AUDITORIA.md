@@ -9614,9 +9614,140 @@ Dos arreglos: la traducción se reescribe sin apóstrofes para que quepa en
 comillas simples, y el guardián lee **las dos** comillas. Verificado en rojo:
 una entrada con dobles que se come su `$1` —lo que antes pasaba— ahora cae.
 
+### El área de Portafolio: seis arreglos
+
+Kevin preguntó cómo funciona y si está conectada con los dos agentes. Lo
+verificado antes de tocar nada:
+
+- **Con el agente de ACCIONES, sí, por dos hilos.** `get_agent_views` mete el
+  `upside_pct` y la `conviction` del último reporte de cada ticker como
+  *vistas* de Black-Litterman, con la convicción como confianza — que es la
+  forma correcta de que un agente influya en pesos sin dictarlos. Y
+  `/api/portfolio-edge` cruza el libro con el track record por ticker.
+- **Con el agente de OPCIONES, cero.** En toda el área no había una sola
+  referencia a `wbj.tito`.
+
+#### (1) Las opciones, dentro del riesgo
+
+`get_options_snapshot()` se usaba en **tres** sitios del archivo y ninguno era
+el motor de riesgo. Monte Carlo, VaR, Expected Shortfall, stress, What-If,
+atribución, guardrails y optimizador corrían todos sobre un libro **sin
+opciones**. Con ~$1.000 y contratos de semanas a meses, el «puedes perder un
+X%» describía un portafolio que no es el suyo.
+
+Lo que **no** se hace: mezclarlas con el `value` del equity. Una opción tiene
+dos números y confundirlos es el error clásico — lo que **vale** (la prima) y
+lo que **expone** (delta × contratos × 100 × spot). Un call de $200 de prima
+sobre NVDA puede exponer $12.000: sumar la prima subestima el riesgo diez
+veces, sumar la exposición infla el «Valor Total del Portafolio» con dinero
+que no existe.
+
+`_posiciones_con_opciones` suma la exposición **al ticker que ya esté en el
+libro** —tener NVDA y calls de NVDA es UNA apuesta, y contarlas como dos
+diluiría la concentración justo donde importa— y crea una fila marcada
+`es_opcion` cuando el subyacente no está. El delta negativo entra en valor
+absoluto: una put larga grande concentra tanto como un call grande.
+
+**Un fallo mío, atrapado antes de subir.** Al fundir, `value` queda inflado
+con el delta, y la regla de stop-loss lo comparaba contra el `cost_basis` del
+equity: NVDA a $400 de coste $300 con $12.000 de delta salía «+4.000%» y la
+regla dejaba de servir. `valor_equity` guarda el valor de antes y la regla
+mide contra él.
+
+#### (2) Las griegas dicen cuándo NO saben
+
+Reproducido con el feed caído: `ok: true`, `iv: 50.0`, `delta: 0.0`, sin un
+solo aviso — y la nota al pie decía «IV de yfinance», que era falso: esa IV no
+vino de ningún sitio. Un número inventado con la misma pinta que uno medido, y
+un «no pude calcular» escrito igual que un delta cero de verdad.
+
+Ahora cada contrato lleva `iv_fuente` (`cadena` · `promedio del vencimiento` ·
+`sin dato`) y `medido`. Sin dato, las griegas salen **nulas** —no en cero— y
+**no entran en los agregados del libro**: un contrato valorado con una IV
+fingida contamina el delta neto y después no hay forma de ver cuál fue. El
+payload publica `cobertura` y el panel escribe «estos totales cubren 1 de 4
+contratos».
+
+#### (3) Los guardrails salen del perfil
+
+Estaban fijos —25%, 60%, mandato **30/70**, 40%, −25%— y `_perfil_leer()` no
+se llamaba ni una vez en toda el área. A un inversionista agresivo con $1.000
+se le decía que su mandato era 30/70.
+
+Los topes salen ahora de `max_posicion_pct` y de la tolerancia declarada, el
+top-3 y el sectorial se derivan del tope por posición (para que dos reglas no
+se contradigan), y el mandato estable/crecimiento sigue a la tolerancia
+—20/80 para agresivo— y **nunca es `breach`**: el cuestionario no pregunta por
+ese reparto y castigar por él sería inventarse una regla.
+
+Regla nueva, **Tamaño viable por posición**, que el perfil pide literal
+(*«con ese capital y opciones, el sizing manda»*): con $1.000 y un tope del
+30%, cada entrada cabe en $300 y caben 3 posiciones. Una pantalla que sólo
+avisa de estar demasiado concentrado no sirve a quien el problema que tiene es
+el contrario.
+
+Cada regla lleva `origen: perfil | heredado`, y el panel lo pinta como
+etiqueta. Presentar las dos igual haría pasar una convención por una decisión
+suya.
+
+#### (4) Drift sobre tus contratos — y sólo 90/120/320
+
+El puente entre el agente de opciones y el portafolio, acotado por Kevin:
+*«solo será con el drift para los días de 90/120/320, porque son posiciones que
+uno aguanta por semanas y tal vez hasta meses»*. Y es lo correcto: el imán del
+GEX sale de la gamma de la cadena de HOY, que a esos plazos ya habrá rotado
+casi entera; los muros de Drift salen del vencimiento mensual de ese plazo, el
+contrato que de verdad se compraría.
+
+`/api/portfolio-drift` da, por contrato, los tres niveles de su plazo y si el
+strike cae dentro. Un contrato a menos de `_DRIFT_LIBRO_DTE_MIN` (45 días) NO
+se lee contra el muro de tres meses: sale en `fuera_de_alcance` con el motivo,
+porque un contrato que no aparece en ninguna lista se lee como un olvido.
+
+**No recalcula el agente y no puntúa.** Misma cadena, mismos parámetros que
+`/api/tito-scorecard`, y un guardián comprueba —sobre el código sin comentarios
+ni docstrings— que no aparecen `run_scorecard`, `predict_pro`, `verdict` ni
+`score`. En cuanto publique un score, el portafolio pasa a ser un tercer agente
+que nadie auditó.
+
+#### (5) Riesgo de ruina y sizing
+
+El perfil lo pedía y no existía. La ruina **no es el resultado final**:
+`monte_carlo` ya publicaba «acabas por debajo de −20%», y eso deja fuera el
+camino que se hunde un 45% a mitad y remonta hasta un −5% — sobre el papel una
+pérdida moderada, en la vida real la que te saca del mercado. Se mide sobre el
+**mínimo del camino** (`ddp`, que `mc` ya calculaba) y **no se simula nada
+nuevo**: los mismos caminos, leídos por otro sitio.
+
+#### (6) Quant Data — y una corrección a lo que yo mismo dije
+
+Le dije a Kevin que `get_gex_cached` llamaba a un proveedor muerto en cada
+fallo de caché. **Era menos grave de lo que conté**: `_quantdata_request` ya
+corta sin clave y memoriza los 403 en `_QD_SIN_DERECHO`, así que no salía a la
+red. Lo que sí quedaba: recorrer tres capas de parseo para llegar a un `None`
+sabido de antemano, y un comentario que anunciaba como «PRIMARIO» algo que
+salió del proyecto. Guardado con `_quantdata_ready()`; la capa se queda para si
+Kevin vuelve a contratar el plan.
+
+#### Dos guardianes que nacieron rotos, y por qué importa
+
+- Dos de los nuevos buscaban palabras (`score`, `QuantData PRIMARIO`) y las
+  encontraban en el **docstring que promete no puntuar** y en el **comentario
+  que explica por qué ya no es primario**. Un guardián que se cree lo que dice
+  un comentario mide la documentación, no el programa. Ahora hay
+  `_solo_codigo()`, que quita comentarios y docstrings antes de medir.
+- `test_la_cadena_se_anota_en_LOS_DOS_sitios` era un `count(...) == 2` y cayó
+  al aparecer la tercera ruta. Tenía razón de fondo y la medida equivocada: un
+  número fijo obliga a editar el test cada vez que nace una ruta, y ese edit es
+  donde se cuela el olvido. Reescrito para recorrer el AST y exigir que
+  **todo** el que pida la cadena anote lo que pasó.
+
+34 casos nuevos en `tests_vertex/test_portafolio.py`, verificados en rojo: 32
+de los 34 caen sin estos cambios.
+
 ### Estado
 
-**3.478 tests del motor · 1.060 de la capa web (19 nuevos) · 148 de navegador ·
+**3.478 tests del motor · 1.094 de la capa web (34 nuevos) · 148 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
 verde. 0 fallos.**
 

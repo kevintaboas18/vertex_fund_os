@@ -17869,6 +17869,73 @@ def compute_portfolio_stress(positions, lookback_days=504):
         }
     monte_carlo = {"h21": mc(21), "h252": mc(252)}
 
+    # ── Riesgo de RUINA ──────────────────────────────────────────────────
+    #
+    # El perfil de Kevin lo pide con estas palabras: «con ese capital y
+    # opciones, el sizing manda: prioriza probabilidad de éxito, puntos de
+    # entrada/salida y riesgo de ruina». No existía en ninguna parte.
+    #
+    # La ruina NO es el resultado final. `monte_carlo` ya publica «acabas por
+    # debajo de −20%», y eso deja fuera el camino que se hunde un 45% a mitad
+    # y remonta hasta un −5%: sobre el papel es una pérdida moderada, y en la
+    # vida real es la que te saca del mercado — margin call, pánico, o
+    # sencillamente no queda cuenta con la que seguir. Por eso se mide sobre
+    # el MÍNIMO del camino (`ddp`, que `mc` ya calcula) y no sobre el final.
+    #
+    # Y no se simula nada nuevo: los mismos caminos, leídos por otro sitio.
+    def ruina(horizon, n=5000):
+        idx = rng.integers(0, len(port_daily), size=(n, horizon))
+        paths = np.cumprod(1.0 + port_daily[idx], axis=1)
+        peaks = np.maximum.accumulate(paths, axis=1)
+        peor = (paths / peaks - 1.0).min(axis=1)     # caída máxima de cada camino
+        desde_hoy = (paths.min(axis=1) - 1.0)        # lo peor visto DESDE HOY
+        return {
+            "horizon_days": horizon,
+            # Contra el pico: el golpe que de verdad se siente en pantalla.
+            "prob_caida_25": round(float(np.mean(peor <= -0.25)) * 100, 1),
+            "prob_caida_50": round(float(np.mean(peor <= -0.50)) * 100, 1),
+            "prob_caida_75": round(float(np.mean(peor <= -0.75)) * 100, 1),
+            # Contra el capital de hoy: cuánto puedes ver perdido en el camino.
+            "prob_bajo_50_del_capital": round(float(np.mean(desde_hoy <= -0.50)) * 100, 1),
+            "peor_camino_p5_pct": round(float(np.percentile(desde_hoy, 5)) * 100, 1),
+            "peor_camino_p5_usd": round(float(np.percentile(desde_hoy, 5)) * total_val, 2),
+            "caida_mediana_pct": round(float(np.median(peor)) * 100, 1),
+        }
+    riesgo_ruina = {"h21": ruina(21), "h63": ruina(63), "h252": ruina(252),
+                    "nota": ("Se mide sobre el MÍNIMO de cada camino, no sobre el "
+                             "resultado final: un camino que cae 45% y remonta a −5% "
+                             "cuenta como una caída del 45%, porque es la que te "
+                             "saca del mercado.")}
+
+    # ── Sizing con TU capital ────────────────────────────────────────────
+    sizing = None
+    try:
+        _pf = _perfil_leer()
+        _cap = float(_pf.get("capital") or 0)
+        _pos = _pf.get("max_posicion_pct") or [20, 25]
+        _tope = float(_pos[-1])
+        if _cap > 0:
+            _p25 = riesgo_ruina["h63"]["prob_caida_25"]
+            sizing = {
+                "capital_usd": round(_cap, 2),
+                "max_posicion_pct": _tope,
+                "max_por_posicion_usd": round(_cap * _tope / 100.0, 2),
+                "posiciones_que_caben": max(1, int(100 // max(1.0, _tope))),
+                # Lo que el libro de HOY dice que puede pasarle a ese capital.
+                "perdida_p5_a_3_meses_usd": riesgo_ruina["h63"]["peor_camino_p5_usd"],
+                "prob_caida_25_a_3_meses": _p25,
+                "origen": ("perfil" if "capital" not in set(_pf.get("sin_contestar") or ())
+                           else "heredado"),
+                "lectura": (
+                    f"Con ${round(_cap):,} y un tope del {round(_tope)}% por posición, "
+                    f"cada entrada cabe en ${round(_cap * _tope / 100.0):,} y caben "
+                    f"{max(1, int(100 // max(1.0, _tope)))} posiciones. Este libro tiene "
+                    f"un {_p25}% de probabilidad de caer 25% o más en algún momento de "
+                    f"los próximos 3 meses."),
+            }
+    except Exception:                            # noqa: BLE001 — el sizing es contexto
+        sizing = None
+
     # ── Betas (recent) for hypothetical shocks + crisis proxy ────────────────
     def beta_pair(a_ret, b_ret):
         j = pd.concat([a_ret.rename("a"), b_ret.rename("b")], axis=1).dropna()
@@ -17940,6 +18007,8 @@ def compute_portfolio_stress(positions, lookback_days=504):
         "metrics": metrics,
         "cvar": cvar,
         "monte_carlo": monte_carlo,
+        "riesgo_de_ruina": riesgo_ruina,
+        "sizing": sizing,
         "hypotheticals": hypotheticals,
         "scenarios": scenarios,
         "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p'),
@@ -17981,7 +18050,11 @@ def get_portfolio_risk(account_id: str = ""):
         positions, _src = _resolve_positions(account_id)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
-        return compute_portfolio_risk(positions)
+        positions, _op = _posiciones_con_opciones(positions, account_id)
+        out = compute_portfolio_risk(positions)
+        if isinstance(out, dict):
+            out["opciones"] = _op
+        return out
     except HTTPException:
         raise
     except Exception as e:
@@ -17995,7 +18068,11 @@ def get_portfolio_stress(account_id: str = ""):
         positions, _src = _resolve_positions(account_id)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
-        return compute_portfolio_stress(positions)
+        positions, _op = _posiciones_con_opciones(positions, account_id)
+        out = compute_portfolio_stress(positions)
+        if isinstance(out, dict):
+            out["opciones"] = _op
+        return out
     except HTTPException:
         raise
     except Exception as e:
@@ -18018,6 +18095,10 @@ def get_portfolio_whatif(ticker: str = "", action: str = "add",
         positions, _src = _resolve_positions(account_id)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
+        # El ANTES tiene que ser el libro de verdad, opciones incluidas: si no,
+        # el simulador compara un portafolio que no existe contra ese mismo
+        # portafolio más la compra, y la diferencia que enseña no es la tuya.
+        positions, _op = _posiciones_con_opciones(positions, account_id)
 
         after = [dict(p) for p in positions]
         found = next((p for p in after if p["ticker"] == ticker), None)
@@ -18092,6 +18173,135 @@ STABLE_LEADERS = {"AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "BRK.
                   "KO", "PEP", "MCD", "ABBV", "MRK", "CVX", "PFE", "T", "VZ", "CSCO",
                   "IBM", "MMM", "CAT", "HON", "TXN", "CL", "KMB", "PM", "MO", "SO",
                   "DUK", "O", "ABT", "MDT", "CB", "ADP", "LOW", "TGT", "GD", "LMT"}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LAS OPCIONES, DENTRO DEL RIESGO
+#
+#  Hasta aquí el suite entero —Monte Carlo, VaR, Expected Shortfall, stress,
+#  What-If, atribución, guardrails y optimizador— corría sobre un libro SIN
+#  opciones: `get_options_snapshot()` sólo lo tocaban la ruta de griegas y el
+#  contador del snapshot. Para una cuenta de acciones da igual; para la de
+#  Kevin —capital chico y contratos de semanas a meses— el «puedes perder un
+#  X%» describía un portafolio que no es el suyo.
+#
+#  **Lo que NO se hace: mezclarlas con el `value` del equity.** Una opción
+#  tiene dos números distintos y confundirlos es el error clásico:
+#
+#    · lo que VALE   → la prima. Es lo que puedes perder si expira sin valor.
+#    · lo que EXPONE → delta × contratos × 100 × spot. Es cómo se mueve el
+#                      libro cuando el subyacente se mueve $1.
+#
+#  Un call de $200 de prima sobre NVDA puede exponer $12.000. Sumar la prima
+#  al libro subestima el riesgo diez veces; sumar la exposición infla el
+#  «Valor Total del Portafolio», que es dinero que no tienes. Por eso el
+#  equity conserva su `value` intacto y la exposición de opciones entra como
+#  una LÍNEA APARTE por subyacente, marcada, que el motor de riesgo trata
+#  como peso pero el resumen de valor no ve.
+# ══════════════════════════════════════════════════════════════════════════
+
+def _exposicion_de_opciones(opciones, analitica=None):
+    """Exposición delta-equivalente por subyacente, en dólares.
+
+    `analitica` es el resultado de `compute_options_analytics`; se pasa hecho
+    para no pedir spot e IV dos veces. Sólo entran los contratos **medidos**:
+    los que se quedaron sin dato de mercado no tienen delta, y meterlos con un
+    cero fingido es justo lo que este bloque existe para no hacer.
+
+    Devuelve `(por_subyacente, meta)` con `meta` diciendo cuántos contratos
+    entraron y cuántos se quedaron fuera, para que la pantalla pueda decirlo.
+    """
+    if not opciones:
+        return {}, {"con_dato": 0, "de": 0, "sin_dato": []}
+    a = analitica or {}
+    filas = a.get("positions") or []
+    por = {}
+    con = 0
+    for f in filas:
+        if not f.get("medido"):
+            continue
+        u = str(f.get("underlying") or "").upper()
+        d = f.get("delta_$")
+        if not u or d is None:
+            continue
+        por[u] = por.get(u, 0.0) + float(d)
+        con += 1
+    cob = a.get("cobertura") or {}
+    return por, {"con_dato": con, "de": len(opciones),
+                 "sin_dato": cob.get("sin_dato") or []}
+
+
+def _posiciones_con_opciones(posiciones, account_id="", con_costo=False):
+    """El libro de equity MÁS la exposición delta-equivalente de las opciones.
+
+    Devuelve `(posiciones, meta)`. `meta["incluye_opciones"]` dice si de verdad
+    entró algo, y `meta["motivo"]` por qué no, cuando no.
+
+    La exposición se suma al ticker que ya exista en el libro —tener NVDA y
+    calls de NVDA es **una sola** apuesta, y contarlas como dos posiciones
+    diluiría la concentración justo donde importa— y crea una entrada nueva
+    cuando el subyacente no está en el equity. Esas entradas llevan
+    `es_opcion: True` para que quien quiera separarlas pueda.
+
+    Nunca lanza: si las opciones no se pueden valorar, se devuelve el libro de
+    equity tal cual y se dice el motivo. Un panel de riesgo que se cae porque
+    un feed de opciones no responde es peor que uno que avisa.
+    """
+    base = [dict(p) for p in (posiciones or [])]
+    try:
+        opciones = get_options_snapshot() or []
+    except Exception as e:                       # noqa: BLE001
+        return base, {"incluye_opciones": False, "n_opciones": 0,
+                      "motivo": f"no se pudo leer el snapshot de opciones: {e}"}
+    if not opciones:
+        return base, {"incluye_opciones": False, "n_opciones": 0,
+                      "motivo": "no hay posiciones de opciones guardadas"}
+    try:
+        analitica = compute_options_analytics(opciones, base)
+    except Exception as e:                       # noqa: BLE001
+        return base, {"incluye_opciones": False, "n_opciones": len(opciones),
+                      "motivo": f"no se pudieron valorar las opciones: {e}"}
+    por, cob = _exposicion_de_opciones(opciones, analitica)
+    if not por:
+        return base, {"incluye_opciones": False, "n_opciones": len(opciones),
+                      "cobertura": cob,
+                      "motivo": ("ningún contrato tenía dato de mercado, así que no hay "
+                                 "delta que sumar")}
+    indice = {str(p.get("ticker") or "").upper(): p for p in base}
+    añadidos, fundidos = [], []
+    for u, delta in por.items():
+        # El delta puede ser negativo (puts largas, calls vendidas). En valor
+        # absoluto es exposición igual: el motor de riesgo pondera por tamaño,
+        # y una put larga grande concentra tanto como un call grande.
+        exp = abs(float(delta))
+        if exp <= 0:
+            continue
+        if u in indice:
+            # El valor de equity ANTES de fundir, que es contra lo que se mide
+            # el P&L. Sin guardarlo, la regla de stop-loss comparaba un `value`
+            # inflado con la exposición de las opciones contra el `cost_basis`
+            # de las acciones: NVDA a $400 de coste $300 con $12.000 de delta
+            # salía «+4.000%» y la regla dejaba de servir para nada.
+            indice[u]["valor_equity"] = float(indice[u].get("value") or 0)
+            indice[u]["value"] = float(indice[u].get("value") or 0) + exp
+            indice[u]["exposicion_opciones"] = round(exp, 2)
+            indice[u]["delta_opciones"] = round(float(delta), 2)
+            fundidos.append(u)
+        else:
+            base.append({"ticker": u, "name": f"{u} (opciones)", "value": exp,
+                         "es_opcion": True, "exposicion_opciones": round(exp, 2),
+                         "delta_opciones": round(float(delta), 2)})
+            añadidos.append(u)
+    return base, {
+        "incluye_opciones": True, "n_opciones": len(opciones),
+        "cobertura": cob,
+        "exposicion_total": round(sum(abs(v) for v in por.values()), 2),
+        "sumados_a_una_posicion_existente": sorted(fundidos),
+        "subyacentes_nuevos": sorted(añadidos),
+        "nota": ("La exposición de opciones entra como delta-equivalente "
+                 "(delta × contratos × 100 × spot), NO como la prima pagada. "
+                 "El «Valor Total del Portafolio» no la incluye."),
+    }
 
 
 def _fetch_sectors(tickers):
@@ -18182,39 +18392,98 @@ def compute_portfolio_attribution(positions, lookback_days=252):
     }
 
 
-def compute_portfolio_guardrails(positions_pnl, risk):
+def compute_portfolio_guardrails(positions_pnl, risk, perfil=None):
     """Check the book against portfolio rules. positions_pnl: list of
-    {ticker,name,value,cost_basis,sector}. risk: compute_portfolio_risk() result."""
+    {ticker,name,value,cost_basis,sector}. risk: compute_portfolio_risk() result.
+
+    **Los topes salen del PERFIL, no del código.** Estaban fijos —25% por
+    posición, 60% top-3, mandato 30/70, 40% por sector, revisión a −25%— y
+    ninguno se había preguntado nunca. El sistema entero se reconstruyó para
+    que el cuestionario mandara (`risk.py` lee el perfil, el engine lo recibe
+    por `PERFIL_ACTUAL`), y esta pantalla se había quedado fuera: le decía a
+    un inversionista agresivo con $1.000 que su mandato era 30/70.
+
+    Cada regla dice de dónde sale su umbral. `origen: "perfil"` significa que
+    lo contestaste tú; `"heredado"` que sigue siendo el valor por defecto,
+    porque el cuestionario no pregunta por eso. Presentar los dos igual sería
+    hacer pasar una convención por una decisión tuya.
+    """
     eq = [p for p in positions_pnl if p.get("ticker") and float(p.get("value") or 0) > 0]
     if not eq:
         return {"ok": False, "error": "No hay posiciones para evaluar."}
     total = sum(float(p["value"]) for p in eq)
     rules = []
 
-    def add(name, status, value, threshold, detail):
+    # ── Los umbrales, del perfil cuando el perfil los tiene ──────────────
+    if perfil is None:
+        try:
+            perfil = _perfil_leer()
+        except Exception:                        # noqa: BLE001
+            perfil = {}
+    _pos = (perfil or {}).get("max_posicion_pct") or [20, 25]
+    try:
+        _aviso_pos, _tope_pos = float(_pos[0]), float(_pos[-1])
+    except (TypeError, ValueError, IndexError):
+        _aviso_pos, _tope_pos = 20.0, 25.0
+    if _tope_pos < _aviso_pos:                   # por si llegan al revés
+        _aviso_pos, _tope_pos = _tope_pos, _aviso_pos
+    _sin_contestar = set((perfil or {}).get("sin_contestar") or ())
+    _pos_es_tuyo = "max_posicion_pct" not in _sin_contestar and bool((perfil or {}).get("max_posicion_pct"))
+    _tolerancia = str((perfil or {}).get("tolerancia") or "").lower()
+    _capital = float((perfil or {}).get("capital") or 0)
+    # Un perfil agresivo aguanta un top-3 más pesado; uno conservador, menos.
+    # Se ancla al tope por posición para que las dos reglas no se contradigan:
+    # con un tope del 30%, exigir un top-3 por debajo del 60% sería prohibir
+    # justo lo que la regla de al lado permite.
+    _tope_top3 = min(90.0, max(40.0, _tope_pos * (2.4 if "agres" in _tolerancia else 2.0)))
+
+    def add(name, status, value, threshold, detail, origen="heredado"):
         rules.append({"rule": name, "status": status, "value": value,
-                      "threshold": threshold, "detail": detail})
+                      "threshold": threshold, "detail": detail, "origen": origen})
 
     # 1 — single-position concentration
     top = max(eq, key=lambda p: p["value"])
     top_w = top["value"] / total * 100
-    st = "breach" if top_w > 25 else "warn" if top_w > 20 else "ok"
-    add("Concentracion por posicion", st, f"{top['ticker']} {round(top_w, 1)}%", "<=25%",
-        f"Tu posicion mas grande es {top['ticker']} con {round(top_w, 1)}% del book.")
+    st = "breach" if top_w > _tope_pos else "warn" if top_w > _aviso_pos else "ok"
+    add("Concentracion por posicion", st, f"{top['ticker']} {round(top_w, 1)}%",
+        f"<={round(_tope_pos)}%",
+        (f"Tu posicion mas grande es {top['ticker']} con {round(top_w, 1)}% del book. "
+         + (f"Tu perfil fija el maximo por posicion entre {round(_aviso_pos)}% y "
+            f"{round(_tope_pos)}%." if _pos_es_tuyo else
+            f"El tope de {round(_tope_pos)}% es el heredado: el cuestionario no lo ha fijado.")),
+        "perfil" if _pos_es_tuyo else "heredado")
 
     # 2 — top-3 concentration
     top3 = sum(sorted([p["value"] for p in eq], reverse=True)[:3]) / total * 100
-    st = "breach" if top3 > 60 else "warn" if top3 > 50 else "ok"
-    add("Concentracion Top-3", st, f"{round(top3, 1)}%", "<=60%",
-        f"Tus 3 posiciones mas grandes suman {round(top3, 1)}% del book.")
+    st = ("breach" if top3 > _tope_top3 else
+          "warn" if top3 > _tope_top3 * 0.83 else "ok")
+    add("Concentracion Top-3", st, f"{round(top3, 1)}%", f"<={round(_tope_top3)}%",
+        (f"Tus 3 posiciones mas grandes suman {round(top3, 1)}% del book. "
+         f"El tope sale de tu maximo por posicion ({round(_tope_pos)}%) y de una "
+         f"tolerancia {_tolerancia or 'no declarada'}."),
+        "perfil" if _pos_es_tuyo else "heredado")
 
-    # 3 — 30/70 mandate
+    # 3 — mandato estable/crecimiento
+    #
+    # El 30/70 fijo era lo más ajeno de toda la pantalla: un inversionista
+    # agresivo y especulativo recibía una regañina por no tener un 30% en
+    # defensivas que nunca dijo querer. El objetivo se mueve con la tolerancia
+    # declarada, y se dice que es una REFERENCIA — nunca «breach», porque el
+    # cuestionario no pregunta por este reparto y castigar por él sería
+    # inventarse una regla.
+    _OBJ_ESTABLE = {"conservador": 60.0, "moderado": 40.0,
+                    "agresivo": 20.0, "especulativo": 10.0}
+    _obj = next((v for k, v in _OBJ_ESTABLE.items() if k in _tolerancia), 30.0)
     stable_val = sum(p["value"] for p in eq if p["ticker"].upper() in STABLE_LEADERS)
     stable_pct = stable_val / total * 100
     growth_pct = 100 - stable_pct
-    st = "ok" if abs(stable_pct - 30) <= 10 else "warn"
-    add("Mandato 30/70 (estable/crecimiento)", st, f"{round(stable_pct)}/{round(growth_pct)}", "30/70 +-10",
-        f"Lideres estables {round(stable_pct)}% vs crecimiento {round(growth_pct)}%. Objetivo 30/70.")
+    st = "ok" if abs(stable_pct - _obj) <= 15 else "warn"
+    add(f"Mandato {round(_obj)}/{round(100 - _obj)} (estable/crecimiento)", st,
+        f"{round(stable_pct)}/{round(growth_pct)}", f"{round(_obj)}/{round(100 - _obj)} +-15",
+        (f"Lideres estables {round(stable_pct)}% vs crecimiento {round(growth_pct)}%. "
+         f"La referencia {round(_obj)}/{round(100 - _obj)} sale de tu tolerancia "
+         f"«{_tolerancia or 'no declarada'}», no de una regla fija. Es orientativa."),
+        "perfil" if _tolerancia else "heredado")
 
     # 4 — sector concentration
     sec_w = {}
@@ -18224,16 +18493,31 @@ def compute_portfolio_guardrails(positions_pnl, risk):
     if sec_w:
         top_sec, top_sec_val = max(sec_w.items(), key=lambda x: x[1])
         top_sec_pct = top_sec_val / total * 100
-        st = "breach" if top_sec_pct > 50 else "warn" if top_sec_pct > 40 else "ok"
-        add("Concentracion sectorial", st, f"{top_sec} {round(top_sec_pct, 1)}%", "<=40%",
-            f"Tu sector mas pesado es {top_sec} con {round(top_sec_pct, 1)}% del book.")
+        # Un sector aguanta más que una posición suelta, pero no el doble: dos
+        # nombres del mismo sector se mueven juntos el día malo.
+        _tope_sec = min(80.0, max(30.0, _tope_pos * 2.0))
+        st = ("breach" if top_sec_pct > _tope_sec * 1.25 else
+              "warn" if top_sec_pct > _tope_sec else "ok")
+        add("Concentracion sectorial", st, f"{top_sec} {round(top_sec_pct, 1)}%",
+            f"<={round(_tope_sec)}%",
+            (f"Tu sector mas pesado es {top_sec} con {round(top_sec_pct, 1)}% del book. "
+             f"El tope se deriva de tu maximo por posicion ({round(_tope_pos)}%)."),
+            "perfil" if _pos_es_tuyo else "heredado")
 
     # 5 — stop-loss review (equity down hard)
+    #
+    # Contra el valor de EQUITY, no contra el combinado. `value` puede llevar
+    # dentro la exposición delta-equivalente de las opciones del mismo
+    # subyacente, y esa exposición no tiene `cost_basis` contra el que medirse:
+    # compararlas mezcladas daba porcentajes de tres cifras que no significaban
+    # nada. `valor_equity` lo deja el fundido; cuando no está, `value` ya es el
+    # de equity puro y la regla es la de siempre.
     losers = []
     for p in eq:
         cb = float(p.get("cost_basis") or 0)
-        if cb > 0:
-            pnl = (p["value"] - cb) / cb * 100
+        _v_eq = float(p.get("valor_equity", p.get("value")) or 0)
+        if cb > 0 and not p.get("es_opcion"):
+            pnl = (_v_eq - cb) / cb * 100
             if pnl <= -25:
                 losers.append(f"{p['ticker']} ({round(pnl)}%)")
     st = "warn" if losers else "ok"
@@ -18241,7 +18525,34 @@ def compute_portfolio_guardrails(positions_pnl, risk):
         ("Posiciones con perdida >25%: " + ", ".join(losers) + ". Tu regla: equity A-grade sin stop fijo, revisa la tesis.")
         if losers else "Ninguna posicion de equity con perdida mayor a 25%.")
 
-    # 6 — book correlation (from risk engine)
+    # 6 — el tamaño manda cuando el capital es chico
+    #
+    # Esta regla no existía y el perfil la pide literal: «con ese capital y
+    # opciones, el sizing manda: prioriza probabilidad de éxito, puntos de
+    # entrada/salida y riesgo de ruina». Con $1.000 y un tope del 30%, una
+    # posición son $300 — y hay contratos que no caben ahí. Una pantalla que
+    # solo avisa de estar DEMASIADO concentrado no sirve a quien el problema
+    # que tiene es el contrario: no poder repartir sin quedarse con trozos
+    # que las comisiones se comen.
+    if _capital > 0:
+        _por_posicion = _capital * _tope_pos / 100.0
+        _n_viable = max(1, int(_capital // max(1.0, _por_posicion)))
+        _chicas = [p["ticker"] for p in eq
+                   if float(p.get("value") or 0) < max(50.0, _capital * 0.05)]
+        st = "warn" if _chicas else "ok"
+        add("Tamano viable por posicion", st,
+            f"${round(_por_posicion)} por posicion", f"{_n_viable} posiciones max",
+            (f"Con ${round(_capital):,} de capital y un tope del {round(_tope_pos)}%, "
+             f"cada posicion cabe en ${round(_por_posicion):,} — unas {_n_viable} "
+             f"posiciones. " +
+             (f"Estas quedan por debajo del 5% del capital y el coste de entrar y "
+              f"salir pesa demasiado sobre ellas: {', '.join(_chicas[:6])}."
+              if _chicas else
+              "Ninguna posicion es tan pequena como para que el coste de entrar y "
+              "salir se la coma.")),
+            "perfil" if _capital else "heredado")
+
+    # 7 — book correlation (from risk engine)
     apc = (risk or {}).get("concentration", {}).get("avg_pairwise_corr")
     if apc is not None:
         st = "breach" if apc >= 0.8 else "warn" if apc >= 0.7 else "ok"
@@ -18254,6 +18565,15 @@ def compute_portfolio_guardrails(positions_pnl, risk):
         "passes": sum(1 for r in rules if r["status"] == "ok"),
     }
     return {"ok": True, "rules": rules, "summary": summary, "total_value": round(total, 2),
+            # De dónde salen los umbrales de esta corrida. Sin esto, una regla
+            # heredada y una que contestaste tú se leen igual.
+            "perfil": {
+                "tolerancia": _tolerancia or None,
+                "capital_usd": _capital or None,
+                "max_posicion_pct": [round(_aviso_pos), round(_tope_pos)],
+                "de_tu_perfil": sorted({r["rule"] for r in rules if r.get("origen") == "perfil"}),
+                "heredadas": sorted({r["rule"] for r in rules if r.get("origen") != "perfil"}),
+            },
             "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
 
 
@@ -18349,7 +18669,11 @@ def get_portfolio_attribution(account_id: str = "", lookback_days: int = 252):
         positions, _src = _resolve_positions(account_id)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
-        return compute_portfolio_attribution(positions, lookback_days=max(20, min(lookback_days, 504)))
+        positions, _op = _posiciones_con_opciones(positions, account_id)
+        out = compute_portfolio_attribution(positions, lookback_days=max(20, min(lookback_days, 504)))
+        if isinstance(out, dict):
+            out["opciones"] = _op
+        return out
     except HTTPException:
         raise
     except Exception as e:
@@ -18363,11 +18687,15 @@ def get_portfolio_guardrails(account_id: str = ""):
         positions, _src = _resolve_positions(account_id, with_cost=True)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
+        positions, _op = _posiciones_con_opciones(positions, account_id, con_costo=True)
         sectors = _fetch_sectors([p["ticker"] for p in positions])
         for p in positions:
             p["sector"] = sectors.get(p["ticker"], "Otros")
         risk = compute_portfolio_risk([{"ticker": p["ticker"], "name": p["name"], "value": p["value"]} for p in positions])
-        return compute_portfolio_guardrails(positions, risk if risk.get("ok") else None)
+        out = compute_portfolio_guardrails(positions, risk if risk.get("ok") else None)
+        if isinstance(out, dict):
+            out["opciones"] = _op
+        return out
     except HTTPException:
         raise
     except Exception as e:
@@ -18481,6 +18809,14 @@ def portfolio_clear():
     save_portfolio_snapshot([])
     save_options_snapshot([])
     return {"ok": True}
+
+#: Lo que se usaba como IV cuando no habia ninguna: 50%.
+#:
+#: Se conserva el numero para que las griegas del modelo sigan siendo
+#: calculables —Black-Scholes necesita UNA sigma o lanza—, pero deja de
+#: publicarse como si fuera un dato. Todo lo que salga de aqui viaja con
+#: `medido: false` y no entra en los agregados del libro.
+IV_SIN_DATO = 0.5
 
 # ── OPTIONS GREEKS ENGINE (Black-Scholes from positions + yfinance IV) ─────────
 # Modular: las posiciones vienen de get_options_snapshot(), que llenan Plaid o
@@ -18804,7 +19140,11 @@ def get_portfolio_optimizer(account_id: str = "", max_weight: float = 0.25):
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         mw = max(0.05, min(float(max_weight), 1.0))
-        return compute_portfolio_optimizer(positions, max_weight=mw)
+        positions, _op = _posiciones_con_opciones(positions, account_id)
+        out = compute_portfolio_optimizer(positions, max_weight=mw)
+        if isinstance(out, dict):
+            out["opciones"] = _op
+        return out
     except HTTPException:
         raise
     except Exception as e:
@@ -19204,12 +19544,22 @@ def get_gex_cached(ticker, ttl=300, force=False):
     ent = _GEX_CACHE.get(key)
     if ent and not force and now - ent[0] < ttl:
         return ent[1]
-    # QuantData PRIMARIO (consistente con walls / max pain / flujo / gráfico de gamma, todos QD).
-    try:
-        val = _gex_from_quantdata(ticker)
-    except Exception:
-        val = None
-    if val is None:                       # QD no respondió → respaldo yfinance + Black-Scholes
+    # Quant Data, SOLO si de verdad está configurado.
+    #
+    # Este comentario decía «QuantData PRIMARIO» mucho después de que el
+    # proveedor saliera del proyecto: su plan quedó inactivo y responde 403 en
+    # todo. `_quantdata_request` ya corta sin clave y memoriza los 403 en
+    # `_QD_SIN_DERECHO`, así que la llamada no salía a la red — pero seguía
+    # recorriendo tres capas de parseo en CADA fallo de caché para llegar a un
+    # `None` conocido de antemano, y sobre todo seguía anunciando como fuente
+    # primaria algo que no lo es. La guarda hace explícito lo que ya pasaba.
+    val = None
+    if _quantdata_ready():
+        try:
+            val = _gex_from_quantdata(ticker)
+        except Exception:
+            val = None
+    if val is None:                       # sin QD → yfinance + Black-Scholes
         try:
             val = compute_gex(ticker)
         except Exception:
@@ -21649,6 +21999,7 @@ def compute_options_analytics(options, equity_positions=None):
     RF = 0.043
     now = datetime.now()
     spot_cache, iv_cache = {}, {}
+    faltan = []                     # contratos sin dato suficiente para puntuar
     enriched = []
     net_delta_dollar = net_gamma = net_theta = net_vega = 0.0
     by_underlying, ladder = {}, {}
@@ -21676,10 +22027,34 @@ def compute_options_analytics(options, equity_positions=None):
             except Exception:
                 pass
             iv_cache[ivkey] = chain_iv
+        # ── De DÓNDE salió esta IV ────────────────────────────────────────
+        #
+        # Aquí estaba la mentira mas cara del panel. Con el feed caido la
+        # cadena venia vacia, el respaldo ponia 0.5 y la respuesta salia con
+        # `ok: true`, `iv: 50.0` y `delta: 0.0` — un numero inventado con la
+        # misma pinta que uno medido, y un «no pude calcular» escrito igual
+        # que un delta cero de verdad. La nota al pie decia ademas «IV de
+        # yfinance», que era falso: esa IV no vino de ningun sitio.
+        #
+        # Las tres procedencias se distinguen y viajan al panel. La tercera
+        # NO es una IV: es la ausencia de una, y las griegas que salgan de
+        # ella no se publican.
         iv = iv_cache[ivkey].get((otype, round(strike, 2)))
-        if not iv or iv <= 0:  # fallback: avg IV of same type on that expiry, else 0.5
+        if iv and iv > 0:
+            iv_fuente = "cadena"
+        else:
             cands = [v for (t, _k), v in iv_cache[ivkey].items() if t == otype and v > 0]
-            iv = (sum(cands) / len(cands)) if cands else 0.5
+            if cands:
+                iv, iv_fuente = (sum(cands) / len(cands)), "promedio del vencimiento"
+            else:
+                iv, iv_fuente = IV_SIN_DATO, "sin dato"
+        medido = bool(S) and iv_fuente != "sin dato"
+        if not medido:
+            faltan.append({"underlying": u, "expiry": exp, "strike": strike,
+                           "option_type": otype,
+                           "motivo": ("no se pudo obtener el precio del subyacente"
+                                      if not S else
+                                      "la cadena de ese vencimiento no trajo IV")})
         # Time to expiry in years
         try:
             ed = datetime.strptime(exp, "%Y-%m-%d")
@@ -21689,7 +22064,10 @@ def compute_options_analytics(options, equity_positions=None):
             T, dte = 0.0, None
         g = _bs_greeks(S, strike, T, iv, RF, otype)
         mult = contracts * 100.0
-        if S:
+        # Los agregados del libro —delta neto, theta neto, la escalera de
+        # vencimientos— solo suman lo MEDIDO. Meter una posicion valorada con
+        # una IV inventada contamina el total y no hay forma de verlo despues.
+        if S and medido:
             d_dollar = g["delta"] * mult * S
             gm = g["gamma"] * mult
             th = g["theta_day"] * mult
@@ -21706,10 +22084,18 @@ def compute_options_analytics(options, equity_positions=None):
         enriched.append({
             "underlying": u, "option_type": otype, "strike": strike, "expiry": exp, "dte": dte,
             "contracts": contracts, "value": o["value"], "spot": round(S, 2) if S else None,
-            "iv": round(iv * 100, 1), "delta": round(g["delta"], 3), "gamma": round(g["gamma"], 4),
-            "theta_day_$": round(g["theta_day"] * mult, 2) if S else None,
-            "vega_$": round(g["vega_1pct"] * mult, 2) if S else None,
-            "delta_$": round(g["delta"] * mult * S, 0) if S else None})
+            # `null` y no un numero: sin IV medida no hay griega que publicar.
+            # Un 0.0 aqui se lee como «delta cero», que es una afirmacion, y
+            # lo que pasa es que no se sabe. La regla del proyecto es la misma
+            # que en el scorecard: NOT_SCORABLE no es un cero.
+            "iv": round(iv * 100, 1) if medido else None,
+            "iv_fuente": iv_fuente,
+            "medido": medido,
+            "delta": round(g["delta"], 3) if medido else None,
+            "gamma": round(g["gamma"], 4) if medido else None,
+            "theta_day_$": round(g["theta_day"] * mult, 2) if medido else None,
+            "vega_$": round(g["vega_1pct"] * mult, 2) if medido else None,
+            "delta_$": round(g["delta"] * mult * S, 0) if medido else None})
 
     # Total directional delta of the whole book: options Δ$ + stock value (stock delta = 1)
     stock_delta = sum(float(p.get("value") or 0) for p in (equity_positions or []))
@@ -21725,6 +22111,16 @@ def compute_options_analytics(options, equity_positions=None):
 
     # Alerts
     alerts = []
+    # El primero de todos, porque cambia como se lee TODO lo que hay debajo.
+    if faltan:
+        _q = ", ".join(f"{f['underlying']} {f['option_type']} ${f['strike']:g} {f['expiry']}"
+                       for f in faltan[:4])
+        _mas = f" y {len(faltan) - 4} mas" if len(faltan) > 4 else ""
+        alerts.append({"level": "warn",
+                       "msg": (f"{len(faltan)} de {len(options)} contrato(s) sin dato de mercado "
+                               f"({_q}{_mas}). Sus griegas salen vacias y NO entran en el delta, "
+                               f"el theta ni el vega del libro: los totales de abajo cubren solo "
+                               f"{len(options) - len(faltan)} contrato(s).")})
     soon = [e for e in enriched if e.get("dte") is not None and e["dte"] <= 7]
     if soon:
         alerts.append({"level": "warn",
@@ -21757,9 +22153,208 @@ def compute_options_analytics(options, equity_positions=None):
         "by_underlying": by_underlying, "ladder": ladder_list,
         "positions": sorted(enriched, key=lambda x: (x["expiry"], x["underlying"])),
         "alerts": alerts, "rf": RF,
-        "note": "Las griegas son estimaciones del modelo Black-Scholes con IV de yfinance; "
+        # Cuantos contratos sostienen de verdad los totales de arriba.
+        "cobertura": {"con_dato": len(options) - len(faltan), "de": len(options),
+                      "sin_dato": faltan},
+        "datos_incompletos": bool(faltan),
+        "note": "Las griegas son estimaciones del modelo Black-Scholes con IV de la cadena; "
                 "pueden diferir de las de tu broker.",
         "generated_at": now.strftime('%m/%d/%Y, %I:%M:%S %p')})
+
+
+#: DTE mínimo para que un contrato reciba lectura de Drift.
+#:
+#: Kevin lo acotó: «solo será con el drift para los días de 90/120/320, porque
+#: son posiciones que uno aguanta por semanas y tal vez hasta meses». Un
+#: contrato que vence en dos semanas NO se lee contra el muro de 90 días — ahí
+#: mandan los horizontes propios del agente (10/20/30), que ya existen en
+#: Proyecciones. El corte se pone a mitad de camino del primer bucket.
+_DRIFT_LIBRO_DTE_MIN = 45
+
+#: Los tres plazos de Drift que se cruzan con el libro. Son los mismos de
+#: `DTE_OBJETIVO` menos el de ~30, que solapa con el motor.
+_DRIFT_LIBRO_PLAZOS = (90, 120, 320)
+
+
+def _drift_bucket_para(buckets, dte):
+    """El bucket de Drift al que pertenece un contrato con `dte` días.
+
+    El más cercano de 90/120/320 **por DTE objetivo**, no por vencimiento real:
+    los muros de un bucket salen del vencimiento mensual que ese plazo eligió,
+    y ése es el contrato que se compraría a ese horizonte. Devuelve `None` si
+    el contrato es demasiado corto para esta lectura.
+    """
+    if dte is None or dte < _DRIFT_LIBRO_DTE_MIN:
+        return None
+    cands = [b for b in (buckets or [])
+             if int(b.get("dte_objetivo") or 0) in _DRIFT_LIBRO_PLAZOS]
+    if not cands:
+        return None
+    return min(cands, key=lambda b: abs(int(b.get("dte_objetivo") or 0) - int(dte)))
+
+
+@app.get("/api/portfolio-drift")
+def portfolio_drift():
+    """Los tres niveles de Drift para CADA contrato largo del libro.
+
+    Es el único puente entre el agente de OPCIONES y el portafolio, y va
+    acotado a propósito: **solo Drift, y solo los plazos de 90/120/320 días**.
+    El motivo es de Kevin y es el correcto — ésas son posiciones que se
+    aguantan semanas o meses, y el imán del GEX del agente sale de la gamma de
+    la cadena de HOY, que a esos plazos ya habrá rotado casi entera. Los muros
+    de Drift, en cambio, salen del vencimiento mensual de ese plazo: el
+    contrato que de verdad se compraría.
+
+    Lo que responde, por contrato: dónde está el muro de puts, el imán y el
+    muro de calls de su plazo, y si TU strike cae dentro de ese rango o por
+    fuera. Un call comprado por encima del muro de calls es una apuesta a que
+    el precio atraviesa la mayor concentración de interés abierto de la
+    cadena; eso no lo prohíbe nadie, pero hay que saberlo.
+
+    **No recalcula el agente.** Lee la misma cadena de Massive y llama a
+    `drift_analysis` con los mismos parámetros que `/api/tito-scorecard`, así
+    que los números son idénticos a los de Proyecciones. Y no puntúa: no hay
+    score, no hay veredicto, no hay recomendación.
+
+    Degrada con el motivo exacto: sin cadena de Massive no hay muros, y se
+    dice cuál subyacente falló en vez de dejar la tarjeta vacía.
+    """
+    try:
+        opciones = get_options_snapshot() or []
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": f"No se pudo leer el snapshot de opciones: {e}"}
+    if not opciones:
+        return {"ok": True, "n_options": 0, "contratos": [],
+                "note": ("No hay posiciones de opciones guardadas. Conecta Plaid o "
+                         "cárgalas en Importar portafolio.")}
+
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito).",
+                "source": "motor"}
+
+    now = datetime.now(timezone.utc)
+    hoy = now.date()
+    por_subyacente, fallos = {}, {}
+    contratos, cortos = [], []
+
+    for o in opciones:
+        u = str(o.get("underlying") or "").upper()
+        if not u:
+            continue
+        # Una sola bajada de cadena por subyacente, aunque tengas seis
+        # contratos del mismo papel.
+        if u not in por_subyacente and u not in fallos:
+            try:
+                chain, bars, spot, _meta = _tito_chain_and_bars(u)
+                _anota_fuente_tito("massive", True)
+                iv = None
+                try:
+                    from wbj.tito.gex import estimate_iv
+                    iv = estimate_iv([b.close for b in bars]) if bars else None
+                except Exception:                # noqa: BLE001
+                    iv = None
+                from wbj.tito.drift import drift_analysis
+                a = drift_analysis(chain or [], spot=float(spot), hoy=hoy, iv=iv,
+                                   iman_entre_muros=True,
+                                   banda_spot=_DRIFT_BANDA_SPOT)
+                por_subyacente[u] = {"spot": float(spot), "iv": iv, "analisis": a}
+            except Exception as e:               # noqa: BLE001
+                _anota_fuente_tito("massive", False, _error_de_fuente(e, "Cadena de Massive"))
+                fallos[u] = _error_de_fuente(e, "Cadena de Massive")
+
+        strike = _safe_num(o.get("strike"), 0.0)
+        exp = str(o.get("expiry") or "")
+        try:
+            dte = (date.fromisoformat(exp) - hoy).days
+        except (ValueError, TypeError):
+            dte = None
+        fila = {"underlying": u, "option_type": o.get("option_type"),
+                "strike": strike, "expiry": exp, "dte": dte,
+                "contracts": _safe_num(o.get("contracts"), 0.0)}
+
+        if dte is not None and dte < _DRIFT_LIBRO_DTE_MIN:
+            fila["fuera_de_alcance"] = (
+                f"Vence en {dte} días. Drift empieza en los {_DRIFT_LIBRO_PLAZOS[0]} "
+                f"días; para plazos cortos manda el agente en Proyecciones "
+                f"(10/20/30 días).")
+            cortos.append(fila)
+            continue
+        if u in fallos:
+            fila["error"] = fallos[u]
+            contratos.append(fila)
+            continue
+
+        info = por_subyacente.get(u) or {}
+        a = info.get("analisis")
+        buckets = [{"dte_objetivo": b.dte_objetivo, "etiqueta": b.etiqueta,
+                    "vencimiento": b.vencimiento.isoformat() if b.vencimiento else None,
+                    "dte_real": b.dte_real, "muro_puts": b.muro_puts,
+                    "muro_calls": b.muro_calls, "magneto": b.magneto,
+                    "deriva": b.deriva, "sigma": b.sigma}
+                   for b in (getattr(a, "buckets", None) or [])]
+        b = _drift_bucket_para(buckets, dte)
+        if b is None:
+            fila["error"] = (getattr(a, "motivo", None)
+                             or "La cadena no trajo un vencimiento mensual para ese plazo.")
+            contratos.append(fila)
+            continue
+
+        mp, mc, im = b.get("muro_puts"), b.get("muro_calls"), b.get("magneto")
+        dentro = None
+        if mp is not None and mc is not None and strike > 0:
+            dentro = bool(min(mp, mc) <= strike <= max(mp, mc))
+        fila.update({
+            "spot": _r(info.get("spot")),
+            "plazo_drift": b["dte_objetivo"], "etiqueta": b["etiqueta"],
+            "vencimiento_drift": b["vencimiento"], "dte_real": b["dte_real"],
+            "muro_puts": _r(mp), "iman": _r(im), "muro_calls": _r(mc),
+            "deriva": b.get("deriva"),
+            "strike_dentro_de_los_muros": dentro,
+            # La distancia al imán en %, que es lo que dice si el contrato
+            # está donde el dinero se concentra o en el borde de la cadena.
+            "distancia_al_iman_pct": (_r((strike / im - 1) * 100, 1)
+                                      if (im and im > 0 and strike > 0) else None),
+            "lectura": _drift_lectura_del_contrato(o.get("option_type"), strike, mp, im, mc, dentro),
+        })
+        contratos.append(fila)
+
+    con_niveles = sum(1 for c in contratos if c.get("muro_calls") is not None)
+    return _json_safe({
+        "ok": True, "n_options": len(opciones),
+        "contratos": sorted(contratos, key=lambda c: (c.get("expiry") or "", c["underlying"])),
+        "fuera_de_alcance": cortos,
+        "cobertura": {"con_niveles": con_niveles, "de": len(contratos),
+                      "fuera_de_alcance": len(cortos)},
+        "plazos": list(_DRIFT_LIBRO_PLAZOS),
+        "dte_minimo": _DRIFT_LIBRO_DTE_MIN,
+        "engine": "victor/tito", "chain_source": "massive",
+        "note": ("Los tres niveles son los MISMOS que sirve Proyecciones para ese "
+                 "plazo: muro de puts, imán y muro de calls del vencimiento mensual. "
+                 "Es contexto de posicionamiento, no una recomendación de compra ni "
+                 "de venta."),
+        "generated_at": now.strftime('%m/%d/%Y, %I:%M:%S %p')})
+
+
+def _drift_lectura_del_contrato(tipo, strike, muro_puts, iman, muro_calls, dentro):
+    """Una frase de contexto. Describe dónde está el strike, no qué hacer."""
+    if muro_calls is None or muro_puts is None or not strike:
+        return None
+    t = "call" if str(tipo or "").lower() == "call" else "put"
+    if dentro is False and strike > max(muro_puts, muro_calls):
+        return (f"Tu strike de ${strike:g} está POR ENCIMA del muro de calls "
+                f"(${max(muro_puts, muro_calls):g}). Para llegar ahí el precio tiene que "
+                f"atravesar la mayor concentración de interés abierto del vencimiento.")
+    if dentro is False and strike < min(muro_puts, muro_calls):
+        return (f"Tu strike de ${strike:g} está POR DEBAJO del muro de puts "
+                f"(${min(muro_puts, muro_calls):g}), donde el interés abierto hace suelo.")
+    if iman and abs(strike / iman - 1) <= 0.05:
+        return (f"Tu strike de ${strike:g} está prácticamente sobre el imán "
+                f"(${iman:g}): el strike de mayor nocional del vencimiento.")
+    lado = "arriba" if (iman and strike > iman) else "abajo"
+    return (f"Tu {t} de ${strike:g} cae dentro del rango de los dos muros, "
+            f"por {lado} del imán (${iman:g})." if iman else
+            f"Tu {t} de ${strike:g} cae dentro del rango de los dos muros.")
 
 
 @app.get("/api/portfolio-options")

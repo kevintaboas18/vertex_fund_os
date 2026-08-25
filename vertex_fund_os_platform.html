@@ -10807,7 +10807,7 @@ let pfRiskLoaded = false;
 function switchPortfolioTab(tabId, btn) {
     document.querySelectorAll('#portfolioDashboard .pf-subtab').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
-    ['pfHoldingsTab','pfRiskTab','pfStressTab','pfWhatifTab','pfAttribTab','pfGuardTab','pfOptTab','pfOptionsTab'].forEach(id => {
+    ['pfHoldingsTab','pfRiskTab','pfStressTab','pfWhatifTab','pfAttribTab','pfGuardTab','pfOptTab','pfOptionsTab','pfDriftTab'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.toggle('hidden', id !== tabId);
     });
@@ -10817,6 +10817,7 @@ function switchPortfolioTab(tabId, btn) {
     if (tabId === 'pfGuardTab' && !pfGuardLoaded) loadPortfolioGuardrails();
     if (tabId === 'pfOptTab' && !pfOptLoaded) loadPortfolioOptimizer();
     if (tabId === 'pfOptionsTab' && !pfOptionsLoaded) loadOptions();
+    if (tabId === 'pfDriftTab' && !pfDriftLoaded) loadPortfolioDrift();
     if (window.lucide) vcIconos();
 }
 
@@ -11120,6 +11121,47 @@ function renderPortfolioStress(d) {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${mcCard(mc.h21,'Horizonte 1 mes (21d)')}${mcCard(mc.h252,'Horizonte 1 año (252d)')}</div>
     </div>`;
 
+    // ── Riesgo de ruina + sizing ──────────────────────────────────────────────
+    //
+    // El Monte Carlo de arriba responde «como acabas». Esto responde «que
+    // puedes llegar a ver por el camino», que es lo que de verdad te saca del
+    // mercado: un camino que se hunde 45% y remonta a -5% sale ahi arriba como
+    // una perdida moderada.
+    const rr = d.riesgo_de_ruina || {};
+    const sz = d.sizing;
+    const rrCol = v => (v == null ? 'text-gray-500' : v >= 25 ? 'text-red-400' : v >= 10 ? 'text-amber-400' : 'text-emerald-400');
+    const rrCard = (h, title) => {
+        if (!h) return '';
+        return `<div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+            <p class="text-[11px] font-bold text-gray-200 mb-3">${title}</p>
+            <div class="space-y-1.5 text-[10px]">
+                <div class="flex justify-between"><span class="text-gray-500">Cae 25% o más</span><span class="font-mono font-bold ${rrCol(h.prob_caida_25)}">${h.prob_caida_25}%</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Cae 50% o más</span><span class="font-mono font-bold ${rrCol(h.prob_caida_50)}">${h.prob_caida_50}%</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Cae 75% o más</span><span class="font-mono font-bold ${rrCol(h.prob_caida_75)}">${h.prob_caida_75}%</span></div>
+                <div class="flex justify-between pt-1.5 border-t border-gray-900"><span class="text-gray-500">Lo peor que verías (p5)</span><span class="font-mono font-bold text-red-400">${pfUSD(h.peor_camino_p5_usd)}</span></div>
+            </div>
+        </div>`;
+    };
+    const szHtml = sz ? `<div class="bg-sky-500/5 border border-sky-500/20 rounded-xl p-4 mt-3">
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-1.5">
+            <p class="text-[10px] font-extrabold text-sky-300 uppercase tracking-wider">Tu tamaño por posición</p>
+            <span class="text-[8px] font-bold ${sz.origen === 'perfil' ? 'text-sky-400 bg-sky-500/10 border-sky-500/25' : 'text-gray-500 bg-gray-800/60 border-gray-700'} border rounded px-1.5 py-0.5">${sz.origen === 'perfil' ? 'tu perfil' : 'heredado'}</span>
+        </div>
+        <div class="flex items-end gap-4 flex-wrap mb-1.5">
+            <div><span class="text-xl font-mono font-black text-white">${pfUSD(sz.max_por_posicion_usd)}</span><span class="text-[10px] text-gray-500 ml-1.5">por posición</span></div>
+            <div><span class="text-xl font-mono font-black text-gray-300">${sz.posiciones_que_caben}</span><span class="text-[10px] text-gray-500 ml-1.5">posiciones caben</span></div>
+        </div>
+        <p class="text-[10px] text-gray-400 leading-relaxed">${_vcEsc(sz.lectura || '')}</p>
+    </div>` : '';
+    const ruina = (rr.h21 || rr.h63 || rr.h252) ? `<div class="bg-panel border border-panel rounded-2xl p-5">
+        <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-widest flex items-center gap-2 mb-1">
+            <i data-lucide="skull" class="w-3.5 h-3.5"></i> Riesgo de ruina
+        </h4>
+        <p class="text-[10px] text-gray-500 italic mb-3">${_vcEsc(rr.nota || '')}</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">${rrCard(rr.h21,'1 mes (21d)')}${rrCard(rr.h63,'3 meses (63d)')}${rrCard(rr.h252,'1 año (252d)')}</div>
+        ${szHtml}
+    </div>` : '';
+
     // ── CVaR + Hypotheticals ──────────────────────────────────────────────────
     const cvarCard = `<div class="bg-panel border border-panel rounded-2xl p-5">
         <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-widest flex items-center gap-2 mb-3">
@@ -11164,6 +11206,7 @@ function renderPortfolioStress(d) {
         ${mcards}
         ${crisis}
         ${montecarlo}
+        ${ruina}
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">${cvarCard}${hypCard}</div>
         ${meta}
     </div>`;
@@ -11398,7 +11441,12 @@ function renderPortfolioGuardrails(d) {
             <div class="flex-grow min-w-0">
                 <div class="flex items-center justify-between gap-2 flex-wrap mb-0.5">
                     <p class="text-xs font-bold text-gray-200">${r.rule}</p>
-                    <span class="text-[9px] font-bold ${m.tx} font-mono">${m.lb}</span>
+                    <span class="flex items-center gap-1.5">
+                        ${r.origen === 'perfil'
+                            ? `<span class="text-[8px] font-bold text-sky-400 bg-sky-500/10 border border-sky-500/25 rounded px-1.5 py-0.5" title="El umbral sale de tu cuestionario">tu perfil</span>`
+                            : `<span class="text-[8px] font-bold text-gray-500 bg-gray-800/60 border border-gray-700 rounded px-1.5 py-0.5" title="El cuestionario no fija este umbral: es el valor por defecto">heredado</span>`}
+                        <span class="text-[9px] font-bold ${m.tx} font-mono">${m.lb}</span>
+                    </span>
                 </div>
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-sm font-mono font-black text-white">${r.value}</span>
@@ -11407,8 +11455,19 @@ function renderPortfolioGuardrails(d) {
                 <p class="text-[10px] text-gray-400 leading-relaxed">${r.detail}</p>
             </div></div>`;
     }).join('');
+    // Los umbrales de ESTA corrida. Sin decirlo, una regla que contestaste tu
+    // y una heredada se leen igual, y la segunda parece una decision tuya.
+    const pf = d.perfil || {};
+    const perfilHtml = pf.tolerancia ? `<div class="bg-sky-500/5 border border-sky-500/20 rounded-xl px-3.5 py-2.5 text-[10px] text-sky-200/90 leading-relaxed">
+        <b>Umbrales de tu perfil:</b> tolerancia <b>${_vcEsc(pf.tolerancia)}</b>${pf.capital_usd ? ` · capital <b>${pfUSD(pf.capital_usd)}</b>` : ''}${Array.isArray(pf.max_posicion_pct) ? ` · maximo por posicion <b>${pf.max_posicion_pct[0]}–${pf.max_posicion_pct[1]}%</b>` : ''}.
+        ${(pf.heredadas || []).length ? `<span class="text-gray-500">Sigue(n) con el valor por defecto: ${(pf.heredadas || []).map(x => _vcEsc(x)).join(', ')}.</span>` : ''}
+    </div>` : '';
+    const opc = d.opciones || {};
+    const opcHtml = opc.incluye_opciones
+        ? `<p class="text-[10px] text-gray-500 px-1">Incluye la exposicion delta-equivalente de <b>${opc.n_opciones}</b> contrato(s): ${pfUSD(opc.exposicion_total)}. El valor total del portafolio no la cuenta.</p>`
+        : (opc.motivo ? `<p class="text-[10px] text-amber-400/80 px-1">Sin las opciones en el calculo: ${_vcEsc(opc.motivo)}</p>` : '');
     const meta2 = `<div class="text-[9px] text-gray-600 px-1 text-right">${pfUSD(d.total_value)} · ${d.generated_at||''}</div>`;
-    body.innerHTML = `<div class="space-y-4">${summary}<div class="space-y-2.5">${cards}</div>${meta2}</div>`;
+    body.innerHTML = `<div class="space-y-4">${perfilHtml}${summary}<div class="space-y-2.5">${cards}</div>${opcHtml}${meta2}</div>`;
     if (window.lucide) vcIconos();
 }
 // ── END ATTRIBUTION + GUARDRAILS ─────────────────────────────────────────────────────────────────────────
@@ -11796,6 +11855,77 @@ function pfIdeaAnalyze(tk) {
 
 
 let pfOptionsLoaded = false;
+let pfDriftLoaded = false;
+
+// ── DRIFT SOBRE TUS CONTRATOS ───────────────────────────────────────────────
+//
+// El unico puente entre el agente de OPCIONES y el portafolio, y va acotado a
+// proposito: solo Drift, y solo 90/120/320 dias. Son las posiciones que se
+// aguantan semanas o meses; para las cortas manda el agente en Proyecciones.
+async function loadPortfolioDrift(force) {
+    const body = document.getElementById('pfDriftBody');
+    if (!body) return;
+    if (pfDriftLoaded && !force) return;
+    body.innerHTML = `<p class="text-xs text-gray-500 italic p-4 flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Leyendo la cadena de cada subyacente…</p>`;
+    if (window.lucide) vcIconos();
+    try {
+        const d = await (await fetch(`${API_BASE}/api/portfolio-drift`)).json();
+        if (!d.ok) { body.innerHTML = `<p class="text-xs text-amber-400 italic p-4">${_vcEsc(d.error || 'No se pudo calcular.')}</p>`; pfDriftLoaded = true; return; }
+        renderPortfolioDrift(d); pfDriftLoaded = true;
+    } catch (e) {
+        body.innerHTML = `<p class="text-xs text-red-400 italic p-4">Error: ${_vcEsc(e.message)}</p>`;
+    }
+}
+
+function renderPortfolioDrift(d) {
+    const body = document.getElementById('pfDriftBody');
+    if (!body) return;
+    if (!d.n_options) {
+        body.innerHTML = `<div class="text-center py-8 px-4">
+            <i data-lucide="inbox" class="w-8 h-8 text-gray-600 mx-auto mb-2"></i>
+            <p class="text-xs text-gray-400">${_vcEsc(d.note || 'No hay opciones guardadas.')}</p></div>`;
+        if (window.lucide) vcIconos();
+        return;
+    }
+    const usd = v => (v == null ? '—' : '$' + Number(v).toLocaleString('en-US', {maximumFractionDigits: 2}));
+    const tarjetas = (d.contratos || []).map(c => {
+        if (c.error) {
+            return `<div class="bg-[#0B0E14] border border-amber-500/20 rounded-xl p-3.5">
+                <p class="text-xs font-bold text-gray-200 mb-1">${_vcEsc(c.underlying)} ${_vcEsc((c.option_type || '').toUpperCase())} $${c.strike} · ${_vcEsc(c.expiry)}</p>
+                <p class="text-[10px] text-amber-400/90">${_vcEsc(c.error)}</p></div>`;
+        }
+        const dentro = c.strike_dentro_de_los_muros;
+        const bd = dentro === false ? 'border-amber-500/30' : 'border-gray-900';
+        // Una barra con los tres niveles y tu strike encima. La regla n.1 de
+        // visualizacion: nunca una sola linea — aqui se ve el RANGO.
+        const lo = Math.min(c.muro_puts, c.muro_calls), hi = Math.max(c.muro_puts, c.muro_calls);
+        const span = (hi - lo) || 1;
+        const pos = v => Math.max(0, Math.min(100, ((v - lo) / span) * 100));
+        return `<div class="bg-[#0B0E14] border ${bd} rounded-xl p-3.5">
+            <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+                <p class="text-xs font-bold text-gray-200">${_vcEsc(c.underlying)} <span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${c.option_type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${_vcEsc((c.option_type || '').toUpperCase())}</span> $${c.strike}</p>
+                <span class="text-[9px] text-gray-500 font-mono">${_vcEsc(c.expiry)} · ${c.dte}d · Drift ${c.plazo_drift}d</span>
+            </div>
+            <div class="relative h-1.5 rounded-full bg-gray-800 mb-1">
+                ${c.iman != null ? `<div class="absolute top-0 h-1.5 w-0.5 bg-sky-400" style="left:${pos(c.iman)}%"></div>` : ''}
+                ${c.strike ? `<div class="absolute -top-1 h-3.5 w-0.5 ${dentro === false ? 'bg-amber-400' : 'bg-white'}" style="left:${pos(c.strike)}%"></div>` : ''}
+            </div>
+            <div class="flex justify-between text-[9px] text-gray-500 mb-2 font-mono">
+                <span>puts ${usd(c.muro_puts)}</span><span class="text-sky-400">imán ${usd(c.iman)}</span><span>calls ${usd(c.muro_calls)}</span>
+            </div>
+            <p class="text-[10px] ${dentro === false ? 'text-amber-300' : 'text-gray-400'} leading-relaxed">${_vcEsc(c.lectura || '')}</p>
+        </div>`;
+    }).join('');
+    const cortos = (d.fuera_de_alcance || []).length
+        ? `<div class="bg-gray-900/40 border border-gray-800 rounded-xl p-3.5">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Fuera del alcance de Drift</p>
+            ${(d.fuera_de_alcance || []).map(c => `<p class="text-[10px] text-gray-500 leading-relaxed mb-1">${_vcEsc(c.underlying)} ${_vcEsc((c.option_type || '').toUpperCase())} $${c.strike} · ${_vcEsc(c.fuera_de_alcance || '')}</p>`).join('')}
+        </div>` : '';
+    const pie = `<p class="text-[10px] text-gray-600 italic">${_vcEsc(d.note || '')}</p>`;
+    body.innerHTML = `<div class="space-y-3">${tarjetas}${cortos}${pie}</div>`;
+    if (window.lucide) vcIconos();
+}
+
 async function loadOptions(force) {
     // OJO: este panel es el de GRIEGAS del libro. Antes usaba el id 'pfOptionsBody', que ya
     // existía en el panel "Contratos de Opciones" — getElementById devolvía ese otro y el de
@@ -11834,7 +11964,14 @@ function renderOptions(d) {
             ${sub ? `<div class="text-[10px] text-gray-500 mt-0.5">${sub}</div>` : ''}
         </div>`;
 
-    const cards = `<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+    // Cuantos contratos sostienen de VERDAD las cuatro tarjetas de abajo. Sin
+    // esto, un delta neto calculado sobre 1 de 4 contratos se lee igual que
+    // uno completo.
+    const cob = d.cobertura || {};
+    const cobHtml = (d.datos_incompletos && cob.de)
+        ? `<p class="text-[10px] text-amber-400/90 mb-2 flex items-center gap-1.5"><i data-lucide="alert-triangle" class="w-3 h-3"></i><span>Estos totales cubren <b>${cob.con_dato} de ${cob.de}</b> contratos: el resto no tiene dato de mercado.</span></p>`
+        : '';
+    const cards = cobHtml + `<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         ${card('Δ Neto (Opciones)', pfUSD(g.net_delta_dollar), (g.net_delta_shares != null ? `${g.net_delta_shares.toLocaleString()} acc-equiv` : ''), sgn(g.net_delta_dollar))}
         ${card('Γ Neto', (g.net_gamma != null ? g.net_gamma.toLocaleString() : '—'), 'Δ por $1 de movimiento', sgn(g.net_gamma))}
         ${card('Θ Neto', pfUSD(g.net_theta_day) + '/día', (g.net_theta_day >= 0 ? 'el decaimiento te favorece' : 'costo de mantener'), sgn(g.net_theta_day))}
@@ -11894,17 +12031,23 @@ function renderOptions(d) {
             <tbody>${buRows}</tbody></table></div></div>`;
 
     // Per-position detail
+    // Sin dato de mercado las griegas llegan en `null`, y `${p.delta}` a pelo
+    // escribia la palabra «null» en la tabla. Un guion dice lo mismo sin
+    // parecer un fallo del navegador, y la fila se atenua entera para que se
+    // vea de un vistazo cual no cuenta.
+    const num = (v, suf) => (v == null ? '—' : v + (suf || ''));
     const posRows = d.positions.map(p => {
         const near = p.dte != null && p.dte <= 7;
-        return `<tr class="border-b border-gray-800/50">
+        const ciego = p.medido === false;
+        return `<tr class="border-b border-gray-800/50${ciego ? ' opacity-50' : ''}">
             <td class="py-2 pr-2 font-bold text-gray-200">${p.underlying}</td>
             <td class="py-2 pr-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${p.option_type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${p.option_type.toUpperCase()}</span></td>
             <td class="py-2 pr-2 text-right text-gray-300">$${p.strike}</td>
             <td class="py-2 pr-2 text-right ${near ? 'text-amber-400 font-bold' : 'text-gray-400'}">${p.expiry}${near ? ' ⚠' : ''}</td>
             <td class="py-2 pr-2 text-right text-gray-300">${p.contracts}</td>
-            <td class="py-2 pr-2 text-right text-gray-400">${p.iv != null ? p.iv + '%' : '—'}</td>
-            <td class="py-2 pr-2 text-right ${sgn(p.delta)}">${p.delta}</td>
-            <td class="py-2 pr-2 text-right text-gray-400">${p.gamma}</td>
+            <td class="py-2 pr-2 text-right text-gray-400" title="${_vcEsc(p.iv_fuente || '')}">${num(p.iv, '%')}${ciego ? ' <span class="text-amber-400">·</span>' : ''}</td>
+            <td class="py-2 pr-2 text-right ${p.delta == null ? 'text-gray-600' : sgn(p.delta)}">${num(p.delta)}</td>
+            <td class="py-2 pr-2 text-right text-gray-400">${num(p.gamma)}</td>
             <td class="py-2 pr-2 text-right ${sgn(p['theta_day_$'])}">${p['theta_day_$'] != null ? pfUSD(p['theta_day_$']) : '—'}</td>
             <td class="py-2 text-right ${sgn(p['vega_$'])}">${p['vega_$'] != null ? pfUSD(p['vega_$']) : '—'}</td>
         </tr>`;
@@ -12501,6 +12644,7 @@ function analyzeTickerNow(tk) {
             <button class="pf-subtab" data-pftab="pfGuardTab" onclick="switchPortfolioTab('pfGuardTab', this)"><i data-lucide="shield-check" class="w-3.5 h-3.5 inline -mt-0.5 mr-1"></i>Guardrails</button>
             <button class="pf-subtab" data-pftab="pfOptTab" onclick="switchPortfolioTab('pfOptTab', this)"><i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 inline -mt-0.5 mr-1"></i>Optimizador</button>
             <button class="pf-subtab" data-pftab="pfOptionsTab" onclick="switchPortfolioTab('pfOptionsTab', this)"><i data-lucide="activity" class="w-3.5 h-3.5 inline -mt-0.5 mr-1"></i>Opciones</button>
+            <button class="pf-subtab" data-pftab="pfDriftTab" onclick="switchPortfolioTab('pfDriftTab', this)"><i data-lucide="magnet" class="w-3.5 h-3.5 inline -mt-0.5 mr-1"></i>Drift</button>
         </div>
 
         <div id="pfHoldingsTab" class="space-y-5">
@@ -12678,8 +12822,23 @@ function analyzeTickerNow(tk) {
                         <i data-lucide="refresh-cw" class="w-3 h-3"></i> Recalcular
                     </button>
                 </div>
-                <p class="text-xs text-gray-500 italic mb-4">Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de yfinance.</p>
+                <p class="text-xs text-gray-500 italic mb-4">Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de la cadena.</p>
                 <div id="pfGreeksBody"></div>
+            </div>
+        </div>
+
+        <div id="pfDriftTab" class="hidden space-y-5">
+            <div class="bg-panel border border-panel rounded-2xl p-5">
+                <div class="flex items-center justify-between flex-wrap gap-3 mb-1">
+                    <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
+                        <i data-lucide="magnet" class="w-4 h-4"></i> Drift sobre tus contratos
+                    </h3>
+                    <button onclick="loadPortfolioDrift(true)" class="text-[10px] font-bold px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition flex items-center gap-1.5">
+                        <i data-lucide="refresh-cw" class="w-3 h-3"></i> Recalcular
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 italic mb-4">Los tres niveles de Drift del agente de opciones —muro de puts, imán y muro de calls— para cada contrato que tienes. Solo los plazos de 90/120/320 días, que son las posiciones que se aguantan semanas o meses. Es contexto de posicionamiento, no una recomendación.</p>
+                <div id="pfDriftBody"></div>
             </div>
         </div>
 
@@ -14545,6 +14704,35 @@ const VX_ES2EN = {
     "Vencimiento largo (90+ días)": "Long expiry (90+ days)",
     "análisis completo del agente": "the agent's full analysis",
     "macro · tasa libre de riesgo": "macro · risk-free rate",
+    "Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de la cadena.": "Net delta · gamma · theta · vega of the book · Expiry ladder · Total directional exposure (options + stock) · Black-Scholes with chain IV.",
+    "Los tres niveles de Drift del agente de opciones —muro de puts, imán y muro de calls— para cada contrato que tienes. Solo los plazos de 90/120/320 días, que son las posiciones que se aguantan semanas o meses. Es contexto de posicionamiento, no una recomendación.": "The options agent\u2019s three Drift levels — put wall, magnet and call wall — for every contract you hold. Only the 90/120/320-day horizons, the positions held for weeks or months. Positioning context, not a recommendation.",
+    "Drift sobre tus contratos": "Drift on your contracts",
+    "El umbral sale de tu cuestionario": "The threshold comes from your questionnaire",
+    "El cuestionario no fija este umbral: es el valor por defecto": "The questionnaire does not set this threshold: it is the default",
+    "Fuera del alcance de Drift": "Outside Drift\u2019s range",
+    "Riesgo de ruina": "Risk of ruin",
+    "Cae 25% o más": "Falls 25% or more",
+    "Cae 50% o más": "Falls 50% or more",
+    "Cae 75% o más": "Falls 75% or more",
+    "Lo peor que verías (p5)": "Worst you would see (p5)",
+    "Tu tamaño por posición": "Your position size",
+    "por posición": "per position",
+    "posiciones caben": "positions fit",
+    "Umbrales de tu perfil:": "Thresholds from your profile:",
+    "tolerancia": "tolerance",
+    "maximo por posicion": "max per position",
+    "Sigue(n) con el valor por defecto:": "Still on the default value:",
+    "Incluye la exposicion delta-equivalente de": "Includes the delta-equivalent exposure of",
+    "El valor total del portafolio no la cuenta.": "The total portfolio value does not count it.",
+    "Sin las opciones en el calculo:": "Without options in the calculation:",
+    "Leyendo la cadena de cada subyacente…": "Reading the chain of each underlying…",
+    "No hay opciones guardadas.": "No options stored.",
+    "1 mes (21d)": "1 month (21d)",
+    "3 meses (63d)": "3 months (63d)",
+    "1 año (252d)": "1 year (252d)",
+    "contrato(s):": "contract(s):",
+    "tu perfil": "your profile",
+    "heredado": "inherited",
     "precio · estados · consenso": "price · statements · consensus",
     "tesis · IA": "thesis · AI",
     "cadena · GEX · Estructura": "chain · GEX · Structure",
