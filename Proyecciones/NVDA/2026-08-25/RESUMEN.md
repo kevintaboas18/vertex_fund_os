@@ -4,18 +4,18 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 66.0 / 100 |
-| Spot | $211.31 |
+| Spot | $211.47 |
 | Régimen de gamma | positive |
 | Nodo imán | $220.00 |
-| Gamma flip | $207.76 |
+| Gamma flip | $212.07 |
 | Sub-agentes activos | 6 de 6 |
 
 ## Los 6 sub-agentes
 
 | Sub-agente | Score | Peso |
 |---|---|---|
-| Agresividad | 5.0/10 | 20 pts |
-| Convicción | 6.0/10 | 20 pts |
+| Agresividad | 6.0/10 | 20 pts |
+| Convicción | 5.0/10 | 20 pts |
 | Inusualidad | 7.0/10 | 20 pts |
 | Estructura | 7.0/10 | 15 pts |
 | Contexto IV | 9.0/10 | 10 pts |
@@ -25,34 +25,34 @@
 
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
-| 10 días | $205.00 | $210.00 | $220.00 | 62.0 |
-| 20 días | $210.00 | $220.00 | $228.93 | 60.0 |
-| 30 días | $210.00 | $220.00 | $233.09 | 59.0 |
+| 10 días | $200.00 | $210.00 | $220.00 | 63.0 |
+| 20 días | $210.00 | $220.00 | $229.10 | 60.0 |
+| 30 días | $210.00 | $220.00 | $233.26 | 59.0 |
 
 ## Niveles importantes
 
 | Precio | Tipo | Fuerza | P(toque) | Por qué |
 |---|---|---|---|---|
-| $213.18 | resistencia | 84 | 88% | el precio reaccionó 4 veces aquí · 191,575 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $213.18 | resistencia | 84 | 89% | el precio reaccionó 4 veces aquí · 191,575 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
 | $193.62 | soporte | 73 | 29% | el precio reaccionó 4 veces aquí · 167,818 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $215.30 | resistencia | 72 | 78% | el precio reaccionó 2 veces aquí · 179,904 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $195.45 | soporte | 71 | 35% | el precio reaccionó 3 veces aquí · 165,767 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $208.78 | soporte | 63 | 91% | el precio reaccionó 1 vez aquí · 183,143 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $199.34 | soporte | 62 | 49% | el precio reaccionó 1 vez aquí · 365,023 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $215.30 | resistencia | 72 | 79% | el precio reaccionó 2 veces aquí · 179,904 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $195.45 | soporte | 71 | 34% | el precio reaccionó 3 veces aquí · 165,767 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $208.78 | soporte | 63 | 90% | el precio reaccionó 1 vez aquí · 183,143 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $199.34 | soporte | 62 | 48% | el precio reaccionó 1 vez aquí · 365,023 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
 | $216.83 | resistencia | 61 | 72% | el precio reaccionó 1 vez aquí · 194,612 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
 | $197.61 | soporte | 52 | 42% | el precio reaccionó 3 veces aquí · 7,395 contratos abiertos de puts · confluencia precio + opciones |
 | $220.00 | resistencia | 47 | 59% | 437,597 contratos abiertos de calls · venta de calls por dinero real |
-| $225.00 | resistencia | 46 | 41% | 226,574 contratos abiertos de calls · venta de calls por dinero real |
-| $205.00 | soporte | 44 | 74% | 125,091 contratos abiertos de puts · venta de puts por dinero real |
-| $222.50 | resistencia | 42 | 49% | 65,082 contratos abiertos de calls · venta de calls por dinero real |
+| $225.00 | resistencia | 46 | 42% | 226,574 contratos abiertos de calls · venta de calls por dinero real |
+| $205.00 | soporte | 44 | 73% | 125,091 contratos abiertos de puts · venta de puts por dinero real |
+| $222.50 | resistencia | 42 | 50% | 65,082 contratos abiertos de calls · venta de calls por dinero real |
 
 ## Los 3 flujos más grandes
 
 | Contrato | Vence | Prima | Apuesta |
 |---|---|---|---|
-| NVDA $180.00C | 2026-10-16 (52d) | $242,644,750 | alcista |
-| NVDA $190.00C | 2026-09-18 (24d) | $240,750,000 | bajista |
-| NVDA $180.00C | 2026-10-16 (52d) | $114,751,500 | alcista |
+| NVDA $180.00C | 2026-10-16 (52d) | $65,320,000 | alcista |
+| NVDA $140.00P | 2027-06-17 (296d) | $54,837,258 | alcista |
+| NVDA $180.00P | 2027-01-15 (143d) | $46,077,696 | bajista |
 
 ## Track record de este agente
 
