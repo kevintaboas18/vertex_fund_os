@@ -9982,9 +9982,99 @@ siguientes, incluida la batería entera en verde. Mide **paralelismo con
 pueden no solaparse dentro de la ventana. Queda declarado como intermitente
 sensible a la carga; no se da por arreglado porque no se tocó.
 
+### La caja macro enseñaba los ocho más importantes, no los ocho últimos
+
+Kevin, sobre una captura del panel: *«los macroeconómicos que ya salieron no
+están actualizados y tampoco son los últimos que salieron»*, y después: *«que
+sean las 8 más recientes pero solamente importantes, que tengan un alto
+impacto»*.
+
+**La causa.** El orden era `(nivel, fecha)`: nivel primero. Eso contesta a otra
+pregunta —da los ocho más IMPORTANTES de la ventana— y por eso un IPC de hace
+doce días ocupaba sitio mientras lo publicado ayer no aparecía. La caja se
+llama «Ya salieron» y se lee como «lo último que salió».
+
+Ahora manda la fecha **dentro del alto impacto**: se separa `nivel 1` —IPC,
+nóminas, paro, PIB, ventas minoristas, ISM y la Fed— del `nivel 2` (peticiones
+semanales, vivienda, confianza), y el segundo sólo **rellena** si en la ventana
+no hay ocho del primero. Nunca desplaza.
+
+Lo que hacía falta de aquel orden lo siguen haciendo dos cosas que ya estaban:
+`_es_evento_macro` sólo deja pasar lo que está en `_MACRO_TABLA`, y la
+agrupación por familia impide que un solo comunicado ocupe cuatro huecos. Sin
+esas dos, ordenar por fecha sí llenaría la caja de ruido; con ellas, no.
+
+La ventana atrás pasa de 21 a **35 días**: en EE.UU. salen dos o tres de nivel
+1 por semana, así que tres semanas se quedaban justas y la caja rellenaba con
+nivel 2 sin necesidad.
+
+#### Un TTL que era falso y funcionaba de casualidad
+
+`_calendario_ttl` miraba `caja["filas"]` para las dos cajas, y el macro **sólo
+llena `filas` en el respaldo de FRED**: por el camino normal devuelve
+`publicados` y `proximos`. Así que `llenas` era **siempre falso**, el
+calendario se daba por vacío aunque hubiera traído dieciséis eventos, y se
+repedía cada cinco minutos para siempre. El resultado era correcto por el
+motivo equivocado.
+
+Ahora `_caja_tiene_datos` pregunta por la forma real de cada caja, y el TTL se
+parte en dos porque envejecen a ritmos distintos: los **resultados** valen un
+día —se anuncian con semanas de antelación—; el **macro**, cinco minutos, que
+es lo que Kevin pidió (*«si sale uno en 1 minuto y ya salió el reporte, que
+salga»*) y la cadencia real de un dato que mueve el precio en el segundo en
+que se publica.
+
+Como las dos viven en el mismo archivo gana la más exigente, y para que eso no
+vuelva a pedir catorce días de empresas cada cinco minutos,
+`_calendario_calcula(previo)` **reaprovecha la mitad que sigue fresca**. Cada
+caja lleva ahora su propio sello.
+
+#### La hora de publicación
+
+`_macro_hora_et` convierte el sello de FMP (UTC) a ET. La conversión se hace en
+el servidor y no en el navegador a propósito: el panel se abre desde cualquier
+huso y la referencia de un mercado es la hora de SU plaza. Va **etiquetada
+«ET»** para que, si el proveedor cambiara de zona, se vea en vez de correrse en
+silencio — verificado con el IPC real, que sale a las 8:30 ET tanto en verano
+(12:30 UTC) como en invierno (13:30 UTC). Sin hora en el sello, `None`: no se
+inventa. Un dato **retrasado** no la lleva — la que tenía ya pasó.
+
+### Los que reportan salían con su sector y no estaban dentro
+
+El segundo problema de la misma captura. **Las dos cosas eran correctas a la
+vez**, y ése era el enredo:
+
+- La caja de resultados etiqueta cada ticker con su sector **de verdad**, el
+  que da FMP para esa empresa.
+- La vista del sector son `VX_INDUSTRIAS` y `VX_ACCIONES`: las **mayores
+  posiciones** de unos cuarenta ETF de industria, 351 empresas escritas a mano
+  porque el plan de FMP cierra los endpoints de posiciones de ETF.
+
+Un mid-cap que reporta el jueves tiene sector y no está en el top-12 de ningún
+ETF. **Medido sobre la captura de Kevin: 32 de las 48 no aparecen en ninguna
+industria.**
+
+Faltaba el puente, y es lo que se añadió: al abrir un sector salen **sus
+empresas que reportan en los próximos 14 días**, estén o no escritas más abajo,
+agrupadas por día y con el aviso de si reportan antes de abrir o tras el
+cierre. Las que **no** están en las listas salen **en azul**, con la razón en
+la ayuda emergente — si salieran mezcladas, la pregunta de Kevin («¿por qué no
+está?») seguiría sin respuesta en pantalla.
+
+Pulsarlas lleva el símbolo a Analizar **sin lanzar el análisis**: son seis
+sub-agentes y varios minutos, y dispararlo con un clic en una etiqueta
+convierte un vistazo en una espera que nadie pidió.
+
+#### Un botón que habría dejado la pantalla en blanco
+
+Escribí `switchView('analyzeView')` de memoria, y ese id **no existe**: el
+buscador vive en `homeView`. `switchView` habría escondido las nueve vistas sin
+mostrar ninguna. Corregido, y con un guardián que ata **cada** llamada a
+`switchView` a un id que esté de verdad en el marcado — de los nueve reales.
+
 ### Estado
 
-**3.478 tests del motor · 1.132 de la capa web (72 nuevos) · 148 de navegador ·
+**3.478 tests del motor · 1.150 de la capa web (90 nuevos) · 148 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
 verde. 0 fallos.**
 

@@ -2287,7 +2287,7 @@ function vxMacroHTML(d) {
                 class="w-full flex items-baseline gap-2 py-1 text-[10px] text-left hover:bg-white/[0.03] rounded">
                 <span class="vx-flecha text-gray-600 shrink-0 w-2">&rsaquo;</span>
                 <span class="flex-1 min-w-0 text-gray-300 truncate" title="${_vcEsc(ayuda)}">${_vcEsc(f.evento)}
-                  <span class="block text-[9px] text-gray-600">${_vcEsc(cuando)}</span></span>
+                  <span class="block text-[9px] text-gray-600">${_vcEsc(cuando)}${f.hora_et ? ' · ' + _vcEsc(f.hora_et) + ' ET' : ''}</span></span>
                 <span class="w-16 text-right font-bold tabular-nums ${col}">${vxMacroNum(f.salio, f.unidad)}</span>
                 <span class="w-16 text-right tabular-nums text-gray-500">${vxMacroNum(f.esperado, f.unidad)}</span>
                 <span class="w-16 text-right tabular-nums text-gray-600">${vxMacroNum(f.anterior, f.unidad)}</span>
@@ -2328,9 +2328,18 @@ function vxMacroHTML(d) {
                 const destaca = f.retrasado || cuando === 'hoy' || cuando === 'mañana';
                 const esp = f.esperado == null ? ''
                     : `<span class="text-gray-600 text-[9px] ml-1">se espera ${vxMacroNum(f.esperado, f.unidad)}</span>`;
+                // La HORA de publicación, en la plaza del mercado. «Mañana» no
+                // dice si conviene mirar a las siete de la mañana o después de
+                // comer, y con lo macro el minuto importa: el IPC sale a las
+                // 8:30 ET, antes de la apertura, y el precio ya se movió cuando
+                // suena la campana. Un dato retrasado no lleva hora: la que
+                // tenía ya pasó y repetirla seria una cita que no existe.
+                const hora = (!f.retrasado && f.hora_et)
+                    ? `<span class="text-gray-500 text-[9px] ml-1 tabular-nums">${_vcEsc(f.hora_et)} ET</span>`
+                    : '';
                 return `<div class="flex items-baseline gap-2 py-0.5 text-[10px]">
                   <span class="w-20 shrink-0 font-bold ${destaca ? 'text-amber-400' : 'text-gray-500'}">${_vcEsc(cuando)}</span>
-                  <span class="min-w-0 text-gray-300 truncate">${_vcEsc(f.evento)}${esp}</span>
+                  <span class="min-w-0 text-gray-300 truncate">${_vcEsc(f.evento)}${hora}${esp}</span>
                 </div>`;
             }).join('') + `</div>`;
     }
@@ -3190,7 +3199,8 @@ async function abreSector(ticker) {
     }
     ampl.innerHTML = '';
     caja.innerHTML = vxListaHTML('Industrias',
-        industrias.map(([t, n]) => ({ ticker: t, nombre: n })), true);
+        industrias.map(([t, n]) => ({ ticker: t, nombre: n })), true)
+        + vxReportanDelSectorHTML(tk);
 
     window._sectorCache = window._sectorCache || {};
     const pon = (d) => {
@@ -3209,6 +3219,86 @@ async function abreSector(ticker) {
             pon(d);
         }
     } catch (e) { /* se quedan los nombres */ }
+}
+
+/** Lleva un símbolo al buscador de Analizar, SIN lanzar el análisis.
+ *
+ *  Sin lanzarlo a propósito: un análisis completo son seis sub-agentes y
+ *  varios minutos, y dispararlo con un clic en una etiqueta convierte un
+ *  vistazo en una espera que nadie pidió. Deja el ticker puesto y la
+ *  cotización cargada; el botón de analizar sigue siendo una decisión.
+ */
+function abreTicker(ticker) {
+    const tk = String(ticker || '').trim().toUpperCase();
+    if (!tk) return;
+    // `homeView`, que es donde vive el buscador de Analizar. Escribi
+    // `analyzeView` de memoria y ese id NO existe: `switchView` habria
+    // escondido todas las vistas y no habria mostrado ninguna — un boton que
+    // deja la pantalla en blanco. Los ids reales son los nueve `*View` del
+    // marcado, y hay un guardian que ata este a uno de ellos.
+    switchView('homeView');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    const caja = document.getElementById('tickerInput');
+    if (caja) { caja.value = tk; caja.focus(); }
+    if (typeof hideSuggest === 'function') hideSuggest();
+    if (typeof setQuoteHint === 'function') setQuoteHint('');
+    if (typeof fetchQuote === 'function') fetchQuote(tk);
+}
+
+/** Las empresas de ESTE sector que reportan en los próximos 14 días.
+ *
+ *  Esto existe por un desajuste real que Kevin cazó en una captura: la caja de
+ *  «Resultados que vienen» etiqueta cada ticker con su sector —y ese sector es
+ *  el de VERDAD, el que da FMP para esa empresa—, pero al entrar en el sector
+ *  la empresa no estaba. Medido sobre su propia captura: 32 de las 48 que
+ *  salían allí no aparecen en ninguna industria.
+ *
+ *  No es un fallo de la etiqueta ni de la lista: son dos cosas distintas.
+ *  `VX_ACCIONES` son las MAYORES posiciones de unos cuarenta ETF de industria
+ *  —351 empresas—, escritas a mano porque el plan de FMP cierra los endpoints
+ *  de posiciones. Un mid-cap que reporta el jueves tiene sector, y no está en
+ *  el top-12 de ningún ETF. Las dos cosas son correctas a la vez.
+ *
+ *  Lo que faltaba era el puente. Aquí está: al abrir un sector salen las suyas
+ *  que reportan, estén o no escritas más abajo, con el día y con aviso de si
+ *  reporta antes de abrir o tras el cierre.
+ */
+function vxReportanDelSectorHTML(sector) {
+    const r = ((window._calendarioData || {}).resultados) || {};
+    const filas = (r.filas || []).filter(f => f.sector === sector);
+    if (!filas.length) return '';
+    const escritas = new Set();
+    (VX_INDUSTRIAS[sector] || []).forEach(([ind]) =>
+        (VX_ACCIONES[ind] || []).forEach(([t]) => escritas.add(t)));
+    const porDia = {};
+    filas.forEach(f => { (porDia[f.fecha] = porDia[f.fecha] || []).push(f); });
+    const dias = Object.keys(porDia).sort();
+    const cuerpo = dias.map(fecha => {
+        const cuando = vxFechaCorta(fecha);
+        const destaca = cuando === 'hoy' || cuando === 'mañana';
+        return `<div class="flex items-start gap-2 py-1 border-t border-gray-800/60 first:border-0">
+          <span class="text-[10px] font-bold w-20 shrink-0 ${destaca ? 'text-amber-400' : 'text-gray-500'}">${_vcEsc(cuando)}</span>
+          <span class="flex flex-wrap gap-1 min-w-0">${porDia[fecha].map(f => {
+            const c = vxCuandoReporta(f.cuando);
+            const ayuda = `${f.nombre || f.ticker}${f.sector_nombre ? ' - ' + f.sector_nombre : ''}`
+                + (escritas.has(f.ticker) ? '' : ' · no está en el top de ningún ETF de industria de este sector');
+            return `<button type="button" onclick="abreTicker('${_vcEsc(f.ticker)}')"
+                title="${_vcEsc(ayuda)}"
+                class="text-[10px] font-bold px-1.5 py-0.5 rounded border transition ${
+                  escritas.has(f.ticker)
+                    ? 'text-gray-300 bg-white/[0.04] border-gray-800 hover:border-gray-600'
+                    : 'text-sky-300 bg-sky-500/[0.06] border-sky-500/20 hover:border-sky-500/50'}">${_vcEsc(f.ticker)}${
+                  c ? `<span class="text-gray-600 ml-1 font-normal">${_vcEsc(c)}</span>` : ''}</button>`;
+          }).join('')}</span>
+        </div>`;
+    }).join('');
+    const nuevas = filas.filter(f => !escritas.has(f.ticker)).length;
+    const nota = nuevas
+        ? `<p class="text-[9px] text-gray-600 mt-2"><span class="text-sky-300">En azul</span><span>, las ${nuevas} que no salen en las industrias de abajo: esas listas son las mayores posiciones de cada ETF de industria, no el sector entero.</span></p>`
+        : '';
+    return `<div class="bg-panel border border-panel rounded-2xl p-4 mt-4">
+      <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-2">Reportan en los pr&oacute;ximos 14 d&iacute;as</p>
+      ${cuerpo}${nota}</div>`;
 }
 
 /** Tercer piso: una industria con sus acciones.
@@ -14536,6 +14626,9 @@ const VX_ES2EN = {
     "El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta. Sin el efectivo, el optimizador solo sabe proponer ventas y no se puede calcular tu apalancamiento real.": "Cost basis is optional, but without it the Guardrails stop-loss rule stays inactive. Negative contracts = short position. Without cash, the optimiser can only propose sales and your real leverage cannot be computed.",
     "Edge medido del agente de opciones": "The options agent\u2019s measured edge",
     "Exposición total": "Total exposure",
+    "Reportan en los próximos 14 días": "Reporting in the next 14 days",
+    "En azul": "In blue",
+    "que no salen en las industrias de abajo: esas listas son las mayores posiciones de cada ETF de industria, no el sector entero.": "that do not appear in the industries below: those lists are the largest holdings of each industry ETF, not the whole sector.",
     "desconectar Plaid": "disconnect Plaid",
     "¿Desconectar Plaid? Se invalida el acceso del lado de Plaid y se borra el portafolio guardado.": "Disconnect Plaid? Access is revoked on Plaid\u2019s side and the stored portfolio is deleted.",
     "Plaid desconectado y portafolio borrado.": "Plaid disconnected and portfolio deleted.",

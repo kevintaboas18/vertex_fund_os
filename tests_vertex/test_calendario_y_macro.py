@@ -863,3 +863,186 @@ class TestElPanelDespliegaDatoAdato:
             "la explicación por dato arma el HTML por su cuenta: es la segunda "
             "copia del mismo paso, y una de las dos acabará sin escapar")
         assert "_vcEsc(d.texto)" not in trozo
+
+
+# ══════════════════════════════════════════════════════════════════════════
+PANEL = ROOT / "vertex_fund_os_platform.html"
+
+
+class TestLosOchoSonLosULTIMOSDeAltoImpacto:
+    """La caja se llama «Ya salieron» y ordenaba por IMPORTANCIA.
+
+    Capturado por Kevin: un IPC de hace doce días ocupando sitio mientras lo
+    publicado ayer no aparecía. Los dos criterios que pidió, en este orden:
+    **los últimos ocho**, y **sólo de alto impacto**.
+    """
+
+    def test_manda_la_fecha_dentro_del_alto_impacto(self):
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._macro_calcula)
+        assert '_altos = [f for f in publicados if f["nivel"] <= 1]' in fuente
+        assert '_altos.sort(key=lambda x: _fecha_inversa(x["fecha"]))' in fuente
+        # Y el orden viejo —importancia primero— no puede volver.
+        assert 'publicados.sort(key=lambda x: (x["nivel"], _fecha_inversa' not in fuente
+
+    def test_el_nivel_2_solo_RELLENA_nunca_desplaza(self):
+        """Ocho peticiones semanales de desempleo no pueden empujar fuera al
+        IPC del martes; pero si en la ventana no hay ocho de nivel 1, dejar
+        huecos vacíos tampoco informa de nada."""
+        import inspect
+
+        import vertex_api as V
+
+        assert "publicados = _altos + _resto" in inspect.getsource(V._macro_calcula)
+
+    def test_la_ventana_atras_da_para_ocho_de_nivel_1(self):
+        """En EE.UU. salen dos o tres de nivel 1 por semana: con veintiún días
+        la caja acababa rellenando con nivel 2 sin necesidad."""
+        import vertex_api as V
+
+        assert V._MACRO_DIAS_ATRAS >= 35
+
+    def test_el_macro_se_refresca_en_MINUTOS_no_en_un_dia(self):
+        """«Si sale uno en 1 minuto y ya salió el reporte, que salga.»"""
+        import vertex_api as V
+
+        assert V._CALENDARIO_TTL_MACRO <= 300
+        assert V._CALENDARIO_TTL >= 3600     # los resultados, no
+
+    def test_una_caja_LLENA_ya_no_se_lee_como_vacia(self):
+        """`_calendario_ttl` miraba `macro["filas"]`, que el camino normal deja
+        vacía: `llenas` era SIEMPRE falso. Funcionaba de casualidad."""
+        import vertex_api as V
+
+        assert V._caja_tiene_datos({"publicados": [{"a": 1}]}) is True
+        assert V._caja_tiene_datos({"filas": [{"a": 1}]}) is True
+        assert V._caja_tiene_datos({"dias": [{"a": 1}]}) is True
+        assert V._caja_tiene_datos({"publicados": [], "proximos": []}) is False
+        assert V._caja_tiene_datos(None) is False
+        lleno = {"resultados": {"filas": [1]}, "macro": {"publicados": [1]}}
+        assert V._calendario_ttl(lleno) == V._CALENDARIO_TTL_MACRO
+
+    def test_refrescar_el_macro_no_vuelve_a_pedir_los_RESULTADOS(self, monkeypatch):
+        """Si no, cada cinco minutos se rebajaban catorce días de empresas para
+        obtener exactamente lo mismo."""
+        from datetime import datetime, timezone
+
+        import vertex_api as V
+
+        veces = {"n": 0}
+        monkeypatch.setattr(
+            V, "_resultados_calcula",
+            lambda: (veces.__setitem__("n", veces["n"] + 1), {"filas": [1]})[1])
+        monkeypatch.setattr(V, "_macro_calcula", lambda: {"publicados": [1]})
+        previo = {"resultados": {"filas": [1]},
+                  "generado_resultados": datetime.now(timezone.utc).isoformat()}
+        V._calendario_calcula(previo)
+        assert veces["n"] == 0, "se recalcularon los resultados estando frescos"
+
+    def test_unos_resultados_VIEJOS_si_se_recalculan(self):
+        """La contraparte: si nunca se recalcularan, la caja se congelaría."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._calendario_calcula)
+        assert "< _CALENDARIO_TTL" in fuente
+        assert "resultados = _resultados_calcula()" in fuente
+
+
+class TestLaHoraDePublicacion:
+    """«En los que aún no han salido, me gustaría que tuvieran la hora.»"""
+
+    def test_el_sello_de_FMP_se_convierte_a_ET(self):
+        """FMP sella en UTC y el panel se abre desde cualquier huso: la
+        referencia de un mercado es la hora de SU plaza. Los dos casos son el
+        IPC real, que sale a las 8:30 ET tanto en verano como en invierno."""
+        import vertex_api as V
+
+        assert V._macro_hora_et("2026-08-26 12:30") == "08:30"   # verano, UTC-4
+        assert V._macro_hora_et("2026-01-14 13:30") == "08:30"   # invierno, UTC-5
+
+    def test_sin_hora_no_se_INVENTA_una(self):
+        import vertex_api as V
+
+        assert V._macro_hora_et("2026-08-26") is None
+        assert V._macro_hora_et("") is None
+        assert V._macro_hora_et(None) is None
+
+    def test_cada_fila_la_lleva(self):
+        import inspect
+
+        import vertex_api as V
+
+        assert '"hora_et": _macro_hora_et(cuando)' in inspect.getsource(V._macro_calcula)
+
+    def test_el_panel_la_pinta_y_dice_el_huso(self):
+        """Una hora sin huso al lado se lee mal desde otro país, y encima no es
+        falsable: si el proveedor cambiara de zona, nadie lo vería."""
+        html = PANEL.read_text(encoding="utf-8")
+        assert "f.hora_et" in html
+        assert "ET</span>" in html
+
+    def test_un_dato_RETRASADO_no_lleva_hora(self):
+        """La que tenía ya pasó: repetirla sería una cita que no existe."""
+        html = PANEL.read_text(encoding="utf-8")
+        assert "(!f.retrasado && f.hora_et)" in html
+
+
+class TestLosQueReportanSALENDentroDeSuSector:
+    """La caja de resultados etiqueta cada ticker con su sector REAL —el que da
+    FMP— y al entrar en el sector la empresa no estaba. Medido sobre la captura
+    de Kevin: 32 de las 48 que salían allí no aparecen en ninguna industria.
+
+    No es un fallo de la etiqueta ni de la lista: `VX_ACCIONES` son las mayores
+    posiciones de unos cuarenta ETF de industria, no el sector entero. Faltaba
+    el puente."""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return PANEL.read_text(encoding="utf-8")
+
+    def test_existe_el_puente_y_se_pinta_al_abrir_el_sector(self, html):
+        assert "function vxReportanDelSectorHTML(sector)" in html
+        assert "+ vxReportanDelSectorHTML(tk);" in html
+
+    def test_filtra_por_el_sector_que_se_esta_mirando(self, html):
+        i = html.index("function vxReportanDelSectorHTML(sector)")
+        assert "filter(f => f.sector === sector)" in html[i:i + 900]
+
+    def test_marca_las_que_NO_estan_escritas_abajo(self, html):
+        """Si salieran mezcladas, la pregunta de Kevin —«¿por qué no está?»—
+        seguiría sin respuesta en pantalla."""
+        i = html.index("function vxReportanDelSectorHTML(sector)")
+        trozo = html[i:i + 3000]
+        assert "escritas.has(f.ticker)" in trozo
+        assert "no el sector entero" in trozo
+
+    def test_sin_resultados_no_pinta_una_caja_vacia(self, html):
+        i = html.index("function vxReportanDelSectorHTML(sector)")
+        assert "if (!filas.length) return '';" in html[i:i + 700]
+
+    def test_el_ticker_lleva_al_analizador_SIN_lanzar_el_analisis(self, html):
+        """Un análisis son seis sub-agentes y varios minutos: dispararlo con un
+        clic en una etiqueta convierte un vistazo en una espera que nadie
+        pidió."""
+        assert "function abreTicker(ticker)" in html
+        i = html.index("function abreTicker(ticker)")
+        trozo = html[i:i + 900]
+        assert "fetchQuote(tk)" in trozo
+        for lanza in ("runAnalysis", "analizar(", "startAnalysis"):
+            assert lanza not in trozo, lanza
+
+    def test_TODO_switchView_apunta_a_una_vista_que_EXISTE(self, html):
+        """Escribí `analyzeView` de memoria y ese id no existe: `switchView`
+        habría escondido todas las vistas sin mostrar ninguna — un botón que
+        deja la pantalla en blanco. Esto ata cada llamada al marcado real."""
+        import re
+
+        reales = set(re.findall(r'id="([a-zA-Z]+View)"', html))
+        assert len(reales) >= 8, sorted(reales)
+        pedidas = set(re.findall(r"switchView\('([a-zA-Z]+)'", html))
+        assert pedidas <= reales, sorted(pedidas - reales)

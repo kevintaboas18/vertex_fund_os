@@ -8349,17 +8349,49 @@ _CALENDARIO_TTL = 86400.0
 #: la misma paciencia que un acierto.
 _CALENDARIO_TTL_VACIO = 300.0
 
+#: Lo que vale una foto del MACRO. Cinco minutos: es lo que Kevin pidió —«si
+#: sale uno en 1 minuto y ya salió el reporte, que salga»— y es la cadencia
+#: real del dato, que mueve el precio en el segundo en que se publica.
+#: `_CALENDARIO_TTL` (un día) sigue mandando en los resultados, que se anuncian
+#: con semanas de antelación; `_calendario_calcula` reaprovecha esa mitad para
+#: que refrescar el macro no cueste una tanda de peticiones de resultados.
+_CALENDARIO_TTL_MACRO = 300.0
+
+
+def _caja_tiene_datos(caja: dict) -> bool:
+    """Si esta caja trajo algo, sea cual sea su forma.
+
+    Aquí estaba un fallo callado: se miraba `caja["filas"]` para las DOS, y el
+    macro sólo llena `filas` en el respaldo de FRED — por el camino normal
+    devuelve `publicados` y `proximos` y deja `filas` vacía. Así que
+    `llenas` era **siempre falso**: el calendario se daba por vacío aunque
+    hubiera traído dieciséis eventos, y se repedía cada cinco minutos para
+    siempre. Funcionaba de casualidad y por el motivo equivocado.
+    """
+    c = caja or {}
+    return bool(c.get("filas") or c.get("publicados") or c.get("proximos")
+                or c.get("dias"))
+
 
 def _calendario_ttl(datos) -> float:
-    """Cuánto vale esta foto. Poco si no trajo nada, un día si trajo algo.
+    """Cuánto vale esta foto. Manda la caja que antes se queda vieja.
 
-    Se mira CADA caja por su cuenta: si los resultados llegaron y el macro no,
-    sigue mereciendo un reintento pronto — la mitad que falta es la mitad que
-    hay que arreglar."""
+    Las dos cajas envejecen a ritmos distintos y por eso se preguntan por
+    separado:
+
+    - **Resultados**: se anuncian con semanas de antelación. Un día está bien.
+    - **Macro**: «si sale uno en 1 minuto y ya salió el reporte, pues
+      automáticamente salga en los que ya salieron». Eso son minutos, no un
+      día. Un dato macro cambia el precio en el segundo en que se publica.
+
+    Como las dos viven en el mismo archivo, gana la más exigente. Lo que evita
+    que eso vuelva a pedir los resultados cada cinco minutos es
+    `_calendario_calcula`, que reaprovecha la mitad que sigue fresca.
+    """
     d = datos or {}
-    llenas = all((d.get(caja) or {}).get("filas")
-                 for caja in ("resultados", "macro"))
-    return _CALENDARIO_TTL if llenas else _CALENDARIO_TTL_VACIO
+    if not all(_caja_tiene_datos(d.get(c)) for c in ("resultados", "macro")):
+        return _CALENDARIO_TTL_VACIO
+    return _CALENDARIO_TTL_MACRO
 _CALENDARIO_LOCK = threading.Lock()
 _CALENDARIO_REFRESCANDO = False
 
@@ -8645,12 +8677,50 @@ def _macro_lectura_del_dato(salio, esperado, mejor: str | None) -> dict:
 #: Adelante son SIETE —hoy y seis más—, no veintiuno. «En los próximos datos
 #: quiero que salga desde hoy y 6 días más en adelante»: lo que se decide con
 #: esta caja es la semana, y un IPC a tres semanas vista no cambia nada hoy.
-_MACRO_DIAS_ATRAS = 21
+# Atrás son CINCO semanas y no tres. Desde que la caja enseña «los últimos
+# ocho de alto impacto» en vez de «los ocho más importantes», la ventana tiene
+# que ser lo bastante ancha para que quepan ocho de nivel 1: en EE.UU. salen
+# entre dos y tres por semana, así que veintiún días se quedaban justos y la
+# caja acababa rellenando con nivel 2 sin necesidad. Ampliarla no cuesta nada
+# —es la misma petición al calendario— y no mete ruido, porque el recorte a
+# ocho lo hace la fecha.
+_MACRO_DIAS_ATRAS = 35
 _MACRO_DIAS_ADELANTE = 6
 
 
 def _es_evento_macro(nombre: str) -> bool:
     return _macro_ficha(nombre) is not None
+
+
+def _macro_hora_et(cuando: str) -> str | None:
+    """La hora de publicación en ET, a partir del sello de FMP (UTC).
+
+    «En los que aún no han salido me gustaría que tuvieran la hora en la que
+    sale.» Sin ella, «mañana» no dice si conviene mirar el panel a las siete de
+    la mañana o después de comer — y con los datos macro el minuto importa: el
+    IPC sale a las 8:30 ET, antes de la apertura, y el precio ya se ha movido
+    cuando suena la campana.
+
+    El calendario económico de FMP sella en **UTC**. La conversión se hace aquí
+    y no en el navegador a propósito: el panel se abre desde cualquier huso, y
+    la referencia de un mercado es la hora de SU plaza, no la de quien mira.
+    Va etiquetada «ET» en pantalla para que, si algún día el proveedor cambia
+    de huso, se vea en vez de correrse en silencio.
+
+    Devuelve `None` cuando el sello no trae hora: un evento sin hora conocida
+    no puede inventarse una.
+    """
+    t = str(cuando or "").strip()
+    if len(t) < 16 or " " not in t:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+
+        crudo = datetime.strptime(t[:16], "%Y-%m-%d %H:%M").replace(
+            tzinfo=timezone.utc)
+        return crudo.astimezone(ZoneInfo("America/New_York")).strftime("%H:%M")
+    except Exception:                            # noqa: BLE001
+        return None
 
 
 def _num(x):
@@ -8730,6 +8800,8 @@ def _macro_calcula() -> dict:
             # color sale y qué dice la ayuda emergente.
             "nivel": nivel,
             "mejor": mejor,
+            # La hora de publicación, en la plaza del mercado.
+            "hora_et": _macro_hora_et(cuando),
         }
         fila.update(_macro_lectura_del_dato(fila["salio"], fila["esperado"],
                                             mejor))
@@ -8774,7 +8846,32 @@ def _macro_calcula() -> dict:
             _familias[fam] = f
     publicados = list(_familias.values())
 
-    publicados.sort(key=lambda x: (x["nivel"], _fecha_inversa(x["fecha"])))
+    # ── Los ÚLTIMOS ocho, no los ocho más importantes ────────────────────
+    #
+    # Aquí ordenaba por `nivel` primero y por fecha después, y eso contesta a
+    # otra pregunta: daba los ocho más IMPORTANTES de las tres últimas semanas.
+    # Resultado en pantalla —capturado por Kevin—: un IPC de hace doce días
+    # ocupando sitio mientras lo publicado ayer no aparecía. La caja se llama
+    # «Ya salieron» y se lee como «lo último que salió».
+    #
+    # La fecha manda, y `nivel` queda de desempate para cuando dos salen a la
+    # misma hora (las nóminas y el paro salen juntas: primero las nóminas).
+    #
+    # Lo que hacía falta de aquel orden ya lo hace el filtro: `_es_evento_macro`
+    # sólo deja pasar lo que está en `_MACRO_TABLA`, y la agrupación por
+    # familia impide que un solo comunicado ocupe cuatro huecos. Sin esas dos
+    # cosas, ordenar por fecha sí llenaría la caja de ruido; con ellas, no.
+    # Y sólo los de ALTO IMPACTO: «que tenga un alto impacto». `nivel 1` es
+    # esa lista —IPC, nóminas, paro, PIB, ventas minoristas, ISM y la Fed—; el
+    # `nivel 2` son los de segunda fila (peticiones semanales, vivienda,
+    # confianza). Los de nivel 2 sólo se usan para RELLENAR si en la ventana no
+    # hay ocho de nivel 1, porque la caja tiene ocho huecos y dejarlos vacíos
+    # no informa de nada. Nunca desplazan a uno de nivel 1.
+    _altos = [f for f in publicados if f["nivel"] <= 1]
+    _resto = [f for f in publicados if f["nivel"] > 1]
+    _altos.sort(key=lambda x: _fecha_inversa(x["fecha"]))
+    _resto.sort(key=lambda x: (_fecha_inversa(x["fecha"]), x["nivel"]))
+    publicados = _altos + _resto
     # Los retrasados delante: si un dato debía salir ayer y no ha salido, es lo
     # más inminente que hay, no lo más viejo.
     _fam_prox: dict[str, dict] = {}
@@ -8788,8 +8885,9 @@ def _macro_calcula() -> dict:
     # más inminente que hay, no lo más viejo.
     proximos.sort(key=lambda x: (not x.get("retrasado"), x["fecha"], x["nivel"]))
     publicados, proximos = publicados[:8], proximos[:8]
-    # Y ya recortados, los publicados se enseñan del más reciente al más viejo,
-    # que es como se leen.
+    # Ya vienen del más reciente al más viejo por el orden de arriba; esto lo
+    # deja explícito para que un cambio en aquella clave no reordene la caja
+    # sin que nadie lo note.
     publicados.sort(key=lambda x: x["fecha"], reverse=True)
 
     if not publicados and not proximos:
@@ -9305,11 +9403,39 @@ def api_macro_lectura(refrescar: int = 0, evento: str = ""):
     return {**salida, "cacheado": False}
 
 
-def _calendario_calcula() -> dict:
+def _calendario_calcula(previo: dict | None = None) -> dict:
+    """Las dos cajas. Reaprovecha los RESULTADOS si los de `previo` siguen frescos.
+
+    El macro caduca en cinco minutos y los resultados en un día. Sin esto,
+    refrescar el macro arrastraba consigo una tanda entera de peticiones de
+    resultados —catorce días de empresas— cada cinco minutos, para volver a
+    obtener exactamente lo mismo. Se recalcula sólo la mitad que lo necesita.
+
+    Cada caja lleva su propio sello, que es lo que permite decidirlo la próxima
+    vez. `generado` se conserva como el sello de la más nueva de las dos,
+    porque hay código —y una lectura humana— que espera esa clave.
+    """
+    ahora = datetime.now(timezone.utc)
+    resultados = None
+    sello_res = None
+    if isinstance(previo, dict) and _caja_tiene_datos(previo.get("resultados")):
+        try:
+            nacido = datetime.fromisoformat(
+                previo.get("generado_resultados") or previo["generado"])
+            if (ahora - nacido).total_seconds() < _CALENDARIO_TTL:
+                resultados = previo["resultados"]
+                sello_res = nacido.isoformat()
+        except Exception:                        # noqa: BLE001
+            resultados = None
+    if resultados is None:
+        resultados = _resultados_calcula()
+        sello_res = ahora.isoformat()
     return {"ok": True,
-            "resultados": _resultados_calcula(),
+            "resultados": resultados,
             "macro": _macro_calcula(),
-            "generado": datetime.now(timezone.utc).isoformat()}
+            "generado_resultados": sello_res,
+            "generado_macro": ahora.isoformat(),
+            "generado": ahora.isoformat()}
 
 
 def _calendario_refresca_en_fondo() -> None:
@@ -9324,7 +9450,8 @@ def _calendario_refresca_en_fondo() -> None:
         try:
             from vertex_almacen import almacen as _alm
 
-            _alm.guarda(_CALENDARIO_RUTA, _calendario_calcula())
+            _alm.guarda(_CALENDARIO_RUTA,
+                        _calendario_calcula(_alm.lee_json(_CALENDARIO_RUTA)))
         except Exception:                        # noqa: BLE001
             logging.getLogger(__name__).warning(
                 "no se pudo refrescar el calendario", exc_info=True)

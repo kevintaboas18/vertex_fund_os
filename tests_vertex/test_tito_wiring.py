@@ -5668,21 +5668,49 @@ class TestUnERRORNoSeCacheaUnDIAENTERO:
         assert V._calendario_ttl(vacia) == V._CALENDARIO_TTL_VACIO
         assert V._CALENDARIO_TTL_VACIO < 900, "«pronto» tiene que ser pronto"
 
-    def test_una_foto_LLENA_dura_el_dia(self):
+    def test_una_foto_LLENA_dura_lo_que_aguante_la_caja_MAS_EXIGENTE(self):
+        """Este caso decía «dura el día» y ahora dura minutos, a propósito.
+
+        Kevin: «si sale uno en 1 minuto y ya salió el reporte, pues
+        automáticamente salga en los que ya salieron». Un dato macro mueve el
+        precio en el segundo en que se publica; los resultados se anuncian con
+        semanas de antelación. Las dos cajas viven en el mismo archivo, así que
+        manda la que antes se queda vieja — y lo que evita que eso vuelva a
+        pedir los resultados cada cinco minutos es `_calendario_calcula`, que
+        reaprovecha la mitad fresca (`test_refrescar_el_macro_no_vuelve_a_
+        pedir_los_RESULTADOS`).
+
+        `_CALENDARIO_TTL` no se toca: sigue siendo el día que valen los
+        resultados, y es contra él que se mide esa reutilización.
+        """
         import vertex_api as V
 
         llena = {"resultados": {"filas": [{"ticker": "NVDA"}], "motivo": ""},
                  "macro": {"filas": [{"serie": "UNRATE"}], "motivo": ""}}
-        assert V._calendario_ttl(llena) == V._CALENDARIO_TTL
+        assert V._calendario_ttl(llena) == V._CALENDARIO_TTL_MACRO
+        assert V._CALENDARIO_TTL_MACRO <= 300, "«en un minuto» no cabe en horas"
+        assert V._CALENDARIO_TTL >= 3600, "los resultados NO se repiden cada rato"
 
     def test_MEDIA_foto_tambien_se_reintenta_pronto(self):
         """Si los resultados llegaron y el macro no, la mitad que falta sigue
-        siendo la mitad que hay que arreglar."""
+        siendo la mitad que hay que arreglar.
+
+        «Vacía» se mide ahora por la forma REAL de cada caja: el macro por el
+        camino de FMP devuelve `publicados`/`proximos` y deja `filas` vacía, así
+        que mirar sólo `filas` daba por vacío un macro con dieciséis eventos
+        dentro. Este caso usa una caja vacía de verdad —las tres claves sin
+        nada— para que siga midiendo lo que dice medir.
+        """
         import vertex_api as V
 
         media = {"resultados": {"filas": [{"ticker": "NVDA"}], "motivo": ""},
-                 "macro": {"filas": [], "motivo": "sin FRED"}}
+                 "macro": {"filas": [], "publicados": [], "proximos": [],
+                           "motivo": "sin FRED"}}
         assert V._calendario_ttl(media) == V._CALENDARIO_TTL_VACIO
+        # Y un macro LLENO por su camino normal ya no se lee como vacío.
+        bueno = {"resultados": {"filas": [{"ticker": "NVDA"}]},
+                 "macro": {"filas": [], "publicados": [{"evento": "CPI"}]}}
+        assert V._calendario_ttl(bueno) == V._CALENDARIO_TTL_MACRO
 
 
 class TestUnaFotoSINPreciosNoPISAaLaBuena:
