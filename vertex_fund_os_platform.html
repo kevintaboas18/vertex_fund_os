@@ -10370,6 +10370,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const pi = await fetch(`${API_BASE}/api/plaid/items`).then(r => r.json());
         plaidConnected = !!pi.connected;
     } catch (e) { plaidConnected = false; }
+    pfPintaBotonPlaid();
     renderRecentReports();
     // El Dashboard es la pantalla de arranque, así que su parrilla se pide
     // AQUÍ. `switchView` la pide al entrar en el tab, pero al cargar la página
@@ -11603,6 +11604,41 @@ async function submitImport() {
     }
 }
 
+// ── DESCONECTAR PLAID ───────────────────────────────────────────────────────
+//
+// `/api/plaid/disconnect` existia desde el primer dia y NINGUN boton la
+// llamaba. No es una ruta muerta cualquiera: es la unica que invalida el
+// token del lado de Plaid (`item/remove`), no solo de nuestra base. Sin ella
+// cableada, «desconectar» solo se podia hacer desde el panel de Plaid, y el
+// token seguia siendo valido para quien lo tuviera.
+//
+// Borra tambien el snapshot: dejar las posiciones de una cuenta que ya no
+// esta conectada haria que el riesgo y el apalancamiento se calcularan sobre
+// un libro que ya no es el tuyo.
+async function desconectarPlaid() {
+    if (!confirm('¿Desconectar Plaid? Se invalida el acceso del lado de Plaid y se borra el portafolio guardado.')) return;
+    try {
+        const d = await (await fetch(`${API_BASE}/api/plaid/disconnect`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+        })).json();
+        if (!d.ok) { impMsg('⚠️ ' + _vcEsc(d.error || 'No se pudo desconectar.'), 'text-amber-400'); return; }
+        await fetch(`${API_BASE}/api/portfolio/clear`, { method: 'POST' });
+        plaidConnected = false;
+        snapshotReady = false;
+        const b = document.getElementById('pfSourceBanner'); if (b) b.classList.add('hidden');
+        const bd = document.getElementById('pfDesconectarPlaid'); if (bd) bd.classList.add('hidden');
+        impMsg('Plaid desconectado y portafolio borrado.', 'text-gray-400');
+    } catch (e) {
+        impMsg('Error: ' + _vcEsc(e.message), 'text-red-400');
+    }
+}
+
+// El boton solo existe si hay algo que desconectar.
+function pfPintaBotonPlaid() {
+    const b = document.getElementById('pfDesconectarPlaid');
+    if (b) b.classList.toggle('hidden', !plaidConnected);
+}
+
 async function clearSnapshot() {
     try {
         await fetch(`${API_BASE}/api/portfolio/clear`, { method: 'POST' });
@@ -12629,6 +12665,7 @@ function analyzeTickerNow(tk) {
             <button onclick="refreshSnapshotStatus()" class="bg-[#11141D] hover:bg-[#1a1f2e] border border-gray-800 text-gray-300 font-bold py-2 px-3.5 rounded-lg text-[11px] flex items-center gap-1.5 transition">
                 <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Ver qué hay guardado
             </button>
+            <button id="pfDesconectarPlaid" onclick="desconectarPlaid()" class="hidden text-[10px] text-gray-600 hover:text-red-400 underline">desconectar Plaid</button>
             <button onclick="clearSnapshot()" class="text-[10px] text-gray-600 hover:text-red-400 underline ml-auto">borrar snapshot</button>
         </div>
         <div id="impStatus" class="text-[11px]"></div>
@@ -14499,6 +14536,10 @@ const VX_ES2EN = {
     "El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta. Sin el efectivo, el optimizador solo sabe proponer ventas y no se puede calcular tu apalancamiento real.": "Cost basis is optional, but without it the Guardrails stop-loss rule stays inactive. Negative contracts = short position. Without cash, the optimiser can only propose sales and your real leverage cannot be computed.",
     "Edge medido del agente de opciones": "The options agent\u2019s measured edge",
     "Exposición total": "Total exposure",
+    "desconectar Plaid": "disconnect Plaid",
+    "¿Desconectar Plaid? Se invalida el acceso del lado de Plaid y se borra el portafolio guardado.": "Disconnect Plaid? Access is revoked on Plaid\u2019s side and the stored portfolio is deleted.",
+    "Plaid desconectado y portafolio borrado.": "Plaid disconnected and portfolio deleted.",
+    "No se pudo desconectar.": "Could not disconnect.",
     "griegas del libro · spot e IV por contrato": "book greeks · spot and IV per contract",
     "Sin clave: raspa un endpoint sin documentar. Solo lo usan las griegas del libro; puede cambiar de forma sin aviso": "No key: it scrapes an undocumented endpoint. Only the book greeks use it; it can change shape without warning",
     "No contestó: las griegas del libro salen vacías": "No answer: the book greeks come back empty",

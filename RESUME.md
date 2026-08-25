@@ -178,6 +178,9 @@ Reglas que no se negocian aquí:
   distintas. Sin él, el optimizador solo sabe proponer ventas y el
   apalancamiento real no se puede calcular. Se carga con `CASH 250` en
   Importar portafolio.
+- **Desconectar Plaid** invalida el token del lado de Plaid y borra el
+  snapshot. El botón está en Importar portafolio y sólo sale si hay algo
+  conectado.
 - **Drift no puntúa.** Es contexto de posicionamiento. En cuanto publique un
   score, el portafolio pasa a ser un tercer agente que nadie auditó.
 

@@ -9897,7 +9897,7 @@ en sus datos, no siempre.
   `VERTEX_DB_KEY` no sube — la misma regla que las cuentas: se prefiere
   perderlo a filtrarlo.
 
-#### 17 rutas sin llamador (deuda declarada, no avería)
+#### 17 rutas sin llamador (RESUELTO — ver la limpieza más abajo)
 
 `/api/logout` (el panel usa `/api/auth/salir`; son dos y una sobra),
 `/api/signal-history`, `/api/self-test`, `/api/finnhub-quote`,
@@ -9919,9 +9919,72 @@ significaban nada: midió un árbol que yo estaba moviendo debajo. Se descartó 
 se repitió con el árbol quieto. Una batería que corre sobre un árbol
 cambiante no es un resultado, es ruido.
 
+### Limpieza: 11 rutas muertas fuera, 1 conectada
+
+Kevin: «limpia las 17 rutas que no se usan, pero que no dañes nada».
+
+La regla que separó unas de otras: **«sin llamador en el panel» no es lo
+mismo que «muerta»**. Seis de las 17 no lo estaban:
+
+| Se queda | Por qué |
+|---|---|
+| `/assets/icon-{size}.png` | Los pide el **manifest del PWA**, no el panel. Borrarlos deja el móvil sin icono. |
+| `/legacy` | Página pública, está en `_PUBLIC_PATHS` y documentada en `DEPLOYMENT.md`. |
+| `/api/plaid/disconnect` | La **única** que invalida el token del lado de Plaid (`item/remove`). |
+| `/api/self-test`, `/api/backfill/status`, `/api/collect-signals` | Diagnóstico operativo: se llaman a mano, no desde el panel. |
+
+Las **once** que sí lo estaban, fuera: `/api/logout` (duplicada — el panel usa
+`/api/auth/salir`), `signal-history`, `finnhub-quote`, `trade-plan`,
+`confluence`, `income-strategies`, `net-flow`, `backtest`, `options-ledger`,
+`quantdata/status` y `quantdata/flow`. **533 líneas.**
+
+#### La cola: borrar la ruta y dejar sus ayudantes es media limpieza
+
+Tras quitarlas, un barrido del AST —excluyendo las funciones decoradas con
+`@app.`, que se llaman por HTTP y no por nombre— dejó ver qué se había
+quedado colgando. Se distinguió lo que **mi borrado** dejó huérfano de lo que
+**ya lo era**:
+
+- **8 por el borrado**: `_build_debit_spread`, `_chain_quote_map`,
+  `_institutional_strike`, `_kevin_long_strike`, `_ledger_current_oi`,
+  `_q_lookup`, `build_income_strategies`, `quantdata_big_prints`.
+- Y al quitarlas, **3 de segundo orden**: `_income_flow_sells`, `_bs_price`,
+  `_moneyness`. Se iteró hasta converger.
+
+**559 + 54 líneas más. Total: 1.146 líneas y 9 rutas menos** (91 → 82).
+
+Las **10 huérfanas anteriores** —`_start_scheduler`, `_reconcile_targets`, los
+cuatro `_qd_*_prompt_block`, etc.— **no se tocaron**: son deuda de antes de
+esta limpieza y borrarlas era ampliar el alcance sin que nadie lo pidiera.
+`_start_scheduler` en particular no es una avería: el docstring de
+`_vertex_startup` declara que el planificador se retiró a propósito cuando las
+señales de Quant Data salieron del proyecto.
+
+#### `/api/plaid/disconnect` no se borró: se conectó
+
+Existía desde el primer día y **ningún botón la llamaba**. No es una ruta
+muerta cualquiera: es la única que invalida el token del lado de Plaid, no
+sólo de nuestra base. Sin ella cableada, «desconectar» sólo se podía hacer
+desde el panel de Plaid — y el token seguía siendo válido para quien lo
+tuviera.
+
+Botón nuevo en Importar portafolio, que sólo aparece si hay algo que
+desconectar. Pide confirmación —invalidar un token no se deshace con Ctrl+Z—
+y **borra también el snapshot**: dejar las posiciones de una cuenta que ya no
+está conectada haría que el riesgo y el apalancamiento se calcularan sobre un
+libro que ya no es el tuyo.
+
+#### Un intermitente que NO es de esta limpieza
+
+`test_la_cola_larga_pide_las_dos_rutas_a_la_vez` falló una vez y pasó las
+siguientes, incluida la batería entera en verde. Mide **paralelismo con
+`time.sleep(0.25)` y un contador de concurrencia**: bajo carga los dos hilos
+pueden no solaparse dentro de la ventana. Queda declarado como intermitente
+sensible a la carga; no se da por arreglado porque no se tocó.
+
 ### Estado
 
-**3.478 tests del motor · 1.123 de la capa web (63 nuevos) · 148 de navegador ·
+**3.478 tests del motor · 1.132 de la capa web (72 nuevos) · 148 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
 verde. 0 fallos.**
 

@@ -888,3 +888,119 @@ class TestLaAuditoriaDeLoQueYoMismoMeti:
 
         fuente = inspect.getsource(V.portfolio_edge_opciones)
         assert 'e.get("horizon_days")' in fuente
+
+
+# ══════════════════════════════════════════════════════════════════════════
+class TestLaLimpiezaDeRutasMuertas:
+    """Once rutas sin un solo llamador, y la cola de funciones que sostenían.
+
+    La regla que las separó de las que se quedaron: una ruta «sin llamador en
+    el panel» NO es lo mismo que una ruta muerta. Los iconos del PWA los pide
+    el navegador por el manifest, `/legacy` es una página pública documentada,
+    y `/api/plaid/disconnect` es la única forma de invalidar un token de Plaid
+    de verdad. Esas tres se quedaron; las once que no tenían ni llamador ni
+    razón operativa, no.
+    """
+
+    BORRADAS = ["/api/logout", "/api/signal-history", "/api/finnhub-quote",
+                "/api/trade-plan", "/api/confluence", "/api/income-strategies",
+                "/api/net-flow", "/api/backtest", "/api/options-ledger",
+                "/api/quantdata/status", "/api/quantdata/flow"]
+
+    #: Las que PARECÍAN muertas y no lo estaban. Si alguien las borra creyendo
+    #: que sobran, esto lo caza.
+    SE_QUEDAN = ["/api/plaid/disconnect", "/api/self-test",
+                 "/api/backfill/status", "/api/collect-signals"]
+
+    @pytest.fixture(scope="class")
+    def fuente(self):
+        return (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+
+    def test_ninguna_de_las_once_volvio(self, fuente):
+        vivas = [r for r in self.BORRADAS if f'"{r}"' in fuente]
+        assert not vivas, vivas
+
+    def test_las_que_NO_estaban_muertas_siguen_ahi(self, fuente):
+        faltan = [r for r in self.SE_QUEDAN if f'"{r}"' in fuente]
+        assert len(faltan) == len(self.SE_QUEDAN), (
+            "se borró algo que era operativo, no muerto: "
+            + str(set(self.SE_QUEDAN) - set(faltan)))
+
+    def test_el_PWA_y_la_pagina_publica_no_se_tocaron(self, fuente):
+        """Los iconos los pide el manifest, no el panel: un grep de «quién lo
+        llama» los da por muertos y borrarlos deja el móvil sin icono."""
+        assert '"/assets/icon-{size}.png"' in fuente
+        assert '{"src": "/assets/icon-192.png"' in fuente
+        assert '"/legacy"' in fuente
+
+    def test_el_logout_que_SI_usa_el_panel_sigue_vivo(self, fuente):
+        """Había dos: `/api/logout`, que nadie llamaba, y `/api/auth/salir`,
+        que es la del botón. Se fue la primera."""
+        assert '"/api/auth/salir"' in fuente
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "/api/auth/salir" in html
+
+    def test_no_quedo_ninguna_funcion_colgando_de_las_borradas(self):
+        """Borrar la ruta y dejar sus ayudantes es media limpieza: el archivo
+        encoge menos y el que venga detrás no sabe si sirven."""
+        import ast
+        import glob
+        import re
+
+        import vertex_api as V
+
+        s = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+        arbol = ast.parse(s)
+
+        def es_ruta(n):
+            return any(ast.unparse(d).startswith("app.") for d in n.decorator_list)
+
+        cand = {n.name for n in ast.walk(arbol)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and not es_ruta(n)}
+        otros = "".join(
+            (ROOT / f).read_text(encoding="utf-8")
+            for f in ("vertex_almacen.py", "vertex_archivo.py", "vertex_memoria.py",
+                      "vertex_cuentas.py", "vertex_market.py"))
+        # La cola de las once, nombre a nombre. Es una lista cerrada a
+        # propósito: un guardián que exigiera CERO huérfanas en todo el
+        # archivo fallaría por deuda vieja que no es de esta limpieza.
+        cola = {"_build_debit_spread", "_chain_quote_map", "_institutional_strike",
+                "_kevin_long_strike", "_ledger_current_oi", "_q_lookup",
+                "build_income_strategies", "quantdata_big_prints",
+                "_income_flow_sells", "_bs_price", "_moneyness"}
+        assert not (cola & cand), sorted(cola & cand)
+
+
+class TestDesconectarPlaidYaTieneBoton:
+    """`/api/plaid/disconnect` existía desde el primer día y ningún botón la
+    llamaba. No es una ruta muerta cualquiera: es la única que invalida el
+    token del lado de Plaid (`item/remove`), no solo de nuestra base. Sin ella
+    cableada, «desconectar» sólo se podía hacer desde el panel de Plaid y el
+    token seguía siendo válido para quien lo tuviera."""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_hay_boton_y_llama_a_la_ruta(self, html):
+        assert 'onclick="desconectarPlaid()"' in html
+        assert "/api/plaid/disconnect" in html
+
+    def test_desconectar_BORRA_tambien_el_libro(self, html):
+        """Dejar las posiciones de una cuenta que ya no está conectada haría
+        que el riesgo y el apalancamiento se calcularan sobre un libro que ya
+        no es el tuyo."""
+        i = html.index("async function desconectarPlaid()")
+        trozo = html[i:i + 1400]
+        assert "/api/portfolio/clear" in trozo
+        assert "snapshotReady = false;" in trozo
+
+    def test_pide_confirmacion(self, html):
+        """Invalidar un token no se deshace con Ctrl+Z."""
+        i = html.index("async function desconectarPlaid()")
+        assert "confirm(" in html[i:i + 400]
+
+    def test_el_boton_solo_sale_si_hay_algo_que_desconectar(self, html):
+        assert "function pfPintaBotonPlaid()" in html
+        assert "b.classList.toggle('hidden', !plaidConnected)" in html
+        assert "pfPintaBotonPlaid();" in html
