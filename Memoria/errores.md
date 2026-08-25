@@ -6,3 +6,4 @@ _Cada vuelta de veredicto sobre el mismo ticker queda aquí. No es un castigo: e
 - **SPY** · 2026-08-20 → 2026-08-20: de **HOLD** a **Oportunidad Moderada** · el precio se movió -0.09% en ese tramo.
 - **GOOGL** · 2026-08-24 → 2026-08-25: de **ESPECULATIVO** a **Oportunidad Moderada** · el precio se movió +0.94% en ese tramo.
 - **MSFT** · 2026-08-18 → 2026-08-25: de **ESPECULATIVO** a **Oportunidad Moderada** · el precio se movió +1.45% en ese tramo.
+- **AMZN** · 2026-08-18 → 2026-08-25: de **DESFAVORABLE** a **Oportunidad Moderada** · el precio se movió -0.27% en ese tramo.

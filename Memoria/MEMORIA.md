@@ -5,7 +5,7 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | Ticker | Última revisión | Veredicto | Puntaje | Agente |
 |---|---|---|---|---|
 | [AAPL](tesis/AAPL.md) | 2026-08-25 | Oportunidad Moderada | 62 | opciones |
-| [AMZN](tesis/AMZN.md) | 2026-08-18 | DESFAVORABLE | 45 | acciones |
+| [AMZN](tesis/AMZN.md) | 2026-08-25 | Oportunidad Moderada | 60 | opciones |
 | [APH](tesis/APH.md) | 2026-08-13 | ESPECULATIVO | 56 | acciones |
 | [GOOGL](tesis/GOOGL.md) | 2026-08-25 | Oportunidad Moderada | 60 | opciones |
 | [GOOG](tesis/GOOG.md) | 2026-08-25 | Oportunidad Moderada | 60 | opciones |
