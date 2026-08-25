@@ -165,27 +165,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5950605,
+          "medio": 6002489,
           "relativo": 0.56,
           "respalda": false
         },
         "1M": {
-          "medio": 7766093,
+          "medio": 7778447,
           "relativo": 0.73,
           "respalda": false
         },
         "3M": {
-          "medio": 10728351,
+          "medio": 10732468,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 12570872,
+          "medio": 12572931,
           "relativo": 1.18,
           "respalda": false
         },
         "1A": {
-          "medio": 15461692,
+          "medio": 15462721,
           "relativo": 1.46,
           "respalda": true
         }
@@ -466,27 +466,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 25484995,
+          "medio": 25607421,
           "relativo": 0.83,
           "respalda": false
         },
         "1M": {
-          "medio": 26289007,
+          "medio": 26318156,
           "relativo": 0.85,
           "respalda": false
         },
         "3M": {
-          "medio": 31372026,
+          "medio": 31381743,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 42220448,
+          "medio": 42225306,
           "relativo": 1.37,
           "respalda": true
         },
         "1A": {
-          "medio": 39229026,
+          "medio": 39231455,
           "relativo": 1.27,
           "respalda": true
         }
@@ -736,7 +736,7 @@
         "cuadrante": "lagging",
         "fuerza": -4.758,
         "impulso": -1.8934,
-        "volumen_rel": 0.667,
+        "volumen_rel": 0.6997,
         "flujo": null,
         "roc_5": -1.8934,
         "roc_20": 2.7506,
@@ -820,7 +820,7 @@
         "cuadrante": "weakening",
         "fuerza": 4.435,
         "impulso": -2.348,
-        "volumen_rel": 1.0214,
+        "volumen_rel": 1.0435,
         "flujo": null,
         "roc_5": -2.348,
         "roc_20": 4.2735,
@@ -1560,5 +1560,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-25T21:01:03.718602+00:00"
+  "generado": "2026-08-25T22:03:58.921036+00:00"
 }
