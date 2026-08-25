@@ -454,12 +454,30 @@ class TestElRiesgoDeRuinaSeMideSobreElCAMINO:
         assert '"origen"' in fuente
 
     def test_el_sizing_NO_tumba_el_stress_si_el_perfil_falla(self):
-        """El sizing es contexto: un perfil ilegible no puede dejar sin VaR."""
+        """El sizing es contexto: un perfil ilegible no puede dejar sin VaR.
+
+        Medido sobre el ÁRBOL, no sobre una ventana de caracteres. La versión
+        anterior buscaba el `except` dentro de los 2.600 caracteres siguientes
+        al `sizing = None`, y al crecer el bloque —el efectivo y el
+        apalancamiento entraron ahí— el `except` se salió de la ventana y el
+        caso cayó sin que nada estuviera mal. Una medida que depende del
+        tamaño del código caduca sola.
+        """
+        import ast
+        import textwrap
+
         import vertex_api as V
 
-        fuente = inspect.getsource(V.compute_portfolio_stress)
-        i = fuente.index("sizing = None")
-        assert "except Exception:" in fuente[i:i + 2600]
+        arbol = ast.parse(textwrap.dedent(inspect.getsource(V.compute_portfolio_stress)))
+        fn = arbol.body[0]
+        # El `try` que sigue a `sizing = None`, en el mismo nivel.
+        idx = next(i for i, n in enumerate(fn.body)
+                   if isinstance(n, ast.Assign)
+                   and getattr(n.targets[0], "id", None) == "sizing")
+        siguiente = fn.body[idx + 1]
+        assert isinstance(siguiente, ast.Try), type(siguiente).__name__
+        assert any(h.type is None or getattr(h.type, "id", "") == "Exception"
+                   for h in siguiente.handlers), "no atrapa un fallo del perfil"
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -503,3 +521,285 @@ class TestQuantDataYaNoSeAnunciaComoPrimario:
         V._GEX_CACHE.pop("ZZZZ", None)
         V.get_gex_cached("ZZZZ")
         assert llamadas == ["ZZZZ"]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+class TestElEfectivoSeGUARDANoSoloSeEnsenia:
+    """`/api/portfolio` sacaba el cash de Plaid, lo pintaba como «Cash
+    Disponible» y ahí moría: ni el import lo aceptaba, ni el snapshot lo
+    guardaba, ni `_resolve_positions` lo devolvía. El motor de riesgo, el
+    optimizador y la regla de tamaño calculaban como si el 100% de la cuenta
+    estuviera invertido."""
+
+    def test_no_saber_y_tener_cero_NO_son_lo_mismo(self):
+        """La diferencia lleva a cuentas distintas, y presentar la primera
+        como la segunda es la clase de silencio que este proyecto trata como
+        peor que un error."""
+        import vertex_api as V
+
+        V.save_portfolio_cash(None)
+        assert V.get_portfolio_cash() is None, "sin dato tiene que ser None"
+        V.save_portfolio_cash(0.0)
+        c = V.get_portfolio_cash()
+        assert c is not None and c["efectivo"] == 0.0, "un cero declarado es un dato"
+        V.save_portfolio_cash(None)
+
+    def test_el_poder_de_compra_va_APARTE_del_efectivo(self):
+        """Con margen es mayor; con colateral en puts vendidas, menor."""
+        import vertex_api as V
+
+        V.save_portfolio_cash(250.0, 900.0, "manual")
+        c = V.get_portfolio_cash()
+        assert c["efectivo"] == 250.0 and c["poder_de_compra"] == 900.0
+        V.save_portfolio_cash(None)
+
+    def test_el_import_lo_acepta_y_el_snapshot_lo_devuelve(self, client, cab):
+        import vertex_api as V
+
+        _libro(client, cab, [{"ticker": "NVDA", "name": "NVIDIA", "value": 600}], [])
+        client.post("/api/portfolio/import", headers=cab, json={"cash": 250.0})
+        d = client.get("/api/portfolio/snapshot", headers=cab).json()
+        assert d["efectivo"]["efectivo"] == 250.0
+        client.post("/api/portfolio/import", headers=cab, json={"cash": None})
+        assert client.get("/api/portfolio/snapshot", headers=cab).json()["efectivo"] is None
+
+    def test_borrar_el_libro_se_lleva_el_efectivo(self, client, cab):
+        """Dejarlo detrás haría que la próxima cuenta arrastre el saldo de la
+        anterior, y el sizing se calcularía sobre dinero de otro libro."""
+        import vertex_api as V
+
+        client.post("/api/portfolio/import", headers=cab,
+                    json={"positions": [{"ticker": "NVDA", "value": 600}], "cash": 250.0})
+        client.post("/api/portfolio/clear", headers=cab)
+        assert V.get_portfolio_cash() is None
+
+    def test_el_camino_de_Plaid_lo_PERSISTE(self):
+        import inspect
+
+        import vertex_api as V
+
+        assert "save_portfolio_cash(safe_float(cash_balance)" in inspect.getsource(V.get_portfolio)
+
+    def test_el_panel_entiende_la_linea_CASH(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function parseImportText")
+        trozo = html[i:i + 1800]
+        assert "'CASH', 'EFECTIVO'" in trozo
+        assert "cuerpo.cash = cash" in html
+
+
+class TestElApalancamientoRealSaleDeLosDosNumeros:
+    """Ni el efectivo ni la exposición delta lo dicen por separado. Con $1.000
+    en la cuenta y $12.000 de delta-equivalente estás a 12×, y ese número no
+    aparecía en ninguna pantalla del sistema."""
+
+    LIBRO = [{"ticker": "NVDA", "name": "NVIDIA", "value": 1000.0}]
+    PERFIL = {"max_posicion_pct": [20, 30], "tolerancia": "agresivo",
+              "capital": 1000.0, "sin_contestar": []}
+
+    def test_un_libro_de_solo_acciones_con_efectivo_sale_por_debajo_de_1(self):
+        import vertex_api as V
+
+        V.save_portfolio_cash(250.0, 250.0, "test")
+        try:
+            g = V.compute_portfolio_guardrails(self.LIBRO, None, perfil=self.PERFIL)
+            r = [x for x in g["rules"] if x["rule"] == "Apalancamiento real"][0]
+            assert r["value"] == "0.8x"          # 1000 de exposición / 1250 de cuenta
+            assert r["status"] == "ok"
+        finally:
+            V.save_portfolio_cash(None)
+
+    def test_el_delta_de_las_opciones_lo_dispara(self):
+        import vertex_api as V
+
+        libro = [{"ticker": "NVDA", "name": "NVIDIA", "value": 12400.0,
+                  "valor_equity": 400.0, "exposicion_opciones": 12000.0}]
+        V.save_portfolio_cash(600.0, 600.0, "test")
+        try:
+            g = V.compute_portfolio_guardrails(libro, None, perfil=self.PERFIL)
+            r = [x for x in g["rules"] if x["rule"] == "Apalancamiento real"][0]
+            # cuenta = 12400 - 12000 + 600 = 1000; exposición = 12400 → 12,4x
+            assert r["value"] == "12.4x"
+            assert r["status"] == "breach"
+            assert "delta de las" in r["detail"]
+        finally:
+            V.save_portfolio_cash(None)
+
+    def test_con_opciones_y_SIN_efectivo_no_se_inventa_un_1x(self):
+        """Decir «1,0x» sin saber el efectivo sería mentir en la dirección
+        peligrosa: hacia abajo."""
+        import vertex_api as V
+
+        libro = [{"ticker": "NVDA", "name": "NVIDIA", "value": 12400.0,
+                  "valor_equity": 400.0, "exposicion_opciones": 12000.0}]
+        V.save_portfolio_cash(None)
+        g = V.compute_portfolio_guardrails(libro, None, perfil=self.PERFIL)
+        r = [x for x in g["rules"] if x["rule"] == "Apalancamiento real"][0]
+        assert r["value"] == "—" and r["status"] == "warn"
+        assert "no sé cuánto efectivo" in r["detail"]
+
+    def test_sin_efectivo_y_SIN_opciones_la_regla_no_aparece(self):
+        """No hay nada que avisar y una regla de más es ruido."""
+        import vertex_api as V
+
+        V.save_portfolio_cash(None)
+        g = V.compute_portfolio_guardrails(self.LIBRO, None, perfil=self.PERFIL)
+        assert not [x for x in g["rules"] if x["rule"] == "Apalancamiento real"]
+
+
+class TestElSizingResponde_en_vez_de_recitar_un_tope:
+    """Con $700 ya desplegados de $1.000, decir «$300 por posición» es cierto
+    y no sirve de nada."""
+
+    def test_el_stress_lee_el_efectivo(self):
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.compute_portfolio_stress)
+        assert "get_portfolio_cash()" in fuente
+        assert "cabe_hoy_sin_vender_usd" in fuente
+        assert "apalancamiento" in fuente
+
+    def test_lo_que_cabe_hoy_es_el_MENOR_de_los_dos_limites(self):
+        """El poder de compra y el tope por posición: manda el que ate más."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.compute_portfolio_stress)
+        assert "min(_pc, _cap * _tope / 100.0)" in fuente
+
+    def test_sin_efectivo_lo_DICE_en_vez_de_callarse(self):
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.compute_portfolio_stress)
+        assert "No sé cuánto efectivo tienes" in fuente
+        assert '"efectivo_conocido"' in fuente
+
+
+class TestElOptimizadorDejaDeProponerSoloVENTAS:
+    """Normaliza a 100% de lo invertido, así que solo sabe hablar en
+    porcentajes de lo que ya está dentro — y en una cuenta chica eso siempre se
+    traduce en «vende para rebalancear», que paga spread y comisión dos veces
+    por algo que el efectivo resolvía gratis."""
+
+    def test_la_ruta_adjunta_el_efectivo(self):
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.get_portfolio_optimizer)
+        assert "get_portfolio_cash()" in fuente
+        assert '"peso_efectivo_pct"' in fuente
+
+    def test_sin_efectivo_se_declara_en_vez_de_omitirse(self):
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.get_portfolio_optimizer)
+        assert '"conocido": False' in fuente
+        assert "todo ajuste sale como una" in fuente
+
+
+class TestElEdgeDelAgenteDeOPCIONESLlegaAlLibro:
+    """`get_track_record` lee `SELECT * FROM reports` — la tabla del agente de
+    ACCIONES. El de opciones guardaba sus predicciones en su propio store desde
+    el primer día y nadie las cruzaba con el libro: el bucle de aprendizaje
+    estaba cerrado para acciones y abierto justo para el agente con el que se
+    opera."""
+
+    def test_el_umbral_de_muestra_es_el_de_VICTOR(self):
+        """5, el mismo con el que su motor decide si se auto-corrige. Dos
+        umbrales distintos para la misma pregunta se separan solos."""
+        import inspect
+
+        import vertex_api as V
+        from wbj.tito.prediction import CALIBRATION
+
+        assert CALIBRATION["min_samples"] == 5
+        fuente = inspect.getsource(V.portfolio_edge_opciones)
+        assert 'CALIBRATION.get("min_samples")' in fuente
+        assert "5" not in fuente.split('CALIBRATION.get("min_samples")')[0][-40:], (
+            "el mínimo no puede ir a mano al lado de la constante")
+
+    def test_solo_cuentan_las_predicciones_VENCIDAS(self):
+        """Juzgar una a mitad de su horizonte mide ruido, no acierto."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.portfolio_edge_opciones)
+        assert "review_predictions" in fuente
+        assert "matured_count" in fuente
+
+    def test_sin_opciones_no_inventa_un_libro(self, client, cab):
+        client.post("/api/portfolio/clear", headers=cab)
+        _libro(client, cab, [{"ticker": "NVDA", "name": "NVIDIA", "value": 600}], [])
+        d = client.get("/api/portfolio-edge-opciones", headers=cab).json()
+        assert d["ok"] is True and d["n_options"] == 0
+        assert d["subyacentes"] == []
+
+    def test_sin_historial_lo_dice_y_explica_como_se_llena(self, client, cab):
+        largo = (date.today() + timedelta(days=115)).isoformat()
+        _libro(client, cab, [{"ticker": "NVDA", "name": "NVIDIA", "value": 600}],
+               [{"underlying": "ZZZZ", "option_type": "call", "strike": 200,
+                 "expiry": largo, "contracts": 1}])
+        d = client.get("/api/portfolio-edge-opciones", headers=cab).json()
+        f = [x for x in d["subyacentes"] if x["underlying"] == "ZZZZ"][0]
+        assert f["estado"] in ("sin_historial", "sin_precios")
+        assert f.get("lectura") or f.get("error")
+
+    def test_una_muestra_corta_NO_se_presenta_como_ventaja(self, monkeypatch, client, cab):
+        """4 predicciones acertadas de 4 es un 100% que no significa nada."""
+        import vertex_api as V
+        from wbj.tito import stores as st
+
+        largo = (date.today() + timedelta(days=115)).isoformat()
+        _libro(client, cab, [], [{"underlying": "ZZZZ", "option_type": "call",
+                                  "strike": 200, "expiry": largo, "contracts": 1}])
+        monkeypatch.setattr(st, "load_journal", lambda t: [{"date": "2026-01-01"}])
+        monkeypatch.setattr("wbj.tito.bars_store.daily_bars_for_panel", lambda t: [1])
+        monkeypatch.setattr(st, "review_predictions",
+                            lambda j, b, n: {"matured_count": 4, "direction_hit_rate": 100.0,
+                                             "base_touch_rate": 100.0,
+                                             "mean_abs_error_pct": 1.0, "bias_pct": 0.0,
+                                             "best_counts": {"base": 4}})
+        d = client.get("/api/portfolio-edge-opciones", headers=cab).json()
+        f = [x for x in d["subyacentes"] if x["underlying"] == "ZZZZ"][0]
+        assert f["estado"] == "muestra_corta", f
+        assert "no ventaja" in f["lectura"] or "significa algo" in f["lectura"]
+
+    def test_con_muestra_suficiente_SI_clasifica(self, monkeypatch, client, cab):
+        """La contraparte: si nunca saliera «con ventaja», el caso de arriba
+        pasaría con un `estado` clavado y nadie lo notaría."""
+        import vertex_api as V
+        from wbj.tito import stores as st
+
+        largo = (date.today() + timedelta(days=115)).isoformat()
+        _libro(client, cab, [], [{"underlying": "ZZZZ", "option_type": "call",
+                                  "strike": 200, "expiry": largo, "contracts": 1}])
+        monkeypatch.setattr(st, "load_journal", lambda t: [{"date": "2026-01-01"}])
+        monkeypatch.setattr("wbj.tito.bars_store.daily_bars_for_panel", lambda t: [1])
+        for hit, esperado in ((72.0, "con_ventaja"), (50.0, "sin_ventaja_clara"),
+                              (30.0, "por_debajo_del_azar")):
+            monkeypatch.setattr(st, "review_predictions",
+                                lambda j, b, n, _h=hit: {"matured_count": 12,
+                                                         "direction_hit_rate": _h,
+                                                         "base_touch_rate": 40.0,
+                                                         "mean_abs_error_pct": 5.0,
+                                                         "bias_pct": 1.0,
+                                                         "best_counts": {"base": 12}})
+            d = client.get("/api/portfolio-edge-opciones", headers=cab).json()
+            f = [x for x in d["subyacentes"] if x["underlying"] == "ZZZZ"][0]
+            assert f["estado"] == esperado, (hit, f["estado"])
+
+    def test_NO_puntua_ni_recomienda(self):
+        import vertex_api as V
+
+        codigo = _solo_codigo(V.portfolio_edge_opciones)
+        for prohibido in ("run_scorecard", "predict_pro", "verdict"):
+            assert prohibido not in codigo, prohibido

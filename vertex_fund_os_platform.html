@@ -10816,7 +10816,7 @@ function switchPortfolioTab(tabId, btn) {
     if (tabId === 'pfAttribTab' && !pfAttribLoaded) loadPortfolioAttribution();
     if (tabId === 'pfGuardTab' && !pfGuardLoaded) loadPortfolioGuardrails();
     if (tabId === 'pfOptTab' && !pfOptLoaded) loadPortfolioOptimizer();
-    if (tabId === 'pfOptionsTab' && !pfOptionsLoaded) loadOptions();
+    if (tabId === 'pfOptionsTab' && !pfOptionsLoaded) { loadOptions(); loadEdgeOpciones(); }
     if (tabId === 'pfDriftTab' && !pfDriftLoaded) loadPortfolioDrift();
     if (window.lucide) vcIconos();
 }
@@ -11150,6 +11150,8 @@ function renderPortfolioStress(d) {
         <div class="flex items-end gap-4 flex-wrap mb-1.5">
             <div><span class="text-xl font-mono font-black text-white">${pfUSD(sz.max_por_posicion_usd)}</span><span class="text-[10px] text-gray-500 ml-1.5">por posición</span></div>
             <div><span class="text-xl font-mono font-black text-gray-300">${sz.posiciones_que_caben}</span><span class="text-[10px] text-gray-500 ml-1.5">posiciones caben</span></div>
+            ${sz.cabe_hoy_sin_vender_usd != null ? `<div><span class="text-xl font-mono font-black text-emerald-400">${pfUSD(sz.cabe_hoy_sin_vender_usd)}</span><span class="text-[10px] text-gray-500 ml-1.5">cabe hoy sin vender</span></div>` : ''}
+            ${sz.apalancamiento != null ? `<div><span class="text-xl font-mono font-black ${sz.apalancamiento >= 2 ? 'text-amber-400' : 'text-gray-300'}">${sz.apalancamiento}x</span><span class="text-[10px] text-gray-500 ml-1.5">apalancamiento real</span></div>` : ''}
         </div>
         <p class="text-[10px] text-gray-400 leading-relaxed">${_vcEsc(sz.lectura || '')}</p>
     </div>` : '';
@@ -11517,11 +11519,21 @@ async function refreshSnapshotStatus() {
 // Devuelve {positions, options, errors} — nunca lanza; los errores se muestran.
 function parseImportText(txt) {
     const positions = [], options = [], errors = [];
+    let cash = undefined;
     (txt || '').split(/\r?\n/).forEach((raw, i) => {
         const line = raw.trim();
         if (!line || line.startsWith('#')) return;
         const f = line.split(/[\s,]+/).filter(Boolean);
         const kind = (f[1] || '').toUpperCase();
+        // El efectivo. Sin el, el optimizador solo sabe decir «vende para
+        // rebalancear» y la regla de tamano habla de un tope en vez de una
+        // respuesta. Va en su propia linea porque no es una posicion.
+        if (f.length >= 2 && ['CASH', 'EFECTIVO'].includes((f[0] || '').toUpperCase())) {
+            const v = Number(f[1]);
+            if (!isFinite(v) || v < 0) { errors.push(`Línea ${i + 1}: el efectivo debe ser un número ≥0.`); return; }
+            cash = v;
+            return;
+        }
         if (f.length >= 5 && (kind === 'CALL' || kind === 'PUT' || kind === 'C' || kind === 'P')) {
             const [und, , strike, expiry, contracts, price] = f;
             if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
@@ -11547,28 +11559,31 @@ function parseImportText(txt) {
             errors.push(`Línea ${i + 1}: no la entendí ("${line}").`);
         }
     });
-    return { positions, options, errors };
+    return { positions, options, cash, errors };
 }
 
 async function submitImport() {
     const ta = document.getElementById('impText');
-    const { positions, options, errors } = parseImportText(ta ? ta.value : '');
+    const { positions, options, cash, errors } = parseImportText(ta ? ta.value : '');
     if (errors.length) {
         impMsg('⚠️ ' + errors.slice(0, 4).join('<br>'), 'text-amber-400');
-        if (!positions.length && !options.length) return;
+        if (!positions.length && !options.length && cash === undefined) return;
     }
-    if (!positions.length && !options.length) {
+    if (!positions.length && !options.length && cash === undefined) {
         impMsg('No hay nada que importar.', 'text-amber-400'); return;
     }
     try {
+        const cuerpo = { source: 'manual', positions, options };
+        if (cash !== undefined) cuerpo.cash = cash;
         const r = await fetch(`${API_BASE}/api/portfolio/import`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source: 'manual', positions, options })
+            body: JSON.stringify(cuerpo)
         });
         const d = await r.json();
         if (!d.ok) { impMsg('⚠️ ' + (d.error || 'Error al importar.'), 'text-amber-400'); return; }
         impMsg(`✓ Importado: <b>${d.n_positions}</b> posiciones` +
                (d.n_options ? ` y <b>${d.n_options}</b> opciones` : '') +
+               (d.efectivo ? ` · efectivo <b>$${Number(d.efectivo.efectivo).toLocaleString('en-US')}</b>` : '') +
                `. El dashboard de análisis ya puede correr.`, 'text-emerald-400');
         snapshotReady = true;
         const dash = document.getElementById('portfolioDashboard');
@@ -11730,7 +11745,16 @@ function renderPortfolioOptimizer(d) {
         </div>
         <p class="text-[10px] text-gray-500 italic mb-3"><b class="text-emerald-400">Compras nuevas</b> — tickers que <b class="text-gray-400">no tienes ni has analizado</b>, para diversificar tu concentración en IA, con % sugerido. (Lo de arriba — vender/reducir/aumentar — es sobre lo que <b class="text-gray-400">ya tienes</b>.) Toca los <b>⋮</b> para ver el <b>porqué</b> o <b>analizarla con el agente</b>.</p>
         <div id="pfIdeasBody"><p class="text-[11px] text-gray-500 italic flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Generando ideas con búsqueda en vivo…</p></div></div>`;
-    body.innerHTML = `<div class="space-y-5">${cards}${mandateCard}${frontier}${rebalance}${ideasSection}${meta}</div>`;
+    // El efectivo cambia lo que significa TODO lo de arriba: los pesos objetivo
+    // son sobre lo invertido, asi que sin efectivo cada ajuste sale como una
+    // venta — el consejo mas caro que existe en una cuenta chica.
+    const ef = d.efectivo || {};
+    const efHtml = ef.conocido
+        ? `<div class="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-3.5 py-2.5 text-[10px] text-emerald-200/90 leading-relaxed">
+            <b>Tienes ${pfUSD(ef.efectivo_usd)} en efectivo</b> (${ef.peso_efectivo_pct}% de la cuenta, ${pfUSD(ef.cuenta_total_usd)} en total). ${_vcEsc(ef.nota || '')}
+        </div>`
+        : (ef.nota ? `<div class="bg-amber-500/5 border border-amber-500/20 rounded-xl px-3.5 py-2.5 text-[10px] text-amber-200/90 leading-relaxed">${_vcEsc(ef.nota)}</div>` : '');
+    body.innerHTML = `<div class="space-y-5">${cards}${efHtml}${mandateCard}${frontier}${rebalance}${ideasSection}${meta}</div>`;
     if (window.lucide) vcIconos();
     loadPortfolioIdeas(false);
 }
@@ -11856,6 +11880,77 @@ function pfIdeaAnalyze(tk) {
 
 let pfOptionsLoaded = false;
 let pfDriftLoaded = false;
+let pfEdgeOpcLoaded = false;
+
+// ── EDGE MEDIDO DEL AGENTE DE OPCIONES ──────────────────────────────────────
+//
+// `portfolio-edge` cruza el libro con el track record de ACCIONES, porque
+// `get_track_record` lee la tabla `reports`. El agente de opciones guardaba
+// sus predicciones en su propio store desde el primer dia y nadie las cruzaba
+// con el libro: el bucle de aprendizaje estaba cerrado para acciones y abierto
+// justo para el agente con el que se opera.
+async function loadEdgeOpciones(force) {
+    const body = document.getElementById('pfEdgeOpcBody');
+    if (!body) return;
+    if (pfEdgeOpcLoaded && !force) return;
+    body.innerHTML = `<p class="text-xs text-gray-500 italic p-4 flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Revisando las predicciones vencidas…</p>`;
+    if (window.lucide) vcIconos();
+    try {
+        const d = await (await fetch(`${API_BASE}/api/portfolio-edge-opciones`)).json();
+        if (!d.ok) { body.innerHTML = `<p class="text-xs text-amber-400 italic p-4">${_vcEsc(d.error || 'No se pudo calcular.')}</p>`; pfEdgeOpcLoaded = true; return; }
+        renderEdgeOpciones(d); pfEdgeOpcLoaded = true;
+    } catch (e) {
+        body.innerHTML = `<p class="text-xs text-red-400 italic p-4">Error: ${_vcEsc(e.message)}</p>`;
+    }
+}
+
+function renderEdgeOpciones(d) {
+    const body = document.getElementById('pfEdgeOpcBody');
+    if (!body) return;
+    if (!d.n_options) {
+        body.innerHTML = `<div class="text-center py-8 px-4">
+            <i data-lucide="inbox" class="w-8 h-8 text-gray-600 mx-auto mb-2"></i>
+            <p class="text-xs text-gray-400">${_vcEsc(d.note || '')}</p></div>`;
+        if (window.lucide) vcIconos();
+        return;
+    }
+    const ESTADO = {
+        con_ventaja:         { c: 'text-emerald-400', bg: 'bg-emerald-500/5',  bd: 'border-emerald-500/25', lb: 'con ventaja medida' },
+        sin_ventaja_clara:   { c: 'text-amber-400',   bg: 'bg-amber-500/5',    bd: 'border-amber-500/25',   lb: 'sin ventaja clara' },
+        por_debajo_del_azar: { c: 'text-red-400',     bg: 'bg-red-500/5',      bd: 'border-red-500/25',     lb: 'por debajo del azar' },
+        muestra_corta:       { c: 'text-gray-400',    bg: 'bg-gray-900/40',    bd: 'border-gray-800',       lb: 'muestra corta' },
+        sin_historial:       { c: 'text-gray-500',    bg: 'bg-gray-900/40',    bd: 'border-gray-800',       lb: 'sin historial' },
+        sin_precios:         { c: 'text-amber-400',   bg: 'bg-gray-900/40',    bd: 'border-gray-800',       lb: 'sin precios' },
+    };
+    const r = d.resumen || {};
+    const resumen = (r.exposicion_total_usd)
+        ? `<div class="bg-[#0B0E14] border border-gray-900 rounded-xl p-3.5 mb-3">
+            <p class="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1.5">Dónde está tu exposición</p>
+            <div class="flex items-end gap-5 flex-wrap">
+                <div><span class="text-xl font-mono font-black text-emerald-400">${r.con_ventaja_pct == null ? '—' : r.con_ventaja_pct + '%'}</span><span class="text-[10px] text-gray-500 ml-1.5">con ventaja medida</span></div>
+                <div><span class="text-sm font-mono font-bold text-red-400">${pfUSD(r.por_debajo_del_azar_usd)}</span><span class="text-[10px] text-gray-500 ml-1.5">donde el agente falla</span></div>
+            </div>
+            ${(r.sin_medir || []).length ? `<p class="text-[10px] text-gray-500 mt-1.5">Todavía sin medir: ${(r.sin_medir || []).map(x => _vcEsc(x)).join(', ')}.</p>` : ''}
+        </div>` : '';
+    const filas = (d.subyacentes || []).map(f => {
+        const m = ESTADO[f.estado] || ESTADO.sin_historial;
+        return `<div class="${m.bg} border ${m.bd} rounded-xl p-3.5">
+            <div class="flex items-center justify-between gap-2 flex-wrap mb-1">
+                <p class="text-xs font-bold text-gray-200">${_vcEsc(f.underlying)} <span class="text-[10px] text-gray-500 font-normal">${f.contratos} contrato(s)${f.exposicion_usd != null ? ` · ${pfUSD(f.exposicion_usd)} de delta` : ''}</span></p>
+                <span class="text-[9px] font-bold ${m.c} font-mono">${m.lb}</span>
+            </div>
+            ${f.vencidas != null ? `<div class="flex gap-4 flex-wrap text-[10px] mb-1">
+                <span class="text-gray-500">acierto de dirección <b class="${m.c} font-mono">${f.acierto_direccion_pct == null ? '—' : f.acierto_direccion_pct + '%'}</b></span>
+                <span class="text-gray-500">tocó el base <b class="text-gray-300 font-mono">${f.toco_el_base_pct == null ? '—' : f.toco_el_base_pct + '%'}</b></span>
+                <span class="text-gray-500">error medio <b class="text-gray-300 font-mono">${f.error_medio_pct == null ? '—' : f.error_medio_pct + '%'}</b></span>
+                <span class="text-gray-500">vencidas <b class="text-gray-300 font-mono">${f.vencidas}/${f.predicciones}</b></span>
+            </div>` : ''}
+            <p class="text-[10px] text-gray-400 leading-relaxed">${_vcEsc(f.lectura || f.error || '')}</p>
+        </div>`;
+    }).join('');
+    body.innerHTML = `<div class="space-y-2.5">${resumen}${filas}<p class="text-[10px] text-gray-600 italic">${_vcEsc(d.note || '')}</p></div>`;
+    if (window.lucide) vcIconos();
+}
 
 // ── DRIFT SOBRE TUS CONTRATOS ───────────────────────────────────────────────
 //
@@ -12514,7 +12609,8 @@ function analyzeTickerNow(tk) {
                 <b class="text-gray-300">Una posición por línea.</b><br>
                 Acción: <code class="text-emerald-400">TICKER, VALOR[, COSTO_BASE]</code> &nbsp;&rarr;&nbsp; <code class="text-gray-400">NVDA, 5000, 4000</code><br>
                 Opción: <code class="text-emerald-400">SUBY CALL|PUT STRIKE YYYY-MM-DD CONTRATOS [PRECIO]</code> &nbsp;&rarr;&nbsp; <code class="text-gray-400">NVDA CALL 180 2026-09-18 2 12.50</code><br>
-                <span class="text-gray-600 italic">El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta.</span>
+                Efectivo: <code class="text-emerald-400">CASH MONTO</code> &nbsp;&rarr;&nbsp; <code class="text-gray-400">CASH 250</code><br>
+                <span class="text-gray-600 italic">El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta. Sin el efectivo, el optimizador solo sabe proponer ventas y no se puede calcular tu apalancamiento real.</span>
             </p>
         </div>
         <textarea id="impText" rows="7" spellcheck="false"
@@ -12824,6 +12920,13 @@ function analyzeTickerNow(tk) {
                 </div>
                 <p class="text-xs text-gray-500 italic mb-4">Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de la cadena.</p>
                 <div id="pfGreeksBody"></div>
+            </div>
+            <div class="bg-panel border border-panel rounded-2xl p-5">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2 mb-1">
+                    <i data-lucide="target" class="w-4 h-4"></i> Edge medido del agente de opciones
+                </h3>
+                <p class="text-xs text-gray-500 italic mb-4">Cuántas de sus predicciones han vencido en cada subyacente que tienes, y con qué frecuencia acertó. Solo cuentan las vencidas: juzgar una a mitad de su horizonte mediría ruido.</p>
+                <div id="pfEdgeOpcBody"></div>
             </div>
         </div>
 
@@ -14387,7 +14490,31 @@ const VX_ES2EN = {
     "Frontera eficiente por Monte Carlo: la cartera de máximo Sharpe y mínima volatilidad dado tu universo, con sugerencia de rebalanceo.": "Efficient frontier by Monte Carlo: the maximum-Sharpe and minimum-volatility portfolio given your universe, with a rebalance suggestion.",
     "en ese horizonte. Es lo que de verdad mide tu edge (un BUY que sube +3% mientras SPY sube +9% acierta dirección pero pierde alpha).": "over that horizon. That is what really measures your edge (a BUY that rises +3% while SPY rises +9% gets the direction right but loses alpha).",
     "(flujo pasado con precio del subyacente, para medir qué hizo el precio después). Nada de esto se puede comprar hecho: se acumula.": "(past flow with the underlying's price, to measure what price did afterwards). None of this can be bought ready-made: it accumulates.",
-    "El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta.": "Cost basis is optional, but without it the Guardrails stop-loss rule stays inactive. Negative contracts = short position.",
+    "El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta. Sin el efectivo, el optimizador solo sabe proponer ventas y no se puede calcular tu apalancamiento real.": "Cost basis is optional, but without it the Guardrails stop-loss rule stays inactive. Negative contracts = short position. Without cash, the optimiser can only propose sales and your real leverage cannot be computed.",
+    "Edge medido del agente de opciones": "The options agent\u2019s measured edge",
+    "Cuántas de sus predicciones han vencido en cada subyacente que tienes, y con qué frecuencia acertó. Solo cuentan las vencidas: juzgar una a mitad de su horizonte mediría ruido.": "How many of its predictions have matured on each underlying you hold, and how often it was right. Only matured ones count: judging one halfway through its horizon would measure noise.",
+    "Dónde está tu exposición": "Where your exposure sits",
+    "con ventaja medida": "with measured edge",
+    "donde el agente falla": "where the agent fails",
+    "Todavía sin medir:": "Not measured yet:",
+    "por debajo del azar": "below chance",
+    "sin ventaja clara": "no clear edge",
+    "muestra corta": "small sample",
+    "sin historial": "no history",
+    "sin precios": "no prices",
+    "acierto de dirección": "direction hit rate",
+    "tocó el base": "touched base",
+    "error medio": "mean error",
+    "vencidas": "matured",
+    "contrato(s)": "contract(s)",
+    "de delta": "of delta",
+    "Revisando las predicciones vencidas…": "Reviewing matured predictions…",
+    "cabe hoy sin vender": "fits today without selling",
+    "apalancamiento real": "real leverage",
+    "en efectivo": "in cash",
+    "de la cuenta,": "of the account,",
+    "en total).": "in total).",
+    "Efectivo:": "Cash:",
     "(crecimiento/estable) y al tope por posición. ▲ = crecimiento · ⬢ = estable. Cruza con la pestaña Guardrails antes de ejecutar.": "(growth/stable) and to the per-position cap. ▲ = growth · ⬢ = stable. Cross-check with the Guardrails tab before executing.",
     "Cada análisis que hace cualquiera mejora al agente para todos. Tus reportes, en cambio, son tuyos: nadie más ve qué analizaste.": "Every analysis anyone runs makes the agent better for everyone. Your reports, though, are yours: nobody else sees what you analysed.",
     "Precio = último trade / cierre (Massive no expone bid en este plan). Open Premium = OI × precio · Notional = OI × 100 × strike.": "Price = last trade / close (Massive does not expose the bid on this plan). Open premium = OI × price · notional = OI × 100 × strike.",

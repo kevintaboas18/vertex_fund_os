@@ -162,6 +162,7 @@ Lo que conecta con los agentes:
 | `get_agent_views` → Black-Litterman | `upside_pct` y `conviction` del último reporte de cada ticker entran como *vistas* del optimizador |
 | `/api/portfolio-edge` | El libro cruzado con tu track record por ticker |
 | `/api/portfolio-drift` | Los tres niveles de Drift **solo** a 90/120/320 días, por contrato |
+| `/api/portfolio-edge-opciones` | El track record del agente de opciones (predicciones VENCIDAS) cruzado con tu exposición |
 
 Reglas que no se negocian aquí:
 
@@ -172,6 +173,11 @@ Reglas que no se negocian aquí:
   afirmación, y lo que pasa es que no se sabe.
 - **Los umbrales salen del perfil**, y cada regla dice si el suyo lo
   contestaste tú (`origen: perfil`) o es heredado.
+- **El efectivo se guarda, no solo se enseña** (`portfolio_cash`). `None` y
+  `0` son distintos: «no sé cuánto tienes» y «tienes cero» llevan a cuentas
+  distintas. Sin él, el optimizador solo sabe proponer ventas y el
+  apalancamiento real no se puede calcular. Se carga con `CASH 250` en
+  Importar portafolio.
 - **Drift no puntúa.** Es contexto de posicionamiento. En cuanto publique un
   score, el portafolio pasa a ser un tercer agente que nadie auditó.
 

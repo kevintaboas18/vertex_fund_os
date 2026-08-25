@@ -9745,9 +9745,89 @@ Kevin vuelve a contratar el plan.
 34 casos nuevos en `tests_vertex/test_portafolio.py`, verificados en rojo: 32
 de los 34 caen sin estos cambios.
 
+### El efectivo y el edge de opciones
+
+Los dos que quedaban de la lista. Kevin dejó fuera comisiones y spread por
+ahora.
+
+#### El efectivo se veía y no se guardaba
+
+`/api/portfolio` sacaba el cash de Plaid (`vertex_api.py:17149`) y lo pintaba
+como «Cash Disponible». **Ahí moría**: `_norm_import_positions` no lo aceptaba,
+`save_portfolio_snapshot` no lo guardaba y `_resolve_positions` devolvía solo
+acciones. El motor de riesgo, el optimizador y la regla de tamaño calculaban
+como si el 100% de la cuenta estuviera invertido.
+
+Tabla `portfolio_cash`, una sola fila: esto es el estado de UNA cuenta, no un
+histórico. `poder_de_compra` va aparte del efectivo porque **no son lo mismo** —
+con margen es mayor, con colateral comprometido en puts vendidas es menor.
+
+**`None` y `0` no son lo mismo y el sistema tiene que poder distinguirlos.**
+«No sé cuánto efectivo tienes» y «tienes cero» llevan a cuentas distintas, y
+presentar el primero como el segundo es la clase de silencio que este proyecto
+trata como peor que un error. Mandar `cash: null` al import BORRA; omitir la
+clave no toca nada; mandar `0` es un dato.
+
+Qué cambia con él:
+
+- **El sizing pasa de recitar un tope a responder.** Antes leía el capital
+  *declarado* del perfil: con $700 ya desplegados de $1.000, «$300 por
+  posición» es cierto y no sirve de nada. Ahora publica
+  `cabe_hoy_sin_vender_usd`, que es el menor entre el poder de compra y el
+  tope por posición.
+- **El optimizador deja de proponer solo ventas.** Normaliza a 100% de lo
+  invertido (`cw = cw / cw.sum()`), así que solo sabe hablar en porcentajes de
+  lo que ya está dentro — y en una cuenta chica eso siempre se traduce en
+  «vende para rebalancear», que paga spread y comisión dos veces por algo que
+  el efectivo resolvía gratis. El payload lleva ahora el efectivo al lado, y
+  cuando no se sabe **lo dice** en vez de omitirlo.
+- **Sale el apalancamiento REAL**, regla nueva en guardrails. Ni el efectivo ni
+  la exposición delta lo dicen por separado; juntos sí: con $1.000 en la cuenta
+  y $12.000 de delta-equivalente estás a 12,4×. Para un libro de solo acciones
+  sale por debajo de 1 y la regla es aburrida; para uno con opciones es la más
+  importante de todas, y por eso va como regla visible y no escondida en un
+  payload. **Con opciones y sin efectivo no se inventa un 1,0×**: dice que no
+  puede calcularlo, porque errar hacia abajo ahí es errar en la dirección
+  peligrosa.
+
+Borrar el libro se lleva el efectivo. Dejarlo detrás haría que la próxima
+cuenta arrastre el saldo de la anterior.
+
+#### El agente de opciones no tenía ventaja medida en ninguna parte
+
+`/api/portfolio-edge` responde «¿tu capital está donde tienes ventaja
+medida?», pero `get_track_record` lee `SELECT * FROM reports` — la tabla del
+agente de **ACCIONES**. El de opciones guardaba sus predicciones en su propio
+store desde el primer día y **nadie las cruzaba con el libro**: el bucle de
+aprendizaje estaba cerrado para acciones y abierto justo para el agente con el
+que Kevin de verdad opera.
+
+`/api/portfolio-edge-opciones` corre `review_predictions` —la misma función que
+ya alimenta la auto-calibración— por cada subyacente del libro de opciones, y
+cruza el acierto con la exposición. Solo cuentan las **vencidas**: juzgar una a
+mitad de su horizonte mediría ruido, no acierto.
+
+El umbral de muestra es `CALIBRATION["min_samples"]`, el **5** de Víctor con el
+que su motor decide si se auto-corrige. Reusarlo no es comodidad: si 5 le
+bastan para mover un target, 5 bastan para decir que hay señal — y dos umbrales
+distintos para la misma pregunta se separan solos con el tiempo. Por debajo de
+5 sale `muestra_corta` con la frase que importa: *«esto es historia, no
+ventaja»*. Cuatro aciertos de cuatro son un 100% que no significa nada.
+
+#### Un guardián que caducó solo
+
+`test_el_sizing_NO_tumba_el_stress_si_el_perfil_falla` buscaba el `except`
+dentro de los 2.600 caracteres siguientes al `sizing = None`. Al meter el
+efectivo y el apalancamiento en ese bloque, el `except` se salió de la ventana
+y el caso cayó **sin que nada estuviera mal**. Una medida que depende del
+tamaño del código caduca sola: reescrito sobre el AST, comprueba que el nodo
+siguiente es un `Try` que atrapa `Exception`.
+
+22 casos nuevos, verificados en rojo: los 22 caen sin estos cambios.
+
 ### Estado
 
-**3.478 tests del motor · 1.094 de la capa web (34 nuevos) · 148 de navegador ·
+**3.478 tests del motor · 1.116 de la capa web (56 nuevos) · 148 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
 verde. 0 fallos.**
 

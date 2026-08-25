@@ -2216,11 +2216,79 @@ def _init_portfolio_snapshot_db():
             value       REAL,
             updated_at  TEXT
         )""")
+        # ── El EFECTIVO, que hasta ahora se veía y no se guardaba ──────
+        #
+        # `/api/portfolio` ya lo sacaba de Plaid y lo pintaba como «Cash
+        # Disponible», y ahí moría: ni el import lo aceptaba, ni el snapshot lo
+        # guardaba, ni `_resolve_positions` lo devolvía. Resultado: el motor de
+        # riesgo, el optimizador y la regla de tamaño calculaban como si el
+        # 100% de la cuenta estuviera invertido.
+        #
+        # Una fila, siempre la misma (`id=1`): esto es el estado de UNA cuenta,
+        # no un histórico. `poder_de_compra` va aparte del efectivo porque no
+        # son lo mismo — con margen el poder de compra es mayor, y con
+        # colateral comprometido en puts vendidas es menor.
+        conn.execute("""CREATE TABLE IF NOT EXISTS portfolio_cash (
+            id               INTEGER PRIMARY KEY CHECK (id = 1),
+            efectivo         REAL,
+            poder_de_compra  REAL,
+            fuente           TEXT,
+            updated_at       TEXT
+        )""")
         conn.commit(); conn.close()
     except Exception as e:
         print(f"[DB] portfolio table init error: {e}")
 
 _init_portfolio_snapshot_db()
+
+
+def save_portfolio_cash(efectivo, poder_de_compra=None, fuente="manual"):
+    """Guarda el efectivo del libro. `None` en `efectivo` lo BORRA.
+
+    Borrar y guardar un 0 no son lo mismo y el sistema tiene que poder
+    distinguirlos: «no sé cuánto efectivo tienes» y «tienes cero» llevan a
+    cuentas distintas, y presentar el primero como el segundo es la clase de
+    silencio que este proyecto trata como peor que un error.
+    """
+    try:
+        conn = _db()
+        if efectivo is None:
+            conn.execute("DELETE FROM portfolio_cash WHERE id = 1")
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO portfolio_cash "
+                "(id, efectivo, poder_de_compra, fuente, updated_at) VALUES (1,?,?,?,?)",
+                (float(efectivo),
+                 (float(poder_de_compra) if poder_de_compra is not None else None),
+                 str(fuente)[:20],
+                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit(); conn.close()
+        return True
+    except Exception as e:                       # noqa: BLE001
+        print(f"[portfolio] cash save skip: {e}")
+        return False
+
+
+def get_portfolio_cash():
+    """`{efectivo, poder_de_compra, fuente, updated_at}` o `None` si no se sabe.
+
+    `None` es una respuesta legítima y distinta de cero: quien la reciba tiene
+    que decirlo en pantalla en vez de asumir que la cuenta está a cero.
+    """
+    try:
+        conn = _db()
+        row = conn.execute(
+            "SELECT efectivo, poder_de_compra, fuente, updated_at "
+            "FROM portfolio_cash WHERE id = 1").fetchone()
+        conn.close()
+        if not row or row["efectivo"] is None:
+            return None
+        return {"efectivo": float(row["efectivo"]),
+                "poder_de_compra": (float(row["poder_de_compra"])
+                                    if row["poder_de_compra"] is not None else None),
+                "fuente": row["fuente"], "updated_at": row["updated_at"]}
+    except Exception:                            # noqa: BLE001
+        return None
 
 def _init_signal_history_db():
     """Daily snapshots of the full signal set per ticker → forward backtesting of
@@ -17245,6 +17313,16 @@ def get_portfolio(account_id: str = "", item_id: str = ""):
             else:
                 other.append(position)
 
+        # El efectivo, PERSISTIDO. Antes se calculaba aquí, se pintaba como
+        # «Cash Disponible» y moría: ninguna otra ruta del suite volvía a
+        # verlo. Ahora entra en el snapshot igual que las posiciones, así que
+        # el riesgo, el optimizador y el sizing siguen sabiéndolo cuando Plaid
+        # no está delante. Best-effort: un fallo de DB no rompe la respuesta.
+        try:
+            save_portfolio_cash(safe_float(cash_balance), safe_float(cash_balance), "PLAID")
+        except Exception as _e:                  # noqa: BLE001
+            print(f"[portfolio] cash persist skip: {_e}")
+
         # ── Portfolio-level totals — cash is part of the portfolio ────────
         securities_value = safe_float(sum(safe_float(p["current_val"]) for p in stocks + options + other))
         live_total       = safe_round(securities_value + safe_float(cash_balance))  # Total including cash
@@ -17914,13 +17992,41 @@ def compute_portfolio_stress(positions, lookback_days=504):
         _cap = float(_pf.get("capital") or 0)
         _pos = _pf.get("max_posicion_pct") or [20, 25]
         _tope = float(_pos[-1])
+        # El EFECTIVO, cuando se sabe. Sin él, «¿puedo entrar en esto ahora?»
+        # solo se podía responder con el tope declarado del perfil, que es una
+        # norma y no una respuesta: con $700 ya desplegados de $1.000, decir
+        # «$300 por posición» es cierto y no sirve de nada. `None` se distingue
+        # de cero a propósito y se dice en pantalla.
+        _cash = get_portfolio_cash()
+        _libre = (float(_cash["efectivo"]) if _cash else None)
+        _pc = ((float(_cash.get("poder_de_compra")) if _cash and _cash.get("poder_de_compra") is not None
+                else _libre))
         if _cap > 0:
             _p25 = riesgo_ruina["h63"]["prob_caida_25"]
+            _cabe_ya = (None if _pc is None
+                        else round(min(_pc, _cap * _tope / 100.0), 2))
             sizing = {
                 "capital_usd": round(_cap, 2),
                 "max_posicion_pct": _tope,
                 "max_por_posicion_usd": round(_cap * _tope / 100.0, 2),
                 "posiciones_que_caben": max(1, int(100 // max(1.0, _tope))),
+                # Lo que de verdad puedes desplegar HOY sin vender nada: el
+                # menor entre tu poder de compra y el tope por posición.
+                "efectivo_usd": (round(_libre, 2) if _libre is not None else None),
+                "poder_de_compra_usd": (round(_pc, 2) if _pc is not None else None),
+                "cabe_hoy_sin_vender_usd": _cabe_ya,
+                "efectivo_conocido": _libre is not None,
+                "efectivo_fuente": (_cash or {}).get("fuente"),
+                # Apalancamiento REAL. Ni el efectivo ni la exposición delta lo
+                # dicen por separado: juntos sí. Con $1.000 en la cuenta y
+                # $12.000 de delta-equivalente estás a 12×, y ese número no
+                # aparecía en ninguna pantalla.
+                "invertido_usd": round(total_val, 2),
+                "cuenta_total_usd": (round(total_val + _libre, 2)
+                                     if _libre is not None else None),
+                "apalancamiento": (round(total_val / (total_val + _libre), 2)
+                                   if _libre is not None and (total_val + _libre) > 0
+                                   else None),
                 # Lo que el libro de HOY dice que puede pasarle a ese capital.
                 "perdida_p5_a_3_meses_usd": riesgo_ruina["h63"]["peor_camino_p5_usd"],
                 "prob_caida_25_a_3_meses": _p25,
@@ -17929,9 +18035,14 @@ def compute_portfolio_stress(positions, lookback_days=504):
                 "lectura": (
                     f"Con ${round(_cap):,} y un tope del {round(_tope)}% por posición, "
                     f"cada entrada cabe en ${round(_cap * _tope / 100.0):,} y caben "
-                    f"{max(1, int(100 // max(1.0, _tope)))} posiciones. Este libro tiene "
-                    f"un {_p25}% de probabilidad de caer 25% o más en algún momento de "
-                    f"los próximos 3 meses."),
+                    f"{max(1, int(100 // max(1.0, _tope)))} posiciones. "
+                    + (f"Ahora mismo puedes desplegar ${round(_cabe_ya):,} sin vender nada "
+                       f"(${round(_pc):,} de poder de compra). "
+                       if _cabe_ya is not None else
+                       "No sé cuánto efectivo tienes: cárgalo en Importar portafolio y "
+                       "esta cifra pasa de ser un tope a ser una respuesta. ")
+                    + f"Este libro tiene un {_p25}% de probabilidad de caer 25% o más "
+                      f"en algún momento de los próximos 3 meses."),
             }
     except Exception:                            # noqa: BLE001 — el sizing es contexto
         sizing = None
@@ -18552,7 +18663,42 @@ def compute_portfolio_guardrails(positions_pnl, risk, perfil=None):
               "salir se la coma.")),
             "perfil" if _capital else "heredado")
 
-    # 7 — book correlation (from risk engine)
+    # 7 — apalancamiento REAL
+    #
+    # Ni el efectivo ni la exposición delta lo dicen por separado; juntos sí.
+    # Con $1.000 en la cuenta y $12.000 de delta-equivalente estás a 12×, y ese
+    # número no aparecía en ninguna pantalla del sistema. Para un libro de solo
+    # acciones sale 1,0 y la regla es aburrida; para uno con opciones es la más
+    # importante de todas, y por eso va aquí y no escondida en un payload.
+    _efec = None
+    try:
+        _efec = get_portfolio_cash()
+    except Exception:                            # noqa: BLE001
+        _efec = None
+    _exp_opc = sum(float(p.get("exposicion_opciones") or 0) for p in eq)
+    if _efec is not None:
+        _cuenta = total - _exp_opc + float(_efec["efectivo"])
+        _apal = (total / _cuenta) if _cuenta > 0 else None
+        if _apal is not None:
+            st = "breach" if _apal >= 4 else "warn" if _apal >= 2 else "ok"
+            add("Apalancamiento real", st, f"{round(_apal, 2)}x", "<2x",
+                (f"Tu cuenta vale ${round(_cuenta):,} (posiciones + efectivo) y tu "
+                 f"exposición al mercado es de ${round(total):,}"
+                 + (f", de los cuales ${round(_exp_opc):,} vienen del delta de las "
+                    f"opciones. " if _exp_opc > 0 else ". ")
+                 + f"Eso es {round(_apal, 2)}x: por cada 1% que se mueva el mercado, "
+                   f"tu cuenta se mueve {round(_apal, 2)}%."),
+                "perfil")
+    elif _exp_opc > 0:
+        # Con opciones y sin efectivo el número no se puede calcular, y decir
+        # «1,0x» sería mentir en la dirección peligrosa.
+        add("Apalancamiento real", "warn", "—", "<2x",
+            (f"Tienes ${round(_exp_opc):,} de exposición por delta de opciones, pero no "
+             f"sé cuánto efectivo hay en la cuenta, así que no puedo calcular el "
+             f"apalancamiento. Cárgalo en Importar portafolio."),
+            "heredado")
+
+    # 8 — book correlation (from risk engine)
     apc = (risk or {}).get("concentration", {}).get("avg_pairwise_corr")
     if apc is not None:
         st = "breach" if apc >= 0.8 else "warn" if apc >= 0.7 else "ok"
@@ -18770,25 +18916,49 @@ def _norm_import_options(rows):
 def portfolio_import(body: dict = None):
     """Carga del portafolio desde cualquier fuente (manual, CSV, broker futuro).
 
-    Body: {"positions": [...], "options": [...], "source": "manual"}
-    Ambas listas son opcionales: se manda la que se quiera reemplazar.
+    Body: {"positions": [...], "options": [...], "cash": 250.0,
+           "buying_power": 250.0, "source": "manual"}
+    Todo es opcional: se manda lo que se quiera reemplazar.
     REEMPLAZA el snapshot (no hace merge) — el snapshot representa "el libro tal
     como está ahora", igual que hacía el camino de broker.
+
+    **El efectivo entra aquí.** Mandarlo como `null` lo BORRA, que no es lo
+    mismo que mandar `0`: «no sé cuánto tienes» y «tienes cero» llevan a
+    cuentas distintas, y el resto del suite necesita poder distinguirlos.
+    Omitir la clave no toca lo que ya había.
     """
     body = body or {}
     src = str(body.get("source") or "manual").upper()[:20]
     positions = _norm_import_positions(body.get("positions"))
     options = _norm_import_options(body.get("options"))
-    if not positions and not options:
+    hay_cash = "cash" in body or "buying_power" in body
+    if not positions and not options and not hay_cash:
         return {"ok": False, "error": ("No se recibió ninguna posición válida. Formato esperado: "
                                        "positions[] con {ticker, value>0}; options[] con "
-                                       "{underlying, option_type, strike, expiry, contracts}.")}
+                                       "{underlying, option_type, strike, expiry, contracts}; "
+                                       "cash con un número (o null para borrarlo).")}
     if positions:
         save_portfolio_snapshot(positions, src)
     if options:
         save_options_snapshot(options)
+    efectivo_guardado = None
+    if hay_cash:
+        _c = body.get("cash")
+        _bp = body.get("buying_power")
+        if _c is None and "cash" in body:
+            save_portfolio_cash(None)            # borrar es explícito
+        else:
+            _c = _safe_num(_c, None) if _c is not None else None
+            _bp = _safe_num(_bp, None) if _bp is not None else None
+            # Sin `cash` pero con `buying_power`, el efectivo se queda como
+            # está: son dos números distintos y uno no implica al otro.
+            _prev = get_portfolio_cash() or {}
+            _c = _c if _c is not None else _prev.get("efectivo")
+            if _c is not None:
+                save_portfolio_cash(_c, _bp, src)
+        efectivo_guardado = get_portfolio_cash()
     return {"ok": True, "source": src.lower(), "n_positions": len(positions),
-            "n_options": len(options),
+            "n_options": len(options), "efectivo": efectivo_guardado,
             "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
 
 
@@ -18800,14 +18970,23 @@ def portfolio_snapshot_status():
     op = get_options_snapshot()
     return {"ok": True, "has_data": bool(eq or op),
             "n_positions": len(eq), "n_options": len(op),
+            # `None` cuando no se sabe, y eso NO es cero. La UI lo pinta como
+            # «sin cargar» para que la diferencia se vea.
+            "efectivo": get_portfolio_cash(),
             "total_value": round(sum(_safe_num(p.get("value"), 0.0) for p in eq), 2)}
 
 
 @app.post("/api/portfolio/clear")
 def portfolio_clear():
-    """Borra el snapshot guardado (el equivalente a 'desconectar')."""
+    """Borra el snapshot guardado (el equivalente a 'desconectar').
+
+    El efectivo se va con él: dejarlo detrás significaría que la próxima
+    cuenta que se cargue arrastra el saldo de la anterior, y el sizing y el
+    apalancamiento se calcularían sobre dinero de otro libro.
+    """
     save_portfolio_snapshot([])
     save_options_snapshot([])
+    save_portfolio_cash(None)
     return {"ok": True}
 
 #: Lo que se usaba como IV cuando no habia ninguna: 50%.
@@ -19144,6 +19323,38 @@ def get_portfolio_optimizer(account_id: str = "", max_weight: float = 0.25):
         out = compute_portfolio_optimizer(positions, max_weight=mw)
         if isinstance(out, dict):
             out["opciones"] = _op
+            # El optimizador normaliza a 100% de lo INVERTIDO, así que solo
+            # sabe hablar en porcentajes de lo que ya está dentro — y en una
+            # cuenta chica eso siempre se traduce en «vende para rebalancear»,
+            # que es el consejo más caro que existe: paga spread y comisión dos
+            # veces por algo que el efectivo resolvía gratis. Con el efectivo
+            # al lado, cada peso objetivo se puede leer también en dólares que
+            # se pueden desplegar HOY.
+            _cash = get_portfolio_cash()
+            _inv = sum(float(p.get("value") or 0) for p in positions)
+            if _cash:
+                _libre = float(_cash["efectivo"])
+                _pc = (float(_cash["poder_de_compra"])
+                       if _cash.get("poder_de_compra") is not None else _libre)
+                out["efectivo"] = {
+                    "conocido": True, "efectivo_usd": round(_libre, 2),
+                    "poder_de_compra_usd": round(_pc, 2),
+                    "invertido_usd": round(_inv, 2),
+                    "cuenta_total_usd": round(_inv + _libre, 2),
+                    "peso_efectivo_pct": (round(_libre / (_inv + _libre) * 100, 1)
+                                          if (_inv + _libre) > 0 else None),
+                    "fuente": _cash.get("fuente"),
+                    "nota": ("Los pesos objetivo son sobre lo invertido. Con este "
+                             "efectivo, buena parte del ajuste se puede hacer "
+                             "COMPRANDO en vez de vendiendo."),
+                }
+            else:
+                out["efectivo"] = {
+                    "conocido": False, "invertido_usd": round(_inv, 2),
+                    "nota": ("No sé cuánto efectivo tienes, así que los pesos de abajo "
+                             "reparten solo lo invertido y todo ajuste sale como una "
+                             "venta. Cárgalo en Importar portafolio."),
+                }
         return out
     except HTTPException:
         raise
@@ -22191,6 +22402,147 @@ def _drift_bucket_para(buckets, dte):
     if not cands:
         return None
     return min(cands, key=lambda b: abs(int(b.get("dte_objetivo") or 0) - int(dte)))
+
+
+@app.get("/api/portfolio-edge-opciones")
+def portfolio_edge_opciones():
+    """El track record del agente de OPCIONES, cruzado con tu libro.
+
+    `/api/portfolio-edge` responde «¿tu capital está donde tienes ventaja
+    medida?», pero `get_track_record` lee `SELECT * FROM reports` — la tabla
+    del agente de ACCIONES. El agente de opciones guardaba sus predicciones en
+    su propio store desde el primer día y **nadie las cruzaba con el libro**:
+    el bucle de aprendizaje estaba cerrado para acciones y abierto justo para
+    el agente con el que de verdad se opera.
+
+    Por cada subyacente en el que tienes contratos: cuántas predicciones han
+    **vencido** —solo ésas cuentan, juzgar una a mitad de horizonte mide ruido—,
+    con qué frecuencia acertó la dirección, con qué frecuencia el precio tocó
+    el escenario base, y el error medio del target.
+
+    El umbral de muestra es `CALIBRATION["min_samples"]`, el mismo **5** de
+    Víctor con el que su motor decide si se auto-corrige. Reusarlo no es
+    comodidad: si 5 le bastan para mover un target, 5 bastan para decir que
+    hay señal — y dos umbrales distintos para la misma pregunta se separan
+    solos con el tiempo.
+
+    No puntúa ni recomienda: cuenta lo que pasó.
+    """
+    try:
+        opciones = get_options_snapshot() or []
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": f"No se pudo leer el snapshot de opciones: {e}"}
+    if not opciones:
+        return {"ok": True, "n_options": 0, "subyacentes": [],
+                "note": ("No hay posiciones de opciones guardadas, así que no hay "
+                         "libro contra el que cruzar el track record.")}
+
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito).",
+                "source": "motor"}
+    from wbj.tito import stores as st
+    from wbj.tito.bars_store import daily_bars_for_panel
+    from wbj.tito.prediction import CALIBRATION
+
+    minimo = int(CALIBRATION.get("min_samples") or 5)
+    now = datetime.now(timezone.utc)
+
+    # La exposición por subyacente, para poder cruzar «dónde está el dinero»
+    # con «dónde hay acierto». Sin dato de mercado se queda en None y se dice:
+    # es la misma regla que en el resto del área.
+    exposicion, cob = {}, {}
+    try:
+        exposicion, cob = _exposicion_de_opciones(
+            opciones, compute_options_analytics(opciones, get_portfolio_snapshot()))
+    except Exception:                            # noqa: BLE001
+        exposicion, cob = {}, {}
+
+    filas = []
+    for u in sorted({str(o.get("underlying") or "").upper() for o in opciones if o.get("underlying")}):
+        fila = {"underlying": u,
+                "contratos": sum(_safe_num(o.get("contracts"), 0.0)
+                                 for o in opciones
+                                 if str(o.get("underlying") or "").upper() == u),
+                "exposicion_usd": (round(abs(exposicion[u]), 2) if u in exposicion else None)}
+        try:
+            journal = st.load_journal(u)
+        except Exception as e:                   # noqa: BLE001
+            fila["error"] = f"No se pudo leer el historial de predicciones: {e}"
+            filas.append(fila)
+            continue
+        if not journal:
+            fila.update({"estado": "sin_historial", "predicciones": 0,
+                         "lectura": ("Todavía no hay predicciones guardadas de este "
+                                     "subyacente. Se llenan solas: cada consulta del "
+                                     "scorecard guarda una.")})
+            filas.append(fila)
+            continue
+        try:
+            bars = daily_bars_for_panel(u)
+        except Exception as e:                   # noqa: BLE001
+            _anota_fuente_tito("massive", False, _error_de_fuente(e, "Cadena de Massive"))
+            fila.update({"estado": "sin_precios", "predicciones": len(journal),
+                         "error": _error_de_fuente(e, "Barras de Massive")})
+            filas.append(fila)
+            continue
+        _anota_fuente_tito("massive", True)
+        rev = st.review_predictions(journal, bars, now)
+        vencidas = int(rev.get("matured_count") or 0)
+        fila.update({
+            "predicciones": len(journal), "vencidas": vencidas,
+            "minimo_para_hablar": minimo,
+            "acierto_direccion_pct": _r(rev.get("direction_hit_rate"), 1),
+            "toco_el_base_pct": _r(rev.get("base_touch_rate"), 1),
+            "error_medio_pct": _r(rev.get("mean_abs_error_pct"), 1),
+            "sesgo_pct": _r(rev.get("bias_pct"), 1),
+            "escenario_mas_certero": max((rev.get("best_counts") or {}).items(),
+                                         key=lambda kv: kv[1], default=(None, 0))[0]
+                                     if (rev.get("best_counts") or {}) else None,
+        })
+        if vencidas < minimo:
+            fila.update({"estado": "muestra_corta",
+                         "lectura": (f"Solo {vencidas} predicción(es) han vencido; hacen "
+                                     f"falta {minimo} para que el número signifique algo. "
+                                     f"Hasta entonces esto es historia, no ventaja.")})
+        else:
+            _dir = rev.get("direction_hit_rate")
+            if _dir is None:
+                fila["estado"] = "muestra_corta"
+            elif _dir >= 60:
+                fila["estado"] = "con_ventaja"
+            elif _dir >= 45:
+                fila["estado"] = "sin_ventaja_clara"
+            else:
+                fila["estado"] = "por_debajo_del_azar"
+            fila["lectura"] = (
+                f"Sobre {vencidas} predicciones vencidas, el agente acertó la dirección "
+                f"el {_r(_dir, 1)}% de las veces y el precio tocó el escenario base el "
+                f"{_r(rev.get('base_touch_rate'), 1)}%. Error medio del target: "
+                f"{_r(rev.get('mean_abs_error_pct'), 1)}%.")
+        filas.append(fila)
+
+    # El cruce: cuánto de tu exposición está donde SÍ hay acierto medido.
+    _con = sum(f["exposicion_usd"] or 0 for f in filas if f.get("estado") == "con_ventaja")
+    _mal = sum(f["exposicion_usd"] or 0 for f in filas if f.get("estado") == "por_debajo_del_azar")
+    _tot = sum(f["exposicion_usd"] or 0 for f in filas)
+    resumen = {
+        "exposicion_total_usd": round(_tot, 2) if _tot else None,
+        "con_ventaja_medida_usd": round(_con, 2),
+        "por_debajo_del_azar_usd": round(_mal, 2),
+        "con_ventaja_pct": (round(_con / _tot * 100, 1) if _tot else None),
+        "sin_medir": [f["underlying"] for f in filas
+                      if f.get("estado") in ("sin_historial", "muestra_corta", "sin_precios")],
+    }
+    return _json_safe({
+        "ok": True, "n_options": len(opciones), "subyacentes": filas,
+        "resumen": resumen, "minimo_para_hablar": minimo,
+        "cobertura_exposicion": cob,
+        "engine": "victor/tito",
+        "note": ("Solo cuentan las predicciones VENCIDAS: juzgar una a mitad de su "
+                 "horizonte mediría ruido, no acierto. Esto cuenta lo que pasó; no "
+                 "es una recomendación ni una promesa."),
+        "generated_at": now.strftime('%m/%d/%Y, %I:%M:%S %p')})
 
 
 @app.get("/api/portfolio-drift")
