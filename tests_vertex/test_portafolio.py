@@ -803,3 +803,88 @@ class TestElEdgeDelAgenteDeOPCIONESLlegaAlLibro:
         codigo = _solo_codigo(V.portfolio_edge_opciones)
         for prohibido in ("run_scorecard", "predict_pro", "verdict"):
             assert prohibido not in codigo, prohibido
+
+
+# ══════════════════════════════════════════════════════════════════════════
+class TestLaAuditoriaDeLoQueYoMismoMeti:
+    """Tres cosas que salieron auditando, no corriendo baterías. Las baterías
+    estaban en verde con las tres dentro."""
+
+    def test_con_opciones_el_rotulo_deja_de_decir_VALOR(self):
+        """Al meter la exposición delta en `value`, el panel seguía rotulando
+        esa cifra «Valor total». Una cuenta de $1.000 con $12.000 de delta
+        veía «Valor total $12.400». El número está bien —el VaR, la beta y la
+        concentración se miden sobre exposición— pero el rótulo mentía."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "const conOpc = !!((d.opciones || {}).incluye_opciones);" in html
+        assert "conOpc ? 'Exposición total' : 'Valor total'" in html
+        # Y los otros dos sitios que lo pintan, también.
+        assert html.count("'de exposición' : 'de valor'") == 2
+
+    def test_el_whatif_manda_la_bandera_que_el_rotulo_necesita(self):
+        """Sin ella el panel no puede saber qué rótulo poner y volvería a
+        elegir el equivocado por omisión."""
+        import inspect
+
+        import vertex_api as V
+
+        assert '"opciones": _op,' in inspect.getsource(V.get_portfolio_whatif)
+
+    def test_YAHOO_esta_en_la_franja_de_salud(self, client, cab):
+        """El comentario de la franja decía que yfinance «salió del proyecto».
+        Era falso: sigue cargándose en el primer uso y es lo ÚNICO que alimenta
+        las griegas del libro. Una dependencia viva declarada muerta es peor
+        que una no declarada: te hace mirar a otro lado."""
+        import vertex_api as V
+
+        V._DH_CACHE.update(ts=0, data=None)
+        d = client.get("/api/data-health", headers=cab).json()
+        por_clave = {s["key"]: s for s in d["sources"]}
+        assert "yahoo" in por_clave, sorted(por_clave)
+        # NO crítica: solo el panel de griegas depende de ella.
+        assert por_clave["yahoo"]["critical"] is False
+        assert "griegas" in por_clave["yahoo"]["role"]
+
+    def test_el_comentario_ya_no_da_por_muerto_a_yfinance(self):
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.data_health)
+        assert "y yfinance (raspaba un endpoint sin documentar); las dos salieron" not in fuente
+        assert "_YahooPerezoso" in fuente
+
+    def test_las_griegas_ANOTAN_lo_que_Yahoo_contesto(self):
+        """Sin anotarlo, la franja no puede decir nada de una fuente que sí
+        puede tumbar una pantalla entera."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.compute_options_analytics)
+        assert '_anota_fuente_tito("yahoo", False' in fuente
+        assert '_anota_fuente_tito("yahoo", True)' in fuente
+
+    def test_el_edge_de_opciones_DICE_a_que_plazo_mide(self):
+        """El agente predice a 10/20/30 días y Kevin sostiene contratos de 90 a
+        320. Un «acierta el 68%» sin decir el plazo se lee como si midiera la
+        vida del contrato, y no la mide."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.portfolio_edge_opciones)
+        assert '"horizontes_dias"' in fuente
+        assert "NO en la vida de tus contratos" in fuente
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "f.horizontes_dias.join('/')" in html
+
+    def test_los_horizontes_salen_del_JOURNAL_no_de_una_lista_fija(self):
+        """Escribir 10/20/30 a mano aquí los desincroniza el día que Víctor
+        cambie sus `HORIZONS`."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V.portfolio_edge_opciones)
+        assert 'e.get("horizon_days")' in fuente

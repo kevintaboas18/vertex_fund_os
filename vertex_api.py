@@ -5591,6 +5591,13 @@ _FUENTES_TITO_VIGENCIA = 1800          # 30 min: más viejo que eso no es «ahor
 _FUENTES_TITO = {
     "marketsnack": {"ok": None, "ts": 0.0, "error": None},
     "massive":     {"ok": None, "ts": 0.0, "error": None},
+    # Yahoo, vía yfinance. Sigue vivo aunque el comentario de la franja lo
+    # diera por retirado: es lo ÚNICO que alimenta las griegas del libro
+    # (spot + IV por contrato) y el GEX heredado. Cuando no responde, el panel
+    # de opciones no puede puntuar nada — comprobado en vivo: 403 del proxy →
+    # cero contratos medidos. Una dependencia que puede tumbar una pantalla
+    # entera tiene que estar en la lista de fuentes.
+    "yahoo":       {"ok": None, "ts": 0.0, "error": None},
 }
 
 
@@ -16165,10 +16172,15 @@ def data_health():
     if _DH_CACHE["data"] and now - _DH_CACHE["ts"] < 90:
         return _DH_CACHE["data"]
     # Las fuentes del agente de ACCIONES: FMP, EDGAR, FRED, Gemini, FinnHub,
-    # OpenAI y Plaid. Aquí estaban Quant Data (plan API inactivo, 403 en todo)
-    # y yfinance (raspaba un endpoint sin documentar); las dos salieron del
-    # proyecto, así que anunciarlas como fuentes era decir que el sistema se
-    # apoya en algo que ya no existe.
+    # OpenAI y Plaid. Aquí estaba Quant Data (plan API inactivo, 403 en todo),
+    # que sí salió del proyecto.
+    #
+    # Este comentario decía también que yfinance había salido, y era falso:
+    # sigue cargándose en el primer uso (`_YahooPerezoso`) y es lo ÚNICO que
+    # alimenta las griegas del libro. Lo que se retiró fue su papel de fuente
+    # de PRECIO para el análisis de acciones —eso lo hace `vertex_market` con
+    # FMP—, no el módulo. Una dependencia viva declarada muerta es peor que
+    # una no declarada: la primera te hace mirar a otro lado. Va en la lista.
     #
     # Las del agente de OPCIONES —Massive y MarketSnack— se añaden más abajo,
     # después de esta lista, porque su estado sale del tráfico real y no de una
@@ -16210,6 +16222,7 @@ def data_health():
     _mv_ok = bool((os.environ.get("MASSIVE_API_KEY") or "").strip())
     _ms_live, _ms_err = _fuente_tito_vista("marketsnack")
     _mv_live, _mv_err = _fuente_tito_vista("massive")
+    _yh_live, _yh_err = _fuente_tito_vista("yahoo")
     # La cookie CADUCA: estar configurada no es estar viva, y ésa es justo la
     # avería que se veía como si no pasara nada. La nota lo dice siempre.
     _ms_nota = ("Falta MARKETSNACK_COOKIE" if not _ms_ok else
@@ -16230,6 +16243,18 @@ def data_health():
         {"key": "massive", "label": "Massive",
          "role": "cadena · GEX · Estructura", "critical": True,
          "configured": _mv_ok, "live": _mv_live if _mv_ok else None, "note": _mv_nota},
+        # Sin clave: yfinance raspa un endpoint sin documentar, así que
+        # `configured` es siempre True y lo único que se puede decir de él es
+        # si contestó la última vez. NO es crítico: solo el panel de griegas
+        # depende de él, y el resto del sistema corre sin tocarlo.
+        {"key": "yahoo", "label": "Yahoo (yfinance)",
+         "role": "griegas del libro · spot e IV por contrato", "critical": False,
+         "configured": True, "live": _yh_live,
+         "note": (_yh_err or "No contestó: las griegas del libro salen vacías"
+                  if _yh_live is False else
+                  "Contestó" if _yh_live is True else
+                  "Sin clave: raspa un endpoint sin documentar. Solo lo usan las "
+                  "griegas del libro; puede cambiar de forma sin aviso")},
     ]
     n_crit_down = sum(1 for s in sources if s["critical"] and (not s["configured"] or s["live"] is False))
     # `ok` era un True literal, asi que la respuesta se contradecia a si misma:
@@ -18268,6 +18293,13 @@ def get_portfolio_whatif(ticker: str = "", action: str = "add",
 
         return {"ok": True, "ticker": ticker, "action": action, "amount": amt,
                 "before": b, "after": a, "delta": delta, "new_weight_pct": new_w,
+                # Con opciones dentro, «Valor total» deja de ser el nombre
+                # correcto de esta cifra: lo que suma es EXPOSICIÓN, y una
+                # cuenta de $1.000 con $12.000 de delta vería «Valor total
+                # $12.400». El número está bien —el VaR, la beta y la
+                # concentración se miden sobre exposición— pero el rótulo
+                # mentía, así que viaja con él.
+                "opciones": _op,
                 "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
     except HTTPException:
         raise
@@ -22350,6 +22382,14 @@ def compute_options_analytics(options, equity_positions=None):
             alerts.append({"level": "warn",
                            "msg": f"{top_u[0]} concentra {share*100:.0f}% del delta de opciones — riesgo direccional poco diversificado."})
 
+    # Lo observado va al registro que lee la franja de salud. No se sondea
+    # nada: esta función ya habló con Yahoo para todos los contratos.
+    if faltan and len(faltan) == len(options):
+        _anota_fuente_tito("yahoo", False,
+                           (faltan[0].get("motivo") or "no respondió"))
+    elif len(faltan) < len(options):
+        _anota_fuente_tito("yahoo", True)
+
     return _json_safe({
         "ok": True, "n_options": len(options),
         "greeks": {"net_delta_dollar": round(net_delta_dollar, 0),
@@ -22426,6 +22466,14 @@ def portfolio_edge_opciones():
     hay señal — y dos umbrales distintos para la misma pregunta se separan
     solos con el tiempo.
 
+    Dos cosas que el número lleva dentro y hay que saber:
+
+    - Se mide en los horizontes del agente —10/20/30 días, sus `HORIZONS`—, no
+      en la vida de tus contratos. Un acierto del 68% a 20 días no dice qué
+      hará un contrato a 120.
+    - `_tito_remember` **no archiva** las predicciones marcadas NO FIABLE, así
+      que esto mide al agente cuando confiaba en sus datos, no siempre.
+
     No puntúa ni recomienda: cuenta lo que pasó.
     """
     try:
@@ -22489,9 +22537,18 @@ def portfolio_edge_opciones():
         _anota_fuente_tito("massive", True)
         rev = st.review_predictions(journal, bars, now)
         vencidas = int(rev.get("matured_count") or 0)
+        # SOBRE QUÉ HORIZONTES se midió. Esto no es un adorno: el agente
+        # predice a 10/20/30 días —`HORIZONS` de Víctor— y Kevin sostiene
+        # contratos de 90 a 320. Un «acierta el 68%» sin decir a qué plazo se
+        # lee como si midiera la vida del contrato, y no la mide. Sale del
+        # propio journal para que no se pueda desincronizar de lo guardado.
+        _hz = sorted({int(e.get("horizon_days") or 0)
+                      for e in (rev.get("evals") or [])
+                      if e.get("horizon_days")})
         fila.update({
             "predicciones": len(journal), "vencidas": vencidas,
             "minimo_para_hablar": minimo,
+            "horizontes_dias": _hz,
             "acierto_direccion_pct": _r(rev.get("direction_hit_rate"), 1),
             "toco_el_base_pct": _r(rev.get("base_touch_rate"), 1),
             "error_medio_pct": _r(rev.get("mean_abs_error_pct"), 1),
@@ -22515,11 +22572,12 @@ def portfolio_edge_opciones():
                 fila["estado"] = "sin_ventaja_clara"
             else:
                 fila["estado"] = "por_debajo_del_azar"
+            _plazos = ("/".join(str(h) for h in _hz) + " días") if _hz else "sus horizontes"
             fila["lectura"] = (
-                f"Sobre {vencidas} predicciones vencidas, el agente acertó la dirección "
-                f"el {_r(_dir, 1)}% de las veces y el precio tocó el escenario base el "
-                f"{_r(rev.get('base_touch_rate'), 1)}%. Error medio del target: "
-                f"{_r(rev.get('mean_abs_error_pct'), 1)}%.")
+                f"Sobre {vencidas} predicciones vencidas a {_plazos}, el agente acertó "
+                f"la dirección el {_r(_dir, 1)}% de las veces y el precio tocó el "
+                f"escenario base el {_r(rev.get('base_touch_rate'), 1)}%. Error medio "
+                f"del target: {_r(rev.get('mean_abs_error_pct'), 1)}%.")
         filas.append(fila)
 
     # El cruce: cuánto de tu exposición está donde SÍ hay acierto medido.
@@ -22540,8 +22598,10 @@ def portfolio_edge_opciones():
         "cobertura_exposicion": cob,
         "engine": "victor/tito",
         "note": ("Solo cuentan las predicciones VENCIDAS: juzgar una a mitad de su "
-                 "horizonte mediría ruido, no acierto. Esto cuenta lo que pasó; no "
-                 "es una recomendación ni una promesa."),
+                 "horizonte mediría ruido, no acierto. Y se miden en los horizontes "
+                 "del agente (10/20/30 días), NO en la vida de tus contratos: un "
+                 "acierto del 68% a 20 días no dice qué hará un contrato a 120. "
+                 "Esto cuenta lo que pasó; no es una recomendación ni una promesa."),
         "generated_at": now.strftime('%m/%d/%Y, %I:%M:%S %p')})
 
 

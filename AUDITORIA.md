@@ -9825,9 +9825,103 @@ siguiente es un `Try` que atrapa `Exception`.
 
 22 casos nuevos, verificados en rojo: los 22 caen sin estos cambios.
 
+### Auditoría completa: tres hallazgos que las baterías no veían
+
+Kevin pidió auditar todo. Las baterías estaban en verde **con los tres
+dentro**, que es justo el motivo por el que hay que auditar además de correr
+tests: un test comprueba lo que alguien pensó en comprobar.
+
+#### 1 · «Valor total» dejó de ser el nombre de esa cifra — y es mío
+
+Al meter la exposición delta-equivalente en `value`, tres sitios del panel
+siguieron rotulándola **«Valor total»**: la fila del What-If, el pie del
+Riesgo y el pie de Guardrails. Una cuenta de $1.000 con $12.000 de delta
+mostraba «Valor total $12.400».
+
+El **número está bien** —el VaR, la beta, la concentración y el Monte Carlo se
+miden sobre exposición, y ése era el arreglo—; lo que mentía era el rótulo. El
+servidor manda ahora `opciones.incluye_opciones` también en el What-If (no lo
+hacía) y los tres sitios dicen «Exposición total» / «de exposición» cuando las
+opciones están dentro.
+
+Lo que **no** se tocó: el «Valor Total del Portafolio» de la pestaña Holdings
+sale de `/api/portfolio` (Plaid) y nunca incluyó la exposición. Ése siempre
+estuvo bien.
+
+#### 2 · yfinance estaba declarado muerto y está vivo
+
+El comentario de `data_health` decía que Quant Data y yfinance «salieron del
+proyecto». De Quant Data es cierto. De yfinance **no**: sigue cargándose en el
+primer uso (`_YahooPerezoso`) y es lo **único** que alimenta las griegas del
+libro —spot e IV por contrato— y el GEX heredado. Lo que se retiró fue su
+papel de fuente de precio para el análisis de acciones, que hace
+`vertex_market` con FMP.
+
+Una dependencia viva declarada muerta es peor que una no declarada: la primera
+te hace mirar a otro lado. Comprobado en vivo en este contenedor: con Yahoo
+bloqueado, **cero contratos medidos** y la franja de salud sin decir nada.
+
+Entra en la lista como `yahoo`, **no crítica** —solo el panel de griegas
+depende de ella—, con su estado sacado del tráfico real:
+`compute_options_analytics` ya habla con Yahoo para todos los contratos, así
+que anota lo que pasó. Sin clave que comprobar, lo único honesto que se puede
+decir de ella es si contestó la última vez.
+
+#### 3 · El edge de opciones no decía a qué plazo mide
+
+El agente predice a **10/20/30 días** (`HORIZONS` de Víctor) y Kevin sostiene
+contratos de 90 a 320. Un «acierta el 68%» sin el plazo al lado se lee como si
+midiera la vida del contrato, y no la mide. Ahora viaja `horizontes_dias`,
+sacado del propio journal —escribir 10/20/30 a mano los desincronizaría el día
+que Víctor cambie sus horizontes— y la nota lo dice con todas las letras.
+
+Segundo matiz declarado en el docstring: `_tito_remember` **no archiva** las
+predicciones marcadas NO FIABLE, así que esto mide al agente cuando confiaba
+en sus datos, no siempre.
+
+#### Lo que se revisó y estaba bien
+
+- **Rutas.** 91 en el servidor; ninguna que el panel pida y no exista. Las
+  cinco que parecían huérfanas (`/api/bars`, `/api/flow`, `/api/flow_feed`,
+  `/api/ideas`, `/api/logo`) son **prosa**: referencias al repo de Víctor
+  dentro de comentarios.
+- **El perfil llega a los tres agentes**: acciones (`_wbj_profile_fit`,
+  `_ideas_escaneo`), opciones (`_engine_scorecard`, `tito_wheel`, `tito_tape`)
+  y portafolio (`compute_portfolio_stress`, `compute_portfolio_guardrails`).
+- **El lazo de aprendizaje cierra por los dos lados**: acciones
+  `save_report` → tabla `reports` → track record → `portfolio-edge` +
+  vistas de Black-Litterman; opciones `_tito_remember` → `save_prediction` →
+  `review_predictions` → calibración + `portfolio-edge-opciones`.
+- **El efectivo sobrevive a un redeploy.** Vive en `portfolio_cash`, dentro de
+  `vertex.db`, y `_privado_paquete` sube la base **entera** cifrada. Sin
+  `VERTEX_DB_KEY` no sube — la misma regla que las cuentas: se prefiere
+  perderlo a filtrarlo.
+
+#### 17 rutas sin llamador (deuda declarada, no avería)
+
+`/api/logout` (el panel usa `/api/auth/salir`; son dos y una sobra),
+`/api/signal-history`, `/api/self-test`, `/api/finnhub-quote`,
+`/api/trade-plan`, `/api/confluence`, `/api/income-strategies`,
+`/api/net-flow`, `/api/collect-signals`, `/api/backtest`,
+`/api/options-ledger`, `/api/backfill/status`, `/api/quantdata/*`,
+`/api/plaid/disconnect`, `/legacy`, `/assets/icon-*`.
+
+Algunas son operativas a propósito (diagnóstico, PWA); el resto es superficie
+de iteraciones anteriores. Ninguna rompe nada — quedan aquí escritas para que
+la próxima limpieza sepa por dónde empezar, y para que nadie las confunda con
+funcionalidad viva.
+
+#### Y un error de método mío, para que conste
+
+Lancé la batería web de fondo y, mientras corría, intercambié `vertex_api.py`
+y el panel para verificar guardianes en rojo. La corrida dio 18 fallos que no
+significaban nada: midió un árbol que yo estaba moviendo debajo. Se descartó y
+se repitió con el árbol quieto. Una batería que corre sobre un árbol
+cambiante no es un resultado, es ruido.
+
 ### Estado
 
-**3.478 tests del motor · 1.116 de la capa web (56 nuevos) · 148 de navegador ·
+**3.478 tests del motor · 1.123 de la capa web (63 nuevos) · 148 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
 verde. 0 fallos.**
 

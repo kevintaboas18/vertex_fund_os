@@ -11003,7 +11003,7 @@ function renderPortfolioRisk(d) {
     // ── Footer meta ───────────────────────────────────────────────────────────
     const skipped = (d.positions_skipped || []);
     const meta = `<div class="flex items-center justify-between flex-wrap gap-2 text-[9px] text-gray-600 px-1">
-        <span>${d.positions_analyzed} posiciones analizadas · ${pfUSD(d.total_value)} · ventana ${d.lookback}${skipped.length?` · omitidas: ${skipped.join(', ')}`:''}</span>
+        <span>${d.positions_analyzed} posiciones analizadas · ${pfUSD(d.total_value)} ${(d.opciones || {}).incluye_opciones ? 'de exposición' : 'de valor'} · ventana ${d.lookback}${skipped.length?` · omitidas: ${skipped.join(', ')}`:''}</span>
         <span>${d.generated_at || ''}</span>
     </div>`;
 
@@ -11252,6 +11252,11 @@ function renderWhatif(d) {
     const body = document.getElementById('pfWhatifBody');
     if (!body) return;
     const b = d.before || {}, a = d.after || {}, dl = d.delta || {};
+    // Con las opciones dentro, esta cifra ya no es el VALOR de la cuenta sino
+    // su EXPOSICION: una cuenta de $1.000 con $12.000 de delta veria «Valor
+    // total $12.400». El numero esta bien —el VaR, la beta y la concentracion
+    // se miden sobre exposicion— pero el rotulo mentia.
+    const conOpc = !!((d.opciones || {}).incluye_opciones);
     const actLabel = d.action === 'add' ? 'Añadir' : 'Recortar';
 
     // riskUp = true means "this delta direction increases risk" -> red on increase
@@ -11292,7 +11297,7 @@ function renderWhatif(d) {
                 <th class="text-right py-1.5 font-bold">Δ</th>
             </tr></thead>
             <tbody>
-                ${row('Valor total', b.total_value, a.total_value, dl.total_value, usd, null)}
+                ${row(conOpc ? 'Exposición total' : 'Valor total', b.total_value, a.total_value, dl.total_value, usd, null)}
                 ${row('Volatilidad anual', b.annual_vol_pct, a.annual_vol_pct, dl.annual_vol_pct, pct, true)}
                 ${row('Beta de mercado', b.market_beta, a.market_beta, dl.market_beta, plain, true)}
                 ${row('VaR 95% (1 día)', b.var_95_usd, a.var_95_usd, dl.var_95_usd, usd, true)}
@@ -11468,7 +11473,7 @@ function renderPortfolioGuardrails(d) {
     const opcHtml = opc.incluye_opciones
         ? `<p class="text-[10px] text-gray-500 px-1">Incluye la exposicion delta-equivalente de <b>${opc.n_opciones}</b> contrato(s): ${pfUSD(opc.exposicion_total)}. El valor total del portafolio no la cuenta.</p>`
         : (opc.motivo ? `<p class="text-[10px] text-amber-400/80 px-1">Sin las opciones en el calculo: ${_vcEsc(opc.motivo)}</p>` : '');
-    const meta2 = `<div class="text-[9px] text-gray-600 px-1 text-right">${pfUSD(d.total_value)} · ${d.generated_at||''}</div>`;
+    const meta2 = `<div class="text-[9px] text-gray-600 px-1 text-right">${pfUSD(d.total_value)} ${opc.incluye_opciones ? 'de exposición' : 'de valor'} · ${d.generated_at||''}</div>`;
     body.innerHTML = `<div class="space-y-4">${perfilHtml}${summary}<div class="space-y-2.5">${cards}</div>${opcHtml}${meta2}</div>`;
     if (window.lucide) vcIconos();
 }
@@ -11944,6 +11949,7 @@ function renderEdgeOpciones(d) {
                 <span class="text-gray-500">tocó el base <b class="text-gray-300 font-mono">${f.toco_el_base_pct == null ? '—' : f.toco_el_base_pct + '%'}</b></span>
                 <span class="text-gray-500">error medio <b class="text-gray-300 font-mono">${f.error_medio_pct == null ? '—' : f.error_medio_pct + '%'}</b></span>
                 <span class="text-gray-500">vencidas <b class="text-gray-300 font-mono">${f.vencidas}/${f.predicciones}</b></span>
+                ${(f.horizontes_dias || []).length ? `<span class="text-gray-500">a <b class="text-gray-300 font-mono">${f.horizontes_dias.join('/')}d</b></span>` : ''}
             </div>` : ''}
             <p class="text-[10px] text-gray-400 leading-relaxed">${_vcEsc(f.lectura || f.error || '')}</p>
         </div>`;
@@ -14492,6 +14498,13 @@ const VX_ES2EN = {
     "(flujo pasado con precio del subyacente, para medir qué hizo el precio después). Nada de esto se puede comprar hecho: se acumula.": "(past flow with the underlying's price, to measure what price did afterwards). None of this can be bought ready-made: it accumulates.",
     "El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta. Sin el efectivo, el optimizador solo sabe proponer ventas y no se puede calcular tu apalancamiento real.": "Cost basis is optional, but without it the Guardrails stop-loss rule stays inactive. Negative contracts = short position. Without cash, the optimiser can only propose sales and your real leverage cannot be computed.",
     "Edge medido del agente de opciones": "The options agent\u2019s measured edge",
+    "Exposición total": "Total exposure",
+    "griegas del libro · spot e IV por contrato": "book greeks · spot and IV per contract",
+    "Sin clave: raspa un endpoint sin documentar. Solo lo usan las griegas del libro; puede cambiar de forma sin aviso": "No key: it scrapes an undocumented endpoint. Only the book greeks use it; it can change shape without warning",
+    "No contestó: las griegas del libro salen vacías": "No answer: the book greeks come back empty",
+    "Contestó": "Answered",
+    "de exposición": "of exposure",
+    "de valor": "of value",
     "Cuántas de sus predicciones han vencido en cada subyacente que tienes, y con qué frecuencia acertó. Solo cuentan las vencidas: juzgar una a mitad de su horizonte mediría ruido.": "How many of its predictions have matured on each underlying you hold, and how often it was right. Only matured ones count: judging one halfway through its horizon would measure noise.",
     "Dónde está tu exposición": "Where your exposure sits",
     "con ventaja medida": "with measured edge",
