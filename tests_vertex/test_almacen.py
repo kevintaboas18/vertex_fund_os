@@ -81,6 +81,81 @@ def _prepara_respaldo(a, mensaje=""):
     assert motivo == "", mensaje or motivo
 
 
+def _cuentas_en_tar(claro):
+    """Cuántas cuentas lleva dentro un paquete ya descifrado. `-1` si no se sabe.
+
+    Existe para que un fallo de comparación DIGA algo. Comparar dos tar byte a
+    byte y enseñar «índice 20996: \x02 != \x01» obliga a hacer aritmética de
+    páginas de SQLite para enterarse de que lo que cambió fue una fila. El
+    número de cuentas es lo que estos casos protegen, así que es lo que tiene
+    que salir en rojo.
+    """
+    import io as _io
+    import sqlite3
+    import tarfile
+    import tempfile
+
+    try:
+        with tarfile.open(fileobj=_io.BytesIO(claro), mode="r") as tar:
+            m = next((x for x in tar.getmembers()
+                      if x.isfile() and x.name == "vertex.db"), None)
+            if m is None:
+                return -1
+            datos = tar.extractfile(m)
+            if datos is None:
+                return -1
+            with tempfile.TemporaryDirectory() as tmp:
+                import os as _os
+
+                ruta = _os.path.join(tmp, "p.db")
+                with open(ruta, "wb") as fh:
+                    fh.write(datos.read())
+                con = sqlite3.connect(ruta)
+                try:
+                    return int(con.execute(
+                        "SELECT COUNT(*) FROM usuarios").fetchone()[0])
+                finally:
+                    con.close()
+    except Exception:
+        return -1
+
+
+def _reloj_del_almacen_vivo():
+    """Si el hilo de fondo del almacén GLOBAL está corriendo ahora mismo.
+
+    Es el segundo escritor que hacía intermitentes a estos casos: cualquier
+    módulo que abra `with TestClient(vertex_api.app)` corre el `lifespan`, que
+    registra `_respalda_privado` como gancho y arranca un hilo que sincroniza
+    **cada 20 segundos**. Mientras estos casos comprueban «el respaldo bueno
+    sigue ahí», ese hilo lo estaba reescribiendo por detrás.
+
+    `_aisla` lo para antes de cada caso. Esto existe para que, si algo lo
+    vuelve a encender, el rojo lo DIGA — en vez de dejar un diff de bytes que
+    obliga a hacer aritmética de páginas de SQLite para entenderlo.
+    """
+    try:
+        import vertex_almacen as VA
+
+        h = getattr(VA.almacen, "_hilo", None)
+        return bool(h is not None and h.is_alive()) or bool(
+            VA.almacen.antes_de_sincronizar)
+    except Exception:                            # noqa: BLE001
+        return False
+
+
+def _mismo_respaldo(actual, esperado):
+    """`(iguales, explicación)`. La explicación cuenta CUENTAS, no bytes."""
+    if actual == esperado:
+        return True, ""
+    culpable = (" Y el reloj del almacén GLOBAL está vivo: es él, no el código "
+                "que se está midiendo — `_aisla` tendría que haberlo parado."
+                if _reloj_del_almacen_vivo() else "")
+    return False, (
+        f"el respaldo cambió: ahora lleva {_cuentas_en_tar(actual)} cuenta(s) "
+        f"y antes llevaba {_cuentas_en_tar(esperado)}. Algo lo reescribió "
+        f"entre la foto y la comprobación.{culpable}")
+
+
 def _contenido_del_respaldo(a):
     """Lo que el respaldo GUARDA, descifrado. `None` si no hay respaldo.
 
@@ -134,6 +209,42 @@ def _aisla(tmp_path, monkeypatch, remoto):
     # configurado por el operador tiene que ganar—, así que se quita para medir
     # el comportamiento por defecto.
     monkeypatch.delenv("WBJ_TITO_DATA", raising=False)
+
+    # ── Y SE PARA EL RELOJ DEL ALMACÉN GLOBAL ────────────────────────────
+    #
+    # Éste era el caso intermitente que llevaba semanas declarado y no
+    # arreglado. Sólo caía en la batería COMPLETA —el archivo entero pasa 3 de
+    # 3, la clase 6 de 6, el caso suelto 12 de 12— y el motivo es que el
+    # disparador vive FUERA de este archivo:
+    #
+    #   1. Cualquier módulo que abra `with TestClient(vertex_api.app)` corre el
+    #      `lifespan`, y ése llama a `_arranca_almacen()`.
+    #   2. `_arranca_almacen` registra `_respalda_privado` en
+    #      `almacen.antes_de_sincronizar` y arranca el hilo de fondo.
+    #   3. Ese hilo llama a `sincroniza()` **cada 20 segundos**, y `sincroniza`
+    #      ejecuta todos los ganchos — o sea, vuelve a empaquetar la base y a
+    #      escribir `Privado/privado.enc`.
+    #
+    # Es decir: mientras estos casos comparan «el respaldo bueno sigue ahí»,
+    # había otro reloj reescribiéndolo por detrás. Un tic de 20 s cae dentro de
+    # una corrida larga de vez en cuando y no cae nunca en una corta — que es
+    # exactamente el patrón que se veía.
+    #
+    # Se para el hilo y se vacían los ganchos. No se toca nada de producción:
+    # ahí el gancho y el reloj son justo lo que tiene que pasar; lo que no
+    # puede pasar es que corran dentro de un caso que mide otra cosa.
+    # `cierra()` NO sirve aquí: su última línea es `sincroniza(...)`, o sea que
+    # llamarlo dispara justo el respaldo que se quiere evitar. Lo comprobé —el
+    # archivo pasó de fallar una vez de cada tres a fallar siempre—. Se para el
+    # hilo a mano y se le quitan los ganchos, sin sincronizar nada.
+    try:
+        VA.almacen._parar.set()
+        _hilo = getattr(VA.almacen, "_hilo", None)
+        if _hilo is not None and _hilo.is_alive():
+            _hilo.join(timeout=2)
+        VA.almacen.antes_de_sincronizar.clear()
+    except Exception:                            # noqa: BLE001
+        pass
     # Registrar una cuenta ESCRIBE su `.md` en `_PERFIL_DIR`. Sin esta línea el
     # archivo caía en el repositorio de verdad, y cada corrida de la suite
     # dejaba un `Perfil Inversionista/usuarios/Kevin-<id>.md` sin versionar.
@@ -1549,8 +1660,8 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         motivo = V._respalda_privado(a)
         assert motivo, "se sobrescribió el respaldo con una base sin cuentas"
         assert "no tiene ni una cuenta" in motivo, motivo
-        assert _contenido_del_respaldo(a) == bueno, (
-            "el respaldo bueno se perdió: esto es el borrado de todas las cuentas")
+        _ok, _por = _mismo_respaldo(_contenido_del_respaldo(a), bueno)
+        assert _ok, "el respaldo bueno se perdió: esto es el borrado de todas las cuentas · " + _por
 
     def test_y_tampoco_si_la_base_no_se_puede_ni_leer(self, tmp_path,
                                                       monkeypatch):
@@ -1565,7 +1676,8 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         monkeypatch.setattr(V, "_cuenta_usuarios", lambda: -1)
         motivo = V._respalda_privado(a)
         assert "no se pudo leer" in motivo.lower(), motivo
-        assert _contenido_del_respaldo(a) == bueno
+        _ok, _por = _mismo_respaldo(_contenido_del_respaldo(a), bueno)
+        assert _ok, _por
 
     def test_el_respaldo_no_ENCOGE_sin_que_nadie_borre(self, tmp_path,
                                                       monkeypatch):
@@ -1596,7 +1708,8 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         conn.close()
         motivo = V._respalda_privado(a)
         assert "menos de lo que había" in motivo, motivo
-        assert _contenido_del_respaldo(a) == bueno
+        _ok, _por = _mismo_respaldo(_contenido_del_respaldo(a), bueno)
+        assert _ok, _por
 
     def test_un_paquete_SIN_base_dentro_no_se_construye(self, tmp_path,
                                                        monkeypatch):
@@ -1626,7 +1739,8 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         monkeypatch.setattr(V, "_cuenta_usuarios", lambda: 1)
         motivo = V._respalda_privado(a)
         assert motivo, "se subió un paquete sin la base dentro"
-        assert _contenido_del_respaldo(a) == bueno
+        _ok, _por = _mismo_respaldo(_contenido_del_respaldo(a), bueno)
+        assert _ok, _por
 
     def test_una_instalacion_NUEVA_sigue_pudiendo_subir_la_primera_cuenta(
             self, tmp_path):
@@ -1713,7 +1827,8 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         # remoto, y atarlo a uno hacía el caso intermitente. Lo que no puede
         # variar es que el paquete a medias no suba y que el bueno siga ahí.
         assert motivo, "se subió un paquete a medias sin decir nada"
-        assert _contenido_del_respaldo(a) == bueno
+        _ok, _por = _mismo_respaldo(_contenido_del_respaldo(a), bueno)
+        assert _ok, _por
 
     def test_y_un_paquete_bueno_SI_pasa_la_prueba(self, tmp_path):
         """El cerrojo no puede dejar el respaldo bloqueado siempre."""
@@ -2048,8 +2163,8 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         motivo = V._respalda_privado(a)
         assert motivo, "se sobrescribió un respaldo que ni se pudo leer"
         assert "no tiene ni una cuenta" in motivo, motivo
-        assert _contenido_del_respaldo(a) == bueno, (
-            "el respaldo bueno se perdió por no poder comprobarlo")
+        _ok, _por = _mismo_respaldo(_contenido_del_respaldo(a), bueno)
+        assert _ok, "el respaldo bueno se perdió por no poder comprobarlo · " + _por
 
     def test_pero_con_cuentas_vivas_un_remoto_ilegible_NO_frena(self, tmp_path,
                                                                 monkeypatch):
@@ -2563,3 +2678,83 @@ class TestNINGUNArchivoSePierde:
             "salvo en una rama de rescate")
         assert "Lo pendiente NO se pierde" in codigo, (
             "y no hay ninguna línea que diga dónde quedó")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+class TestElRelojDelAlmacenNoCorreDentroDeUnCaso:
+    """El segundo escritor que hacía intermitente a esta clase.
+
+    Cualquier módulo que abra `with TestClient(vertex_api.app)` corre el
+    `lifespan`, que registra `_respalda_privado` como gancho de sincronización
+    y arranca un hilo que sincroniza **cada 20 segundos**. Mientras estos casos
+    comprueban «el respaldo bueno sigue ahí», ese hilo lo reescribía por
+    detrás — y un tic de 20 s cae dentro de una corrida larga de vez en cuando
+    y nunca dentro de una corta. Ése era exactamente el patrón: el caso suelto
+    pasaba 12 de 12, el archivo 3 de 3, y la batería completa fallaba una de
+    cada tres.
+
+    Medido: forzar una sincronización extra (llamando a `cierra()`, cuya última
+    línea es `sincroniza(...)`) lo hacía fallar **siempre**. Parando el reloj,
+    cinco baterías completas seguidas en verde.
+    """
+
+    @pytest.fixture(autouse=True)
+    def entorno(self, tmp_path, monkeypatch, remoto):
+        _aisla(tmp_path, monkeypatch, remoto)
+
+    def test_el_aislamiento_para_el_hilo_y_quita_los_ganchos(self):
+        import vertex_almacen as VA
+
+        hilo = getattr(VA.almacen, "_hilo", None)
+        assert hilo is None or not hilo.is_alive(), (
+            "el reloj del almacén sigue corriendo dentro del caso")
+        assert not VA.almacen.antes_de_sincronizar, (
+            "quedan ganchos: la próxima sincronización reescribirá el respaldo")
+
+    def test_aunque_el_lifespan_lo_arranque_ANTES(self, tmp_path, monkeypatch,
+                                                  remoto):
+        """El caso real: otro módulo abre un TestClient y deja el reloj vivo."""
+        from fastapi.testclient import TestClient
+
+        import vertex_almacen as VA
+        import vertex_api as V
+
+        with TestClient(V.app):
+            pass                                 # el lifespan arranca el reloj
+        # Y ahora entra un caso de esta clase: `_aisla` tiene que apagarlo.
+        _aisla(tmp_path, monkeypatch, remoto)
+        hilo = getattr(VA.almacen, "_hilo", None)
+        assert hilo is None or not hilo.is_alive()
+        assert not VA.almacen.antes_de_sincronizar
+
+    def test_NO_se_apaga_llamando_a_cierra(self):
+        """`cierra()` termina en `sincroniza(...)`: llamarlo dispara justo el
+        respaldo que se quiere evitar. Lo escribí así primero y el archivo pasó
+        de fallar una vez de cada tres a fallar siempre."""
+        import inspect
+
+        import vertex_almacen as VA
+
+        assert "self.sincroniza(" in inspect.getsource(VA.Almacen.cierra)
+        # Sobre el CÓDIGO, no sobre la prosa: el comentario de `_aisla`
+        # explica por qué no se usa `cierra()`, así que buscar la palabra a
+        # secas la encuentra en la explicación y acusa al inocente. Es el
+        # mismo tropiezo que ya me costó dos guardianes en `test_portafolio`.
+        import ast
+        import textwrap
+
+        arbol = ast.parse(textwrap.dedent(inspect.getsource(_aisla)))
+        for nodo in ast.walk(arbol):
+            if (isinstance(nodo, ast.Expr) and isinstance(nodo.value, ast.Constant)
+                    and isinstance(nodo.value.value, str)):
+                nodo.value.value = ""
+        codigo = ast.unparse(ast.fix_missing_locations(arbol))
+        assert ".cierra(" not in codigo, codigo
+
+    def test_el_rojo_DICE_quien_fue(self):
+        """Un diff de bytes obliga a hacer aritmética de páginas de SQLite para
+        enterarse de que lo que cambió fue una fila."""
+        ok, por = _mismo_respaldo(b"a", b"b")
+        assert ok is False
+        assert "cuenta(s)" in por
+        assert callable(_reloj_del_almacen_vivo)

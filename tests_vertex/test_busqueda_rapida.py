@@ -35,6 +35,7 @@ puesta y sin una sola petición.
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -185,8 +186,13 @@ def test_la_cola_larga_pide_las_dos_rutas_a_la_vez(monkeypatch):
     vertex_api._BUSQUEDA_CACHE.clear()
     monkeypatch.setattr(vertex_api, "_indice_actual", lambda *a, **k: {})
     monkeypatch.setenv("FMP_API_KEY", "x")
+    # Un cerrojo de verdad: dos hilos tocan estas dos estructuras. Sin él la
+    # medida depende de que el GIL caiga donde conviene, que es la misma clase
+    # de suerte que este caso existe para no necesitar.
+    cerrojo = threading.Lock()
     vivas = []
     tope = {"n": 0}
+    tramos = []                      # (inicio, fin) de cada petición
 
     class _R:
         status_code = 200
@@ -195,20 +201,39 @@ def test_la_cola_larga_pide_las_dos_rutas_a_la_vez(monkeypatch):
             return []
 
     def _lenta(url, **k):
-        vivas.append(url)
-        tope["n"] = max(tope["n"], len(vivas))
+        with cerrojo:
+            vivas.append(url)
+            tope["n"] = max(tope["n"], len(vivas))
+        ini = time.perf_counter()
         time.sleep(0.25)
-        vivas.pop()
+        fin = time.perf_counter()
+        with cerrojo:
+            vivas.pop()
+            tramos.append((ini, fin))
         return _R()
 
     monkeypatch.setattr(vertex_api.requests, "get", _lenta)
-    t0 = time.perf_counter()
     TestClient(vertex_api.app).get("/api/search?q=ZZQQ")
-    transcurrido = time.perf_counter() - t0
 
     assert tope["n"] == 2, "las dos rutas no se solaparon: siguen en serie"
-    assert transcurrido < 0.45, (
-        f"tardo {transcurrido:.2f}s; en serie serian ~0,50s y en paralelo ~0,25s")
+    # ── Se mide el SOLAPE, no el reloj de pared ──────────────────────────
+    #
+    # Aquí había un `transcurrido < 0.45`, y ése era el caso intermitente: dos
+    # esperas de 0,25 s en paralelo son 0,25 s de trabajo, pero bajo carga
+    # —con la batería entera corriendo— el arranque del TestClient y el cambio
+    # de contexto se comen los 0,20 s de margen y el caso caía **sin que nada
+    # estuviera mal**. Medía la máquina, no el programa.
+    #
+    # Lo que de verdad se quiere afirmar es que los dos tramos se PISAN en el
+    # tiempo, y eso es exacto y no depende de lo ocupado que esté el equipo:
+    # en serie el segundo empieza después de que acabe el primero y la
+    # intersección es cero; en paralelo, no.
+    assert len(tramos) == 2, tramos
+    (a_ini, a_fin), (b_ini, b_fin) = sorted(tramos)
+    solape = min(a_fin, b_fin) - max(a_ini, b_ini)
+    assert solape > 0.10, (
+        f"los dos tramos apenas se pisan ({solape:.3f}s de solape sobre 0,25s "
+        f"de espera): eso es serie, no paralelo")
 
 
 def test_el_timeout_no_supera_la_paciencia_de_un_teclado():

@@ -10072,11 +10072,91 @@ buscador vive en `homeView`. `switchView` habría escondido las nueve vistas sin
 mostrar ninguna. Corregido, y con un guardián que ata **cada** llamada a
 `switchView` a un id que esté de verdad en el marcado — de los nueve reales.
 
+### Los dos intermitentes, arreglados de verdad
+
+Los llevaba **declarando** en cada informe en vez de resolviéndolos, que es
+otra forma de dejarlos abiertos. Kevin: «arregla lo que hiciste y los
+errores».
+
+#### El del almacén: había un SEGUNDO escritor
+
+El patrón lo decía todo y yo no lo había leído: el caso suelto pasaba **12 de
+12**, la clase **6 de 6**, el archivo entero **3 de 3**, y sólo la batería
+completa fallaba —una de cada tres—. Si el archivo aislado nunca falla, el
+disparador está **fuera** de él.
+
+Lo está:
+
+1. Cualquier módulo que abra `with TestClient(vertex_api.app)` corre el
+   `lifespan`, y ése llama a `_arranca_almacen()`.
+2. `_arranca_almacen` registra `_respalda_privado` en
+   `almacen.antes_de_sincronizar` **y arranca el hilo de fondo**.
+3. Ese hilo llama a `sincroniza()` **cada 20 segundos**, y `sincroniza`
+   ejecuta todos los ganchos: vuelve a empaquetar la base y a escribir
+   `Privado/privado.enc`.
+
+O sea: mientras estos casos comprueban «el respaldo bueno sigue ahí», había
+otro reloj reescribiéndolo por detrás. Un tic de 20 s cae dentro de una
+corrida larga de vez en cuando y **nunca** dentro de una corta.
+
+**La prueba del mecanismo**, que es lo que convierte una teoría en un
+diagnóstico: al parar el hilo escribí primero `almacen.cierra()`, y el archivo
+pasó de fallar una de cada tres veces a **fallar siempre**. El motivo es que
+la última línea de `cierra()` es `sincroniza(...)` — llamarlo dispara
+exactamente el respaldo que se quería evitar. Ese error mío, mal, demostró la
+causa: una sincronización extra rompe esta aserción de forma determinista.
+
+Se para el hilo a mano (`_parar.set()` + `join`) y se le quitan los ganchos.
+**Producción no se toca**: allí el gancho y el reloj son justo lo que tiene
+que pasar; lo que no puede pasar es que corran dentro de un caso que mide otra
+cosa.
+
+Verificado: **cinco baterías completas seguidas en verde**, contra una de cada
+tres antes.
+
+Y dos mejoras del arnés, porque el rojo que daba era ilegible —«índice 20996:
+`\x02` != `\x01`», que obliga a hacer aritmética de páginas de SQLite para
+enterarse de que lo que cambió fue **una fila**—:
+
+- `_cuentas_en_tar` abre el paquete y cuenta cuentas, así que el fallo dice
+  «ahora lleva 2 y antes llevaba 1».
+- `_reloj_del_almacen_vivo` mira si el hilo global está corriendo y, si lo
+  está, **señala al culpable en el propio mensaje**.
+
+#### El de paralelismo: medía la máquina, no el programa
+
+`test_la_cola_larga_pide_las_dos_rutas_a_la_vez` afirmaba
+`transcurrido < 0.45`. Dos esperas de 0,25 s en paralelo son 0,25 s de
+trabajo, pero bajo carga —con la batería entera corriendo— el arranque del
+`TestClient` y el cambio de contexto se comen los 0,20 s de margen y el caso
+caía **sin que nada estuviera mal**.
+
+Ahora se mide el **solape** de los dos tramos, que es la propiedad que se
+quiere afirmar y no depende de lo ocupado que esté el equipo: en serie el
+segundo empieza cuando acaba el primero y la intersección es cero o negativa;
+en paralelo, no. Comprobada la aritmética: paralelo 0,240 s, serie 0,000,
+serie con hueco −0,050.
+
+De paso, un cerrojo de verdad sobre las dos estructuras compartidas: dos hilos
+las tocaban y la medida dependía de que el GIL cayera donde conviene, que es
+la misma clase de suerte que este caso existe para no necesitar.
+
+Barrido el resto de la batería en busca del mismo patrón: la única otra
+aserción de reloj (`test_la_nota_no_espera_por_la_red`) tiene 18 segundos de
+margen sobre 20 de espera. Ésa no puede fallar por carga.
+
+#### Y un guardián que volvió a mirar la prosa
+
+`test_NO_se_apaga_llamando_a_cierra` buscaba la palabra `cierra(` en `_aisla`
+y la encontró **en el comentario que explica por qué no se usa**. Tercer
+tropiezo igual en esta sesión, así que ahora también aquí se mide sobre el AST
+con los docstrings vaciados.
+
 ### Estado
 
-**3.478 tests del motor · 1.150 de la capa web (90 nuevos) · 148 de navegador ·
+**3.478 tests del motor · 1.154 de la capa web (94 nuevos) · 148 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
-verde. 0 fallos.**
+verde. 0 fallos, y **sin intermitentes declarados**.**
 
 Una nota honesta sobre el intermitente del almacén: en una corrida completa
 falló `TestUnRespaldoVACIONoPISAaUnoLLENO::test_el_paquete_se_ABRE_y_se_cuenta_
