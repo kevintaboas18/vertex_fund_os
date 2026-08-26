@@ -3,56 +3,54 @@
 | | |
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
-| Score de flujo | 66.0 / 100 |
-| Spot | $213.05 |
+| Score de flujo | 70.0 / 100 |
+| Spot | $209.66 |
 | Régimen de gamma | positive |
 | Nodo imán | $220.00 |
-| Gamma flip | $212.90 |
-| Sub-agentes activos | 6 de 6 |
+| Gamma flip | $207.99 |
+| Sub-agentes activos | 2 de 6 |
 
 ## Los 6 sub-agentes
 
 | Sub-agente | Score | Peso |
 |---|---|---|
-| Agresividad | 6.0/10 | 20 pts |
-| Convicción | 5.0/10 | 20 pts |
-| Inusualidad | 7.0/10 | 20 pts |
+| Agresividad | —/10 | 20 pts |
+| Convicción | —/10 | 20 pts |
+| Inusualidad | —/10 | 20 pts |
 | Estructura | 7.0/10 | 15 pts |
-| Contexto IV | 9.0/10 | 10 pts |
+| Contexto IV | —/10 | 10 pts |
 | Confirmación de precio | 7.0/10 | 15 pts |
 
 ## Escenarios por horizonte
 
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
-| 10 días | $210.00 | $220.00 | $225.46 | 64.0 |
-| 20 días | $210.00 | $220.00 | $230.81 | 62.0 |
-| 30 días | $210.00 | $220.00 | $235.00 | 60.0 |
+| 10 días | $205.00 | $215.00 | $220.00 | 43.0 |
+| 20 días | $205.00 | $215.00 | $220.00 | 39.0 |
+| 30 días | $205.00 | $220.00 | $231.99 | 39.0 |
 
 ## Niveles importantes
 
 | Precio | Tipo | Fuerza | P(toque) | Por qué |
 |---|---|---|---|---|
-| $213.18 | resistencia | 84 | 96% | el precio reaccionó 4 veces aquí · 191,575 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $193.62 | soporte | 73 | 25% | el precio reaccionó 4 veces aquí · 167,818 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $215.30 | resistencia | 72 | 86% | el precio reaccionó 2 veces aquí · 179,904 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $195.45 | soporte | 71 | 30% | el precio reaccionó 3 veces aquí · 165,767 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $199.34 | soporte | 62 | 43% | el precio reaccionó 1 vez aquí · 365,023 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $208.78 | soporte | 61 | 83% | el precio reaccionó 1 vez aquí · 183,143 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $216.83 | resistencia | 61 | 80% | el precio reaccionó 1 vez aquí · 194,612 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $197.61 | soporte | 52 | 37% | el precio reaccionó 3 veces aquí · 7,395 contratos abiertos de puts · confluencia precio + opciones |
-| $220.00 | resistencia | 47 | 66% | 437,597 contratos abiertos de calls · venta de calls por dinero real |
-| $225.00 | resistencia | 46 | 47% | 226,574 contratos abiertos de calls · venta de calls por dinero real |
-| $205.00 | soporte | 44 | 66% | 125,091 contratos abiertos de puts · venta de puts por dinero real |
-| $222.50 | resistencia | 42 | 56% | 65,082 contratos abiertos de calls · venta de calls por dinero real |
+| $190.66 | soporte | 71 | 27% | el precio reaccionó 4 veces aquí · 314,975 contratos abiertos de puts · confluencia precio + opciones |
+| $213.18 | resistencia | 67 | 81% | el precio reaccionó 4 veces aquí · 212,698 contratos abiertos de calls · confluencia precio + opciones |
+| $193.62 | soporte | 56 | 36% | el precio reaccionó 4 veces aquí · 176,641 contratos abiertos de puts · confluencia precio + opciones |
+| $215.30 | resistencia | 55 | 72% | el precio reaccionó 2 veces aquí · 192,175 contratos abiertos de calls · confluencia precio + opciones |
+| $195.45 | soporte | 54 | 42% | el precio reaccionó 3 veces aquí · 175,114 contratos abiertos de puts · confluencia precio + opciones |
+| $197.61 | soporte | 52 | 50% | el precio reaccionó 3 veces aquí · 10,001 contratos abiertos de puts · confluencia precio + opciones |
+| $227.92 | resistencia | 46 | 29% | el precio reaccionó 1 vez aquí · 549,925 contratos abiertos de calls · confluencia precio + opciones |
+| $199.34 | soporte | 43 | 57% | el precio reaccionó 1 vez aquí · 380,586 contratos abiertos de puts · confluencia precio + opciones |
+| $216.83 | resistencia | 43 | 65% | el precio reaccionó 1 vez aquí · 209,999 contratos abiertos de calls · confluencia precio + opciones |
+| $208.78 | soporte | 42 | 99% | el precio reaccionó 1 vez aquí · 196,454 contratos abiertos de puts · confluencia precio + opciones |
+| $232.28 | resistencia | 41 | 20% | el precio reaccionó 1 vez aquí · 60,882 contratos abiertos de calls · confluencia precio + opciones |
+| $220.00 | resistencia | 28 | 53% | 444,373 contratos abiertos de calls |
 
 ## Los 3 flujos más grandes
 
 | Contrato | Vence | Prima | Apuesta |
 |---|---|---|---|
-| NVDA $180.00C | 2026-10-16 (52d) | $65,320,000 | alcista |
-| NVDA $140.00P | 2027-06-17 (296d) | $54,837,258 | alcista |
-| NVDA $180.00P | 2027-01-15 (143d) | $46,077,696 | bajista |
+| — | — | — | _sin flujos notables_ |
 
 ## Track record de este agente
 
@@ -64,6 +62,8 @@ _todavía no hay predicciones vencidas: el track record se llena solo_
 
 ## Advertencias
 
+- ⚠ Sin tape de MarketSnack: Sesión de MarketSnack inválida o expirada. Actualiza MARKETSNACK_COOKIE.
+- ⚠ Solo 2 de 6 sub-agentes tienen dato (faltan: aggression, conviction, unusuality, iv_context). El puntaje se renormaliza sobre el peso activo, así que NO es comparable con el de un ticker con las 6 categorías.
 - ⚠ El backtest de Confirmación de Precio cubre 47 días; el documento pide 60. La tasa de acierto es provisional.
 - ⚠ Las bandas de puntos del sub-agente 6 (Confirmación de Precio) son una PROPUESTA: su PDF no trae tabla de puntuación.
 
