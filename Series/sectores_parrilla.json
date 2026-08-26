@@ -582,7 +582,7 @@
       "ticker": "XLB",
       "nombre": "Materiales",
       "precio": 53.67,
-      "cambio_pct": 0.16,
+      "cambio_pct": 0.17,
       "rsi": 62.0,
       "sma200": 49.74,
       "sma200_dist": 7.89,
@@ -1167,7 +1167,7 @@
       "XLI"
     ],
     "saliendo": [],
-    "dispersion": 0.6255,
+    "dispersion": 0.6258,
     "dia_rojo": [],
     "diagnostico": [
       "Rotación saludable fuera de las mega-caps hacia la economía real (financieros, industriales, materiales, energía).",
@@ -1400,12 +1400,13 @@
     }
   },
   "interna": {
-    "generado": "2026-08-25T16:33:54.376143+00:00",
+    "generado": "2026-08-26T21:13:43.656718+00:00",
     "sectores": {
       "XLK": {
-        "pct": 50.0,
+        "pct": 58.3,
         "n": 12,
         "encima": [
+          "AAPL",
           "ACN",
           "ADBE",
           "CRM",
@@ -1461,7 +1462,7 @@
         "motivo": null
       },
       "XLC": {
-        "pct": 70.0,
+        "pct": 60.0,
         "n": 10,
         "encima": [
           "CMCSA",
@@ -1469,17 +1470,17 @@
           "EA",
           "NFLX",
           "T",
-          "TMUS",
           "VZ"
         ],
         "miembros": 10,
         "motivo": null
       },
       "XLI": {
-        "pct": 40.0,
+        "pct": 50.0,
         "n": 10,
         "encima": [
           "DE",
+          "ETN",
           "LMT",
           "RTX",
           "UNP"
@@ -1488,9 +1489,10 @@
         "motivo": null
       },
       "XLP": {
-        "pct": 60.0,
+        "pct": 70.0,
         "n": 10,
         "encima": [
+          "CL",
           "COST",
           "KO",
           "MDLZ",
@@ -1502,7 +1504,7 @@
         "motivo": null
       },
       "XLE": {
-        "pct": 90.0,
+        "pct": 100.0,
         "n": 10,
         "encima": [
           "COP",
@@ -1513,6 +1515,7 @@
           "PSX",
           "SLB",
           "VLO",
+          "WMB",
           "XOM"
         ],
         "miembros": 10,
@@ -1541,11 +1544,10 @@
         "motivo": null
       },
       "XLB": {
-        "pct": 60.0,
-        "n": 10,
+        "pct": 83.3,
+        "n": 6,
         "encima": [
           "APD",
-          "DOW",
           "ECL",
           "FCX",
           "NEM",
@@ -1557,5 +1559,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-26T21:13:43.656955+00:00"
+  "generado": "2026-08-26T22:13:16.852527+00:00"
 }
