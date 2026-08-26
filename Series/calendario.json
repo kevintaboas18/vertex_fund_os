@@ -459,6 +459,20 @@
         "bueno": false
       },
       {
+        "evento": "CPI YoY (Jul)",
+        "fecha": "2026-08-12 12:30",
+        "salio": 3.4,
+        "esperado": 3.4,
+        "anterior": 3.5,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
         "evento": "Core CPI YoY (Jul)",
         "fecha": "2026-08-12 12:30",
         "salio": 2.5,
@@ -487,7 +501,7 @@
         "bueno": null
       },
       {
-        "evento": "CPI YoY (Jul)",
+        "evento": "Inflation Rate YoY (Jul)",
         "fecha": "2026-08-12 12:30",
         "salio": 3.4,
         "esperado": 3.4,
@@ -501,18 +515,18 @@
         "bueno": null
       },
       {
-        "evento": "Inflation Rate YoY (Jul)",
-        "fecha": "2026-08-12 12:30",
-        "salio": 3.4,
-        "esperado": 3.4,
-        "anterior": 3.5,
+        "evento": "Unemployment Rate (Jul)",
+        "fecha": "2026-08-07 12:30",
+        "salio": 4.1,
+        "esperado": 4.2,
+        "anterior": 4.2,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
+        "sorpresa": -0.10000000000000053,
+        "bueno": true
       },
       {
         "evento": "Nonfarm Payrolls Private (Jul)",
@@ -541,20 +555,6 @@
         "hora_et": "08:30",
         "sorpresa": -103.0,
         "bueno": false
-      },
-      {
-        "evento": "Unemployment Rate (Jul)",
-        "fecha": "2026-08-07 12:30",
-        "salio": 4.1,
-        "esperado": 4.2,
-        "anterior": 4.2,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": -0.10000000000000053,
-        "bueno": true
       }
     ],
     "proximos": [
@@ -662,21 +662,6 @@
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
-      },
-      {
-        "evento": "ISM Manufacturing PMI (Aug)",
-        "fecha": "2026-09-01 14:00",
-        "salio": null,
-        "esperado": 55.0,
-        "anterior": 55.6,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "10:00",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
       }
     ],
     "filas": [],
@@ -684,6 +669,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-08-25T20:34:16.588728+00:00",
-  "generado_macro": "2026-08-26T00:18:47.525027+00:00",
-  "generado": "2026-08-26T00:18:47.525027+00:00"
+  "generado_macro": "2026-08-25T23:11:30.653128+00:00",
+  "generado": "2026-08-25T23:11:30.653128+00:00"
 }
