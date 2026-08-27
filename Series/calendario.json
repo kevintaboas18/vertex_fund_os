@@ -432,20 +432,6 @@
         "bueno": null
       },
       {
-        "evento": "Core PCE Price Index YoY (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 3.3,
-        "esperado": 3.3,
-        "anterior": 3.3,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
         "evento": "PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 3.7,
@@ -460,11 +446,11 @@
         "bueno": false
       },
       {
-        "evento": "Core PCE Price Index MoM (Jul)",
+        "evento": "Core PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
-        "salio": 0.2,
-        "esperado": 0.2,
-        "anterior": 0.1,
+        "salio": 3.3,
+        "esperado": 3.3,
+        "anterior": 3.3,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
@@ -488,6 +474,20 @@
         "bueno": false
       },
       {
+        "evento": "PCE Price Index MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 0.2,
+        "esperado": 0.1,
+        "anterior": -0.1,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.1,
+        "bueno": false
+      },
+      {
         "evento": "PCE Prices QoQ (Q2)",
         "fecha": "2026-08-26 12:30",
         "salio": 5.3,
@@ -502,18 +502,18 @@
         "bueno": false
       },
       {
-        "evento": "PCE Price Index MoM (Jul)",
+        "evento": "Core PCE Price Index MoM (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 0.2,
-        "esperado": 0.1,
-        "anterior": -0.1,
+        "esperado": 0.2,
+        "anterior": 0.1,
         "unidad": "",
-        "impacto": "medium",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
-        "sorpresa": 0.1,
-        "bueno": false
+        "sorpresa": 0.0,
+        "bueno": null
       },
       {
         "evento": "Retail Sales MoM (Jul)",
@@ -612,6 +612,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-08-26T21:13:50.257331+00:00",
-  "generado_macro": "2026-08-27T13:21:12.297315+00:00",
-  "generado": "2026-08-27T13:21:12.297315+00:00"
+  "generado_macro": "2026-08-27T14:00:52.767398+00:00",
+  "generado": "2026-08-27T14:00:52.767398+00:00"
 }
