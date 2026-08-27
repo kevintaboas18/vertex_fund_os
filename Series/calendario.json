@@ -432,6 +432,20 @@
         "bueno": null
       },
       {
+        "evento": "PCE Price Index YoY (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 3.7,
+        "esperado": 3.6,
+        "anterior": 3.7,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.10000000000000009,
+        "bueno": false
+      },
+      {
         "evento": "Core PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 3.3,
@@ -446,17 +460,17 @@
         "bueno": null
       },
       {
-        "evento": "PCE Price Index YoY (Jul)",
+        "evento": "PCE Prices QoQ (Q2)",
         "fecha": "2026-08-26 12:30",
-        "salio": 3.7,
-        "esperado": 3.6,
-        "anterior": 3.7,
+        "salio": 5.3,
+        "esperado": 5.1,
+        "anterior": 4.6,
         "unidad": "",
-        "impacto": "medium",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
-        "sorpresa": 0.10000000000000009,
+        "sorpresa": 0.20000000000000018,
         "bueno": false
       },
       {
@@ -474,34 +488,6 @@
         "bueno": null
       },
       {
-        "evento": "Core PCE Prices QoQ (Q2)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 3.6,
-        "esperado": 3.4,
-        "anterior": 4.4,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.20000000000000018,
-        "bueno": false
-      },
-      {
-        "evento": "PCE Prices QoQ (Q2)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 5.3,
-        "esperado": 5.1,
-        "anterior": 4.6,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.20000000000000018,
-        "bueno": false
-      },
-      {
         "evento": "PCE Price Index MoM (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 0.2,
@@ -513,6 +499,20 @@
         "mejor": "bajo",
         "hora_et": "08:30",
         "sorpresa": 0.1,
+        "bueno": false
+      },
+      {
+        "evento": "Core PCE Prices QoQ (Q2)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 3.6,
+        "esperado": 3.4,
+        "anterior": 4.4,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.20000000000000018,
         "bueno": false
       },
       {
@@ -612,6 +612,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-08-26T21:13:50.257331+00:00",
-  "generado_macro": "2026-08-27T13:21:12.297315+00:00",
-  "generado": "2026-08-27T13:21:12.297315+00:00"
+  "generado_macro": "2026-08-27T14:57:39.250975+00:00",
+  "generado": "2026-08-27T14:57:39.250975+00:00"
 }
