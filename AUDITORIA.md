@@ -10280,6 +10280,149 @@ que FMP publicara ese dato—, que todo rótulo colapsado esté también en la t
 que la preferencia de corte se escriba con nombres ya canónicos, porque puesta
 con un rótulo dejaría de consultarse en silencio.
 
+### La lista de alto impacto la pone Kevin, y el proveedor es la red de abajo
+
+> «las noticias de alto impacto te las dare porque las estas haciendo mal.»
+> — Kevin, 27/08/2026, con la lista de 32 eventos.
+
+Medido una por una contra la tabla: **17 de sus 32 estaban mal.**
+
+| Cómo estaban | Cuántas | Cuáles |
+|---|---|---|
+| En **nivel 2** (relleno: nunca desplaza a un nivel 1, así que no salen) | 11 | Building Permits · Housing Starts · Initial Jobless Claims · CB Consumer Confidence · Durable Goods · JOLTs · Existing Home Sales · Core PPI · PPI · UoM Sentiment · (y ADP, que además no casaba) |
+| **Fuera de la tabla**: su nombre no casaba con ninguna clave, así que ni entraban | 6 | Personal Income · Personal Spending · Core Personal Consumption Expenditure · UoM Consumer Sentiment Index · Fed Chair Speech · las dos del Tesoro |
+
+Dos de esas seis no eran un error de criterio sino **una llave que no abría**:
+la tabla decía `adp employment` y el evento se llama «ADP National Employment
+Report» —que no contiene esa cadena—; y decía `michigan consumer sentiment`,
+que «UoM Consumer Sentiment Index» tampoco contiene. El dato llegaba de FMP
+todos los meses y se tiraba en silencio.
+
+Ahora **las 32 están en nivel 1**, con un caso por cada una que lo comprueba
+por su nombre literal (`_ALTO_IMPACTO_DE_KEVIN`).
+
+#### Tres que tenían que dejar de compartir fila
+
+- «Nonfarm Payrolls» y «Non Farm Payrolls Annual Revision Prel» son **dos
+  comunicados**, no dos variantes: la revisión anual tiene su propia clave, y
+  va antes en `_MACRO_CLAVES` —que se ordena de larga a corta— para ganarle.
+- «Retail Sales Ex Autos» pasa a ser **su propia familia**, como el IPC
+  subyacente lo es del general. Por eso el « ex » sale de la regla de
+  sub-agregados de `_macro_titular`. Lo que **no** cambia: «Excluding Gas and
+  Autos», «Control Group» y «Private» siguen sin titular, que es lo que Kevin
+  cazó el 22/08.
+- Las dos del Tesoro —«Announcement» y «Financing Estimates»— también.
+
+#### La red de abajo: el `impact` que FMP mandaba y nadie miraba
+
+Una tabla escrita a mano **nunca está completa**, y Kevin lo dijo: «nose si me
+faltan mas». La respuesta honesta no es que yo adivine mejor.
+
+El calendario de FMP trae un campo `impact` —`High` / `Medium` / `Low`— que
+**ya se estaba guardando en la fila** (`fila["impacto"]`) y que ningún sitio
+leía. Ahora: la tabla manda —es la lista de Kevin, y es la única que sabe si
+«más alto» es mejor o peor— y lo que el proveedor marca `High` entra igual
+aunque no case con ninguna clave.
+
+Sin dirección, eso sí: `mejor = None`, la cifra sin color, igual que una
+decisión de la Fed. Inventarle un «más alto es mejor» a un dato que no hemos
+leído sería pintar de verde algo que no entendemos.
+
+Lo que **no** cambia: lo que no está en la tabla **ni** viene marcado de alto
+impacto sigue fuera. Ese filtro es lo que mantiene la caja limpia; sin él,
+cuatro Redbook semanales empujarían fuera al IPC del martes. Hay un caso que
+lo comprueba con un `Redbook YoY` marcado `Low`.
+
+> Honestidad sobre esto: **no pude verificar contra FMP en vivo** —no hay clave
+> en este contenedor— así que el contrato del campo `impact` está tomado de lo
+> que el código ya esperaba. Está escrito para que, si el campo no viene,
+> devuelva `False` y no cambie absolutamente nada respecto a antes.
+
+#### «investiga y ponlos todos»: lo que faltaba
+
+Tres publicaciones de EE. UU. que los calendarios marcan igual de fuerte que
+las que él nombró **no estaban por ningún lado**, y ahora entran en nivel 1:
+
+| Qué | Por qué importa | Dirección |
+|---|---|---|
+| **Employment Cost Index** (trimestral, BLS) | Es la medida de salarios que la Fed cita en cada conferencia de prensa. No casaba con ninguna clave. | más bajo, mejor |
+| **Michigan 1-Year Inflation Expectations** | Lo que el mercado opera el día de Michigan. | más bajo, mejor |
+| **Michigan Inflation Expectations** (sin horizonte) | El nombre corto con el que FMP también lo publica. | más bajo, mejor |
+
+Y catorce claves más entran como **relleno (nivel 2)** —salen cuando hay sitio y
+nunca desplazan a un nivel 1—, que antes no entraban de ninguna forma: Philly
+Fed (con sus dos grafías), Empire State, Chicago PMI, pedidos a fábrica,
+expectativas del consumidor de Michigan, NFIB, despidos de Challenger,
+productividad y costes laborales unitarios (`labor` y `labour`), balanza
+comercial (con sus dos nombres) y el Libro Beige.
+
+**Michigan de cinco años se queda en nivel 2 a propósito.** La caja tiene ocho
+huecos y ordena por fecha: Michigan suelta cuatro cifras el mismo viernes, y
+con las cuatro en nivel 1 se llevaban tres huecos y **empujaban al IPC fuera de
+la caja**. Medido, no supuesto — hay un caso que lo comprueba
+(`test_el_dia_de_MICHIGAN_el_IPC_sigue_en_la_caja`). Subirlo es cambiar un `2`
+por un `1` en la tabla.
+
+Un fallo que salió al medir esto: `_MACRO_CLAVES` se arma **de la tabla**, así
+que un sinónimo cuya clave no esté en la tabla es un **alias muerto** que no
+casa nunca. «Philly Fed» y «Trade Balance» se perdían por eso. Hay dos
+guardianes que ahora barren los sinónimos en las dos direcciones.
+
+#### Dos que salieron al escribirle la lista a Kevin
+
+Le estaba enumerando qué saldrá en el panel y me encontré con esto:
+
+**1. Las actas del FOMC se las comía el comunicado de tipos.** La clave era
+`fomc` a secas, así que «FOMC Minutes», «FOMC Statement» y «FOMC Economic
+Projections» caían en la **misma fila**. Las actas salen tres semanas después
+del comunicado y la caja mira 35 días atrás: los dos caben dentro, y uno de los
+dos desaparecía. Kevin nombró las actas expresamente. Ahora cada una tiene su
+clave; y al revés, «Fed Interest Rate Decision», «Federal Funds Rate» y «FOMC
+Statement» se colapsan a **una sola fila**, porque son el mismo acto de las
+2 p. m. y gastaban dos huecos en decir lo mismo.
+
+**2. Los comunicados sin cifra no salían nunca.** La regla era «publicado =
+tiene dato, no “la fecha ya pasó”», y está bien pensada: unas nóminas de ayer
+sin número son unas nóminas retrasadas. Pero las **actas, los discursos del
+presidente de la Fed, la rueda de prensa, el Libro Beige y los dos anuncios del
+Tesoro no tienen número** — no se retrasaron, es que no lo traen. Se iban a
+«Próximos datos» marcados «retrasado» **para siempre**. Son cinco de la lista
+de Kevin, y ninguno salía.
+
+Ahora, si la fecha ya pasó, ocurrieron: van a publicados con un guion donde
+iría la cifra (el panel ya pintaba `—` para un valor nulo). La excepción es
+sólo para esas familias — `_MACRO_COMUNICADOS` —, y si FMP les mete un número
+entran por la puerta de siempre. Un dato de verdad sin cifra sigue siendo un
+retraso, con su caso que lo comprueba.
+
+#### Lo que intenté investigar y no pude
+
+Kevin dijo que mirara babypips o Investing. **El proxy de salida los rechaza
+todos con un 403 de política**: forexfactory.com, investing.com, fxstreet.com,
+tradingeconomics.com, babypips.com — y hasta `bls.gov`. Las búsquedas sólo
+devolvieron páginas de marketing que explican qué es una carpeta roja, sin
+enumerarlas.
+
+> Así que dejo dicho de dónde sale esto: **la lista de arriba es el calendario
+> de publicaciones oficiales de EE. UU. (BLS, BEA, Census, Fed), no una fuente
+> que yo haya podido abrir hoy.** Es exactamente por eso que existe la red de
+> abajo: lo que aun así se me escape entra igual si FMP lo marca `High`.
+
+Lo que dejé en **nivel 2** y él no nombró, por si lo quiere arriba: peticiones
+continuadas, S&P Global PMI (las tres), producción industrial, nuevas viviendas
+y precios de importación.
+
+#### Y una basura de coma flotante en la misma caja
+
+`4.1M` se guardaba como `4099999.9999999995` —`4.1 * 1e6` en binario— y eso es
+lo que se enseñaba debajo de «Existing Home Sales». No es un error de cálculo;
+se lee como un dato roto. Redondeo a seis decimales: mata el artefacto sin
+tocar ninguna precisión real, porque estos valores son conteos y porcentajes
+con uno o dos decimales.
+
+Verificado en rojo antes que en verde: **31 casos** de la primera ronda y
+**19 más** de ésta caen con el `vertex_api.py` anterior.
+
 ### Estado
 
 **3.478 tests del motor · 1.315 de la capa web (13 nuevos) · 342 checks de

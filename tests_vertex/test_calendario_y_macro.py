@@ -219,7 +219,9 @@ class TestMayorNoEsSiempreMejor:
         ("CPI", 1, "bajo"),
         ("Core PCE Price Index", 1, "bajo"),
         ("Unemployment Rate", 1, "bajo"),
-        ("Initial Jobless Claims", 2, "bajo"),
+        # Nivel 1 desde el 27/08/2026: Kevin las nombró en su lista de alto
+        # impacto. Antes estaban en 2 —de relleno—, que era una opinión mía.
+        ("Initial Jobless Claims", 1, "bajo"),
         ("Nonfarm Payrolls", 1, "alto"),
         ("GDP Growth Rate", 1, "alto"),
         ("Retail Sales", 1, "alto"),
@@ -1277,3 +1279,484 @@ class TestElNombreYElCorteNoSeConfunden:
         # Y lo que no lleva corte no se inventa uno.
         suelto = V._macro_dato_datos({**base, "evento": "Unemployment Rate"})
         assert "MENSUAL" not in suelto and "INTERANUAL" not in suelto
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#: La lista que Kevin mandó el 27/08/2026, literal, con sus nombres tal cual
+#: los escribe FMP. Es el contrato: **todas** son de alto impacto.
+#:
+#:     «las noticias de alto impacto te las dare porque las estas haciendo
+#:      mal. son estas: …»
+_ALTO_IMPACTO_DE_KEVIN = (
+    "Building Permits Prel",
+    "Housing Starts",
+    "FOMC Minutes",
+    "Initial Jobless Claims",
+    "CB Consumer Confidence",
+    "Personal Income",
+    "Personal Spending MoM",
+    "Durable Goods Orders",
+    "Core PCE Price Index MoM",
+    "GDP Growth Rate QoQ 2nd Est",
+    "Core Personal Consumption Expenditure",
+    "UoM Consumer Sentiment Index",
+    "Non Farm Payrolls Annual Revision Prel",
+    "Fed Chair Speech",
+    "JOLTs Job Openings",
+    "ISM Manufacturing PMI",
+    "ADP National Employment Report",
+    "ISM Services PMI",
+    "Average Hourly Earnings MoM",
+    "Nonfarm Payrolls",
+    "Unemployment Rate",
+    "Existing Home Sales",
+    "Core Inflation Rate MoM",
+    "Core Inflation Rate YoY",
+    "Inflation Rate MoM",
+    "Core PPI",
+    "PPI MoM",
+    "Retail Sales Ex Autos MoM",
+    "Retail Sales MoM",
+    "University of Michigan Consumer Sentiment Index",
+    "Treasury Refunding Financing Estimates",
+    "Treasury Refunding Announcement",
+)
+
+
+class TestLaListaDeAltoImpactoEsLaDeKevin:
+    """De las 32 que mandó, 17 estaban mal.
+
+    Once en nivel 2 —que es sólo relleno y nunca desplaza a un nivel 1— y
+    **seis no entraban siquiera en la caja**, porque su nombre no casaba con
+    ninguna clave de la tabla: `Personal Income`, `Personal Spending`,
+    `Core Personal Consumption Expenditure`, `UoM Consumer Sentiment Index`,
+    `Fed Chair Speech` y las dos del Tesoro.
+
+    Dos de esas seis eran errores de clave, no de criterio: la tabla decía
+    `adp employment`, y el evento se llama «ADP National Employment Report»
+    —no contiene esa cadena—; y decía `michigan consumer sentiment`, que
+    «UoM Consumer Sentiment Index» tampoco contiene. El dato existía, la
+    llave no abría.
+    """
+
+    @pytest.mark.parametrize("evento", _ALTO_IMPACTO_DE_KEVIN)
+    def test_esta_en_la_tabla_y_es_de_ALTO_impacto(self, evento):
+        import vertex_api as V
+
+        ficha = V._macro_ficha(evento)
+        assert ficha is not None, (
+            f"«{evento}» no casa con ninguna clave: no entra en la caja")
+        assert ficha[0] == 1, (
+            f"«{evento}» entra como nivel {ficha[0]}: el nivel 2 es relleno y "
+            f"nunca desplaza a un nivel 1, así que quedaría fuera de la caja")
+
+    @pytest.mark.parametrize("evento", _ALTO_IMPACTO_DE_KEVIN)
+    def test_y_el_filtro_de_la_caja_lo_deja_pasar(self, evento):
+        """`_macro_ficha` y `_es_evento_macro` tienen que decir lo mismo: es el
+        segundo el que decide quién entra, y son dos sitios."""
+        import vertex_api as V
+
+        assert V._es_evento_macro(evento) is True
+
+    @pytest.mark.parametrize("a,b", [
+        # Son DOS comunicados distintos, no dos variantes del mismo.
+        ("Nonfarm Payrolls", "Non Farm Payrolls Annual Revision Prel"),
+        # El «sin automóviles» va marcado aparte en los calendarios, y Kevin
+        # lo nombró aparte: es su propia familia, no un sub-agregado.
+        ("Retail Sales MoM", "Retail Sales Ex Autos MoM"),
+        ("Treasury Refunding Announcement", "Treasury Refunding Financing Estimates"),
+    ])
+    def test_los_que_son_DOS_datos_ocupan_dos_filas(self, a, b):
+        import vertex_api as V
+
+        assert V._macro_grupo(a) != V._macro_grupo(b), (
+            f"«{a}» y «{b}» caen en la misma fila: uno de los dos no se vería")
+
+    @pytest.mark.parametrize("evento", [
+        "Retail Sales Excluding Gas and Autos MoM",
+        "Retail Sales Control Group",
+        "Nonfarm Payrolls Private",
+    ])
+    def test_pero_los_sub_agregados_siguen_sin_titular(self, evento):
+        """Quitar el « ex » de la regla de sub-agregados no puede abrirle la
+        puerta a los recortes del comunicado que Kevin NO nombró: en su
+        captura del 22/08 dos de los cinco huecos eran «Excluyendo…»."""
+        import vertex_api as V
+
+        titular = {"evento": evento.replace(" Excluding Gas and Autos", "")
+                             .replace(" Control Group", "")
+                             .replace(" Private", ""), "fecha": "2026-08-24"}
+        assert V._macro_titular({"evento": evento, "fecha": "2026-08-24"}) \
+            > V._macro_titular(titular), (
+            f"«{evento}» le ganaría el hueco a su titular")
+
+    def test_lo_que_el_PROVEEDOR_marca_de_alto_impacto_entra_aunque_no_este(self):
+        """La red de abajo: una tabla escrita a mano nunca está completa.
+
+        FMP manda un campo `impact` que ya se guardaba en la fila y que nadie
+        miraba. Un evento que no casa con ninguna clave pero que el proveedor
+        marca `High` entra igual — sin dirección, porque no sabemos leerlo.
+        """
+        import vertex_api as V
+
+        assert V._macro_alto_del_proveedor({"impact": "High"}) is True
+        assert V._macro_alto_del_proveedor({"impact": "high"}) is True
+        assert V._macro_alto_del_proveedor({"impact": "Medium"}) is False
+        assert V._macro_alto_del_proveedor({"impact": "Low"}) is False
+        # Y si el campo no viene, no cambia nada: es lo que hacía antes.
+        assert V._macro_alto_del_proveedor({}) is False
+        assert V._macro_alto_del_proveedor({"impact": None}) is False
+
+    def test_la_red_de_abajo_NO_pinta_de_colores_lo_que_no_conoce(self, monkeypatch):
+        """Entra en la caja, pero sin `mejor`: inventarle un «más alto es
+        mejor» a un dato que no hemos leído sería pintar de verde algo que no
+        entendemos. Igual que una decisión de la Fed."""
+        import vertex_api as V
+
+        hoy = date.today()
+        crudo = [{"country": "US", "event": "Wholesale Inventories MoM",
+                  "date": (hoy - timedelta(days=1)).isoformat() + " 12:30:00",
+                  "actual": "0.3%", "estimate": "0.1%", "previous": "0.2%",
+                  "impact": "High"}]
+
+        class _R:
+            status_code = 200
+
+            def json(self):
+                return crudo
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        caja = V._macro_calcula()
+        filas = [f for f in caja["publicados"] if "Wholesale" in f["evento"]]
+        assert len(filas) == 1, "el proveedor lo marcó de alto impacto y no entró"
+        assert filas[0]["nivel"] == 1
+        assert filas[0]["mejor"] is None, "no sabemos su dirección: sin color"
+
+    def test_y_lo_que_NO_es_de_alto_impacto_ni_esta_en_la_tabla_sigue_fuera(
+            self, monkeypatch):
+        """El filtro es lo que mantiene la caja limpia. Sin él, ocho ruidos
+        semanales empujarían fuera al IPC del martes."""
+        import vertex_api as V
+
+        hoy = date.today()
+        crudo = [{"country": "US", "event": "Redbook YoY",
+                  "date": (hoy - timedelta(days=1)).isoformat() + " 12:30:00",
+                  "actual": "5.1%", "estimate": "5.0%", "previous": "4.9%",
+                  "impact": "Low"}]
+
+        class _R:
+            status_code = 200
+
+            def json(self):
+                return crudo
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        caja = V._macro_calcula()
+        assert not [f for f in caja["publicados"] if "Redbook" in f["evento"]]
+
+    @pytest.mark.parametrize("crudo,esperado", [
+        ("4.1M", 4_100_000.0),
+        ("275K", 275_000.0),
+        ("1.2B", 1_200_000_000.0),
+        ("-23K", -23_000.0),
+        ("2.9%", 2.9),
+        ("1,250", 1250.0),
+    ])
+    def test_las_unidades_no_dejan_basura_de_coma_flotante(self, crudo, esperado):
+        """`4.1 * 1e6` da 4099999.9999999995, y eso salía en la caja debajo de
+        «Existing Home Sales». No es un error de cálculo, es cómo se guardan
+        los decimales en binario — pero se lee como un dato roto."""
+        import vertex_api as V
+
+        assert V._num(crudo) == esperado
+
+
+#: Publicaciones de EE. UU. que la lista de Kevin no nombra y que los
+#: calendarios del oficio marcan igual de fuerte que las que sí nombra.
+#:
+#: Él pidió «investiga y ponlos todos». **No pude abrir ningún calendario**:
+#: forexfactory, investing, fxstreet, tradingeconomics, babypips y hasta
+#: bls.gov los rechaza el proxy de salida con un 403 de política. Esto sale
+#: del calendario de publicaciones oficiales (BLS, BEA, Census, Fed), no de
+#: una fuente que se haya podido leer. Por eso existe la red de abajo.
+_ALTO_IMPACTO_QUE_KEVIN_NO_NOMBRO = (
+    # El coste laboral trimestral del BLS: la medida de salarios que la Fed
+    # cita en cada conferencia de prensa.
+    "Employment Cost Index QoQ",
+    # Michigan publica DOS horizontes de expectativas, y se leen aparte.
+    # El de cinco años está a propósito en el relleno: ver `_MACRO_TABLA`.
+    "Michigan 1 Year Inflation Expectations Prel",
+    "Michigan Inflation Expectations",
+)
+
+#: De impacto medio: entran como relleno —nivel 2— y **nunca** desplazan a un
+#: nivel 1. Antes no entraban de ninguna forma.
+_RELLENO_NUEVO = (
+    "Philadelphia Fed Manufacturing Index",
+    "Philly Fed Business Conditions",
+    "NY Empire State Manufacturing Index",
+    "Chicago PMI",
+    "Factory Orders MoM",
+    "Michigan Consumer Expectations Prel",
+    "Michigan 5 Year Inflation Expectations Final",
+    "NFIB Business Optimism Index",
+    "Challenger Job Cuts",
+    "Nonfarm Productivity QoQ Final",
+    "Unit Labour Costs QoQ Final",
+    "Unit Labor Costs QoQ Prel",
+    "Balance of Trade",
+    "Trade Balance",
+    "Fed Beige Book",
+)
+
+
+class TestLoQueLaListaDeKevinNoNombra:
+    """«nose si me faltan mas, investiga y ponlos todos.»"""
+
+    @pytest.mark.parametrize("evento", _ALTO_IMPACTO_QUE_KEVIN_NO_NOMBRO)
+    def test_entra_como_ALTO_impacto(self, evento):
+        import vertex_api as V
+
+        ficha = V._macro_ficha(evento)
+        assert ficha is not None, f"«{evento}» no casa con ninguna clave"
+        assert ficha[0] == 1, f"«{evento}» entraría sólo como relleno"
+        assert V._es_evento_macro(evento) is True
+
+    @pytest.mark.parametrize("evento", _RELLENO_NUEVO)
+    def test_el_relleno_al_menos_entra(self, evento):
+        import vertex_api as V
+
+        ficha = V._macro_ficha(evento)
+        assert ficha is not None, f"«{evento}» no casa con ninguna clave"
+        assert V._es_evento_macro(evento) is True
+
+    def test_los_DOS_horizontes_de_Michigan_son_DOS_filas(self):
+        """Un año y cinco años no son la misma expectativa: si cayeran en la
+        misma familia, sólo se vería una de las dos. (El de cinco entra como
+        relleno, pero eso es su NIVEL, no su fila.)"""
+        import vertex_api as V
+
+        uno = V._macro_grupo("Michigan 1 Year Inflation Expectations Prel")
+        cinco = V._macro_grupo("Michigan 5 Year Inflation Expectations Final")
+        assert uno != cinco
+        # Y ninguno de los dos se confunde con el IPC.
+        assert uno != V._macro_grupo("Inflation Rate YoY")
+        assert cinco != V._macro_grupo("Inflation Rate YoY")
+
+    def test_las_expectativas_no_se_confunden_con_el_SENTIMIENTO(self):
+        """Michigan publica sentimiento, expectativas del consumidor y
+        expectativas de inflación el mismo día. Son tres cosas."""
+        import vertex_api as V
+
+        grupos = {
+            V._macro_grupo("UoM Consumer Sentiment Index"),
+            V._macro_grupo("Michigan Consumer Expectations Prel"),
+            V._macro_grupo("Michigan Inflation Expectations"),
+        }
+        assert len(grupos) == 3, f"se solapan: {grupos}"
+
+    @pytest.mark.parametrize("a,b", [
+        # `unit labo` casa con las dos grafías, que es lo que se quiere.
+        ("Unit Labour Costs QoQ Final", "Unit Labor Costs QoQ Prel"),
+        ("Balance of Trade", "Trade Balance"),
+        ("Philadelphia Fed Manufacturing Index", "Philly Fed Business Conditions"),
+    ])
+    def test_el_mismo_dato_con_DOS_nombres_es_UNA_fila(self, a, b):
+        import vertex_api as V
+
+        assert V._macro_grupo(a) == V._macro_grupo(b), (
+            f"«{a}» y «{b}» son el mismo dato y ocuparían dos huecos")
+
+    @pytest.mark.parametrize("a,b", [
+        # `nonfarm productivity` es más larga que `nonfarm payroll`, y
+        # `_MACRO_CLAVES` ordena de larga a corta: la productividad no puede
+        # acabar contada como nóminas.
+        ("Nonfarm Productivity QoQ Final", "Nonfarm Payrolls"),
+        # «NY Empire State **Manufacturing** Index» no es el ISM.
+        ("NY Empire State Manufacturing Index", "ISM Manufacturing PMI"),
+        # Las expectativas de inflación no son la tasa de inflación.
+        ("Michigan 1 Year Inflation Expectations Prel", "Inflation Rate YoY"),
+    ])
+    def test_las_claves_nuevas_no_se_TRAGAN_a_las_viejas(self, a, b):
+        import vertex_api as V
+
+        assert V._macro_grupo(a) != V._macro_grupo(b)
+
+    def test_el_relleno_nuevo_NO_le_quita_el_hueco_a_un_alto_impacto(
+            self, monkeypatch):
+        """Es toda la razón de ser del nivel 2: son catorce claves nuevas, y si
+        alguna entrase como nivel 1 empujaría al IPC fuera de la caja."""
+        import vertex_api as V
+
+        hoy = date.today()
+        # Catorce rellenos de AYER contra un IPC de hace diez días: si el
+        # relleno contase como alto impacto, el IPC no cabría.
+        eventos = [(n, 1, "1.0%", "0.9%", "0.8%") for n in _RELLENO_NUEVO]
+        eventos.append(("Core Inflation Rate YoY", 10, "2.9%", "3.0%", "3.1%"))
+        caja = _caja_macro(monkeypatch, eventos)
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert "Core Inflation Rate YoY" in nombres, (
+            f"el relleno desplazó al IPC: {nombres}")
+
+    def test_la_tabla_no_tiene_direcciones_INVENTADAS(self):
+        """`mejor` sólo puede ser «alto», «bajo» o nada. Un valor escrito mal
+        —«bajo »,«low», True— no rompería nada y pintaría el color al revés."""
+        import vertex_api as V
+
+        for clave, (nivel, mejor) in V._MACRO_TABLA.items():
+            assert nivel in (1, 2), f"«{clave}» tiene nivel {nivel!r}"
+            assert mejor in ("alto", "bajo", None), (
+                f"«{clave}» tiene mejor={mejor!r}")
+
+    def test_cada_SINONIMO_tiene_su_clave_en_la_tabla(self):
+        """`_MACRO_CLAVES` se arma de la TABLA. Un sinónimo cuya clave no esté
+        en la tabla no casa nunca: es un alias muerto, y así se perdieron
+        «Philly Fed» y «Trade Balance» hasta que se les dio clave propia."""
+        import vertex_api as V
+
+        huerfanos = [k for k in V._MACRO_SINONIMOS if k not in V._MACRO_TABLA]
+        assert not huerfanos, f"sinónimos sin clave en la tabla: {huerfanos}"
+
+    def test_y_cada_sinonimo_apunta_a_una_familia_REAL(self):
+        import vertex_api as V
+
+        rotos = [(k, d) for k, d in V._MACRO_SINONIMOS.items()
+                 if d not in V._MACRO_TABLA]
+        assert not rotos, f"sinónimos que apuntan a la nada: {rotos}"
+
+    def test_el_dia_de_MICHIGAN_el_IPC_sigue_en_la_caja(self, monkeypatch):
+        """Michigan suelta cuatro cifras el mismo viernes. La caja tiene ocho
+        huecos y ordena por fecha: con las cuatro en nivel 1 se llevaban tres
+        y el IPC de la semana pasada se caía de la caja."""
+        import vertex_api as V
+
+        caja = _caja_macro(monkeypatch, [
+            ("UoM Consumer Sentiment Index", 1, "67.8", "66.0", "65.4"),
+            ("Michigan Consumer Expectations Prel", 1, "58.1", "57.0", "56.4"),
+            ("Michigan 1 Year Inflation Expectations Prel", 1, "3.1%", "3.0%", "3.2%"),
+            ("Michigan 5 Year Inflation Expectations Prel", 1, "2.9%", "3.0%", "3.0%"),
+            ("ISM Services PMI", 2, "54.2", "53.0", "52.8"),
+            ("Initial Jobless Claims", 2, "221K", "230K", "228K"),
+            ("Nonfarm Payrolls", 3, "275K", "240K", "215K"),
+            ("Unemployment Rate", 3, "4.1%", "4.0%", "4.0%"),
+            ("Average Hourly Earnings MoM", 3, "0.4%", "0.3%", "0.3%"),
+            ("Core Inflation Rate YoY", 8, "2.9%", "3.0%", "3.1%"),
+            ("Inflation Rate YoY", 8, "3.4%", "3.4%", "3.5%"),
+        ])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert "Core Inflation Rate YoY" in nombres, (
+            f"Michigan se comió el hueco del IPC: {nombres}")
+        michigan = [n for n in nombres if "Michigan" in n or "UoM" in n]
+        assert len(michigan) <= 2, f"Michigan ocupa {len(michigan)} huecos: {michigan}"
+
+    def test_las_ACTAS_no_son_el_COMUNICADO_de_la_Fed(self, monkeypatch):
+        """Las actas salen tres semanas después del comunicado, y la caja mira
+        35 días atrás: los dos caben dentro. Con la clave genérica `fomc` caían
+        en la misma fila y **uno de los dos desaparecía** — y Kevin nombró las
+        actas expresamente en su lista."""
+        import vertex_api as V
+
+        assert V._macro_grupo("FOMC Minutes") != V._macro_grupo("FOMC Statement")
+        assert V._macro_grupo("FOMC Minutes") \
+            != V._macro_grupo("FOMC Economic Projections")
+
+        caja = _caja_macro(monkeypatch, [
+            ("FOMC Minutes", 2, "", "", ""),
+            ("FOMC Statement", 23, "4.25%", "4.25%", "4.50%"),
+        ])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert "FOMC Minutes" in nombres and "FOMC Statement" in nombres, (
+            f"uno se comió al otro: {nombres}")
+
+    @pytest.mark.parametrize("a,b", [
+        # El mismo acto de las 2 p. m. con tres rótulos: UNA fila.
+        ("Fed Interest Rate Decision", "FOMC Statement"),
+        ("Fed Interest Rate Decision", "Federal Funds Rate"),
+    ])
+    def test_pero_el_COMUNICADO_de_tipos_es_UNA_sola_fila(self, a, b):
+        import vertex_api as V
+
+        assert V._macro_grupo(a) == V._macro_grupo(b), (
+            f"«{a}» y «{b}» son el mismo acto y gastarían dos huecos")
+
+    def test_nada_de_la_Fed_lleva_COLOR(self):
+        """Un tipo más alto no es «peor dato»: es política. Pintarlo de rojo
+        sería una opinión sobre la Fed, no una lectura del dato."""
+        import vertex_api as V
+
+        for nombre in ("FOMC Minutes", "FOMC Statement", "FOMC Economic Projections",
+                       "Fed Interest Rate Decision", "Federal Funds Rate",
+                       "Fed Press Conference", "Fed Chair Powell Speech"):
+            ficha = V._macro_ficha(nombre)
+            assert ficha is not None and ficha[1] is None, (
+                f"«{nombre}» lleva dirección {ficha}")
+
+    @pytest.mark.parametrize("evento", [
+        "FOMC Minutes",
+        "Fed Chair Powell Speech",
+        "Fed Press Conference",
+        "Fed Beige Book",
+        "Treasury Refunding Announcement",
+        "Treasury Refunding Financing Estimates",
+    ])
+    def test_un_COMUNICADO_sin_cifra_SALE_igual(self, monkeypatch, evento):
+        """No traen número porque no lo tienen, no porque se hayan retrasado.
+
+        La regla «publicado = tiene dato» los mandaba a «Próximos datos»
+        marcados «retrasado» **para siempre**. Kevin nombró cinco de éstos en
+        su lista de alto impacto y ninguno salía nunca.
+        """
+        import vertex_api as V
+
+        caja = _caja_macro(monkeypatch, [(evento, 3, "", "", "")])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert evento in nombres, (
+            f"«{evento}» no llegó a publicados: {caja['proximos']}")
+        fila = next(f for f in caja["publicados"] if f["evento"] == evento)
+        assert fila["salio"] is None, "no tiene cifra, y no hay que inventarla"
+        assert fila["mejor"] is None, "un comunicado no se pinta de colores"
+
+    def test_pero_un_DATO_sin_cifra_sigue_siendo_un_RETRASO(self, monkeypatch):
+        """La excepción es sólo para los comunicados. Unas nóminas que debían
+        salir ayer y no han salido son lo que más se quiere ver, y siguen
+        estando por venir — marcadas «retrasado», que es como estaban."""
+        import vertex_api as V
+
+        caja = _caja_macro(monkeypatch, [("Nonfarm Payrolls", 1, "", "", "")])
+        assert not [f for f in caja["publicados"] if "Payroll" in f["evento"]]
+        fila = next(f for f in caja["proximos"] if "Payroll" in f["evento"])
+        assert fila["retrasado"] is True
+
+    def test_y_un_comunicado_que_AUN_NO_ha_ocurrido_no_se_da_por_dado(
+            self, monkeypatch):
+        """La rueda de prensa del mes que viene no es un acto ocurrido."""
+        import vertex_api as V
+
+        caja = _caja_macro(monkeypatch, [("Fed Press Conference", -6, "", "", "")])
+        assert not [f for f in caja["publicados"] if "Press" in f["evento"]]
+        assert [f for f in caja["proximos"] if "Press" in f["evento"]]
+
+    def test_si_el_comunicado_SI_trae_cifra_entra_por_la_puerta_de_siempre(
+            self, monkeypatch):
+        """FMP a veces mete el tipo dentro del comunicado. Entonces no se mira
+        la excepción: es un dato con número, como cualquier otro."""
+        import vertex_api as V
+
+        caja = _caja_macro(monkeypatch, [
+            ("Fed Interest Rate Decision", 3, "4.25%", "4.25%", "4.50%")])
+        fila = next(f for f in caja["publicados"]
+                    if "Interest Rate" in f["evento"])
+        assert fila["salio"] == 4.25
+        assert fila["mejor"] is None, "un tipo más alto no es un dato «peor»"
+
+    def test_cada_COMUNICADO_apunta_a_una_familia_REAL(self):
+        """El conjunto se compara contra `_macro_familia`, que devuelve claves
+        ya colapsadas por sinónimos: una entrada que no sea una familia real es
+        una excepción que no se aplica nunca."""
+        import vertex_api as V
+
+        reales = {V._MACRO_SINONIMOS.get(k, k) for k in V._MACRO_TABLA}
+        huerfanos = sorted(V._MACRO_COMUNICADOS - reales)
+        assert not huerfanos, f"comunicados que no son familia: {huerfanos}"

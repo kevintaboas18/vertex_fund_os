@@ -8519,65 +8519,157 @@ def _fred_observaciones(serie: str, limite: int = 14) -> list:
 #: prueba SIEMPRE la más larga primero: «core pce price index» tiene que ganarle
 #: a «pce», y «core cpi» a «cpi», o el matiz se pierde en la primera coincidencia.
 _MACRO_TABLA = {
+    # ══ La lista de Kevin (27/08/2026) ══════════════════════════════════
+    #
+    # «las noticias de alto impacto te las dare porque las estas haciendo mal.»
+    #
+    # Todo lo que él nombró está aquí en **nivel 1**. De las 32 que mandó, 17
+    # estaban mal: once en nivel 2 —que es sólo relleno— y seis no entraban
+    # siquiera en la caja porque su nombre no casaba con ninguna clave.
+    #
     # ── Inflación: cuanto MÁS BAJA, mejor ────────────────────────────────
     "core cpi":                    (1, "bajo"),
     "cpi":                         (1, "bajo"),
     "consumer price":              (1, "bajo"),
-    "core pce price":              (1, "bajo"),
-    "pce price":                   (1, "bajo"),
     "core inflation rate":         (1, "bajo"),
     "inflation rate":              (1, "bajo"),
-    "core ppi":                    (2, "bajo"),
-    "ppi":                         (2, "bajo"),
-    "producer price":              (2, "bajo"),
+    "core pce price":              (1, "bajo"),
+    "pce price":                   (1, "bajo"),
+    # El nombre largo del PCE: FMP lo publica de las dos formas y sin esta
+    # clave «Core Personal Consumption Expenditure» no entraba en la caja.
+    "core personal consumption":   (1, "bajo"),
+    "personal consumption":        (1, "bajo"),
+    "core ppi":                    (1, "bajo"),
+    "ppi":                         (1, "bajo"),
+    "producer price":              (1, "bajo"),
     "import prices":               (2, "bajo"),
-    # ── Empleo: nóminas ALTAS bien; paro y peticiones BAJOS bien ─────────
+    # ── Empleo ───────────────────────────────────────────────────────────
+    #
+    # La revisión anual va antes que las nóminas en `_MACRO_CLAVES` —que se
+    # ordena de clave larga a corta— para que sea su PROPIA fila: es otro
+    # comunicado, no una variante del mensual.
+    "payrolls annual revision":    (1, "alto"),
     "nonfarm payroll":             (1, "alto"),
     "non farm payroll":            (1, "alto"),
-    "adp employment":              (2, "alto"),
     "unemployment rate":           (1, "bajo"),
-    "initial jobless":             (2, "bajo"),
-    "continuing jobless":          (2, "bajo"),
-    # Sale DENTRO del informe de empleo, el mismo minuto que las nóminas y el
-    # paro, y es la mitad de la lectura: nóminas fuertes con salarios planos y
-    # nóminas fuertes con salarios al alza mueven la curva en sentidos
-    # contrarios. Estaba en nivel 2 —de relleno— y por eso el día de empleo la
-    # caja enseñaba dos tercios del comunicado. En los calendarios del oficio
-    # va marcado en rojo, igual que las nóminas.
     "average hourly earnings":     (1, "bajo"),   # salarios = inflación futura
-    "job openings":                (2, "alto"),
-    # ── Actividad: cuanto MÁS ALTA, mejor ────────────────────────────────
+    "initial jobless":             (1, "bajo"),
+    "continuing jobless":          (2, "bajo"),
+    "job openings":                (1, "alto"),
+    "jolts":                       (1, "alto"),
+    # «ADP National Employment Report» no contiene «adp employment», que era
+    # la clave vieja: el informe de ADP no entraba nunca.
+    "adp":                         (1, "alto"),
+    # ── Actividad y consumo ──────────────────────────────────────────────
     "gdp growth":                  (1, "alto"),
     "gdp price":                   (2, "bajo"),
+    # El «sin automóviles» es su propia familia, no un sub-agregado: en los
+    # calendarios del oficio va marcado igual de fuerte que el general, y
+    # Kevin lo nombró aparte. Va antes que «retail sales» por longitud.
+    "retail sales ex autos":       (1, "alto"),
+    "core retail sales":           (1, "alto"),
     "retail sales":                (1, "alto"),
+    "personal spending":           (1, "alto"),
+    "personal income":             (1, "alto"),
+    "durable goods":               (1, "alto"),
     "ism manufacturing":           (1, "alto"),
     "ism services":                (1, "alto"),
     "s&p global composite":        (2, "alto"),
     "s&p global manufacturing":    (2, "alto"),
     "s&p global services":         (2, "alto"),
-    "durable goods":               (2, "alto"),
     "industrial production":       (2, "alto"),
-    "building permits":            (2, "alto"),
-    "housing starts":              (2, "alto"),
-    "existing home sales":         (2, "alto"),
+    # ── Vivienda ─────────────────────────────────────────────────────────
+    "building permits":            (1, "alto"),
+    "housing starts":              (1, "alto"),
+    "existing home sales":         (1, "alto"),
     "new home sales":              (2, "alto"),
-    "michigan consumer sentiment": (2, "alto"),
-    "consumer confidence":         (2, "alto"),
-    # ── La Fed: no tiene «mejor», es una DECISIÓN, no una sorpresa ───────
+    # ── Confianza del consumidor ─────────────────────────────────────────
+    #
+    # «UoM» no contiene «michigan»: con la clave vieja, el índice de Michigan
+    # sólo entraba cuando FMP lo escribía con el nombre largo.
+    "michigan consumer sentiment": (1, "alto"),
+    "uom consumer sentiment":      (1, "alto"),
+    "consumer confidence":         (1, "alto"),
+    # ── La Fed y el Tesoro: no tienen «mejor» ────────────────────────────
     #
     # Un tipo más alto no es «peor dato»: es política. Marcarlo con dirección
     # haría que el panel pintara de rojo una subida y de verde una bajada, que
     # es una opinión sobre la Fed y no una lectura del dato. `None` = se enseña
-    # la cifra, sin color y sin juicio.
+    # la cifra, sin color y sin juicio. Lo mismo con las subastas del Tesoro y
+    # con los discursos, que ni siquiera traen número.
+    # La Fed publica VARIAS cosas y no todas son la misma.
+    #
+    # El comunicado de tipos, «Federal Funds Rate» y «FOMC Statement» son el
+    # MISMO acto de las 2 p. m.: se colapsan a una familia para no gastar dos
+    # huecos en decir lo mismo.
+    #
+    # Las ACTAS, en cambio, salen tres semanas después, y el cuadro de
+    # proyecciones —los famosos «puntos»— sale el mismo día que el comunicado
+    # pero es otra lectura. Con la clave genérica `fomc` los tres caían en la
+    # misma fila, y la ventana de la caja mira 35 días atrás: el comunicado y
+    # las actas caben los dos dentro, así que **uno de los dos desaparecía**.
+    # Por eso cada uno tiene su clave, y van antes que `fomc` porque
+    # `_MACRO_CLAVES` ordena de clave larga a corta.
+    "fomc economic projections":   (1, None),
+    "fomc minutes":                (1, None),
+    "fomc statement":              (1, None),
     "fed interest rate":           (1, None),
     "federal funds":               (1, None),
     "fomc":                        (1, None),
     "interest rate decision":      (1, None),
+    "fed chair":                    (1, None),
+    "fed press conference":        (1, None),
+    "treasury refunding financing": (1, None),
+    "treasury refunding announcement": (1, None),
+    "treasury refunding":          (1, None),
+    # ══ Lo que la lista de Kevin no nombra ══════════════════════════════
+    #
+    # Él pidió: «nose si me faltan mas, investiga y ponlos todos». No pude
+    # abrir ningún calendario —forexfactory, investing, fxstreet, babypips y
+    # hasta bls.gov los rechaza el proxy de salida con 403 de política—, así
+    # que esto sale del calendario de publicaciones oficiales de EE. UU.
+    # (BLS, BEA, Census, Fed) y NO de una fuente que yo haya podido leer hoy.
+    # Queda dicho en AUDITORIA.md. La red de abajo —el campo `impact` de
+    # FMP, en `_macro_alto_del_proveedor`— es la que cubre lo que aun así
+    # se me escape: si el proveedor lo marca «High», entra sin estar aquí.
+    #
+    # ── Alto impacto que faltaba ─────────────────────────────────────────
+    #
+    # El coste laboral trimestral del BLS: es la medida de salarios que la
+    # Fed cita en las conferencias, y no estaba por ningún lado.
+    "employment cost":             (1, "bajo"),
+    # Las expectativas de inflación de Michigan. Son DOS series distintas
+    # —un año y cinco años—, y se leen por separado: por eso son dos claves
+    # y no una. Van antes que la genérica porque `_MACRO_CLAVES` ordena de
+    # clave larga a corta.
+    #
+    # El horizonte de CINCO años queda en nivel 2 a propósito. La caja sólo
+    # tiene OCHO huecos y ordena por fecha: el día de Michigan salen el
+    # sentimiento, las expectativas del consumidor y los dos horizontes de
+    # inflación a la vez, y con los cuatro en nivel 1 se llevaban tres huecos
+    # y empujaban al IPC fuera de la caja. El de un año es el que mueve el
+    # mercado ese día; el de cinco es el ancla que mira la Fed, y sale
+    # igualmente cuando hay sitio. Subirlo es cambiar este 2 por un 1.
+    "1 year inflation expectations": (1, "bajo"),
+    "5 year inflation expectations": (2, "bajo"),
+    "inflation expectations":      (1, "bajo"),
+    # ── Impacto medio: relleno, nunca desplazan a un nivel 1 ─────────────
+    "philadelphia fed":            (2, "alto"),
+    "philly fed":                  (2, "alto"),
+    "empire state":                (2, "alto"),
+    "chicago pmi":                 (2, "alto"),
+    "factory orders":              (2, "alto"),
+    "michigan consumer expectations": (2, "alto"),
+    "nfib business optimism":      (2, "alto"),
+    "challenger job cuts":         (2, "bajo"),
+    "nonfarm productivity":        (2, "alto"),
+    "unit labo":                   (2, "bajo"),   # labor / labour
+    # Un déficit comercial no es «peor»: depende de por qué crece. Sin color.
+    "balance of trade":            (2, None),
+    "trade balance":               (2, None),
+    "beige book":                  (2, None),
 }
 
-#: Las claves ordenadas de más larga a más corta. El orden ES la corrección:
-#: buscando por inclusión, «cpi» coincidiría dentro de «core cpi» y se llevaría
-#: el nivel y la dirección equivocados.
 _MACRO_CLAVES = tuple(sorted(_MACRO_TABLA, key=len, reverse=True))
 
 
@@ -8594,11 +8686,28 @@ _MACRO_CLAVES = tuple(sorted(_MACRO_TABLA, key=len, reverse=True))
 #: calendario de FMP «Inflation Rate YoY» ES el IPC interanual, y los números
 #: idénticos de la captura lo confirman.
 _MACRO_SINONIMOS = {
-    "inflation rate":      "cpi",
-    "core inflation rate": "core cpi",
-    "consumer price":      "cpi",
-    "producer price":      "ppi",
-    "non farm payroll":    "nonfarm payroll",
+    "inflation rate":            "cpi",
+    "core inflation rate":       "core cpi",
+    "consumer price":            "cpi",
+    "producer price":            "ppi",
+    "non farm payroll":          "nonfarm payroll",
+    # El PCE con su nombre largo: «Core Personal Consumption Expenditure» y
+    # «Core PCE Price Index» son el mismo dato.
+    "core personal consumption": "core pce price",
+    "personal consumption":      "pce price",
+    # «UoM» y «University of Michigan» son el mismo índice.
+    "uom consumer sentiment":    "michigan consumer sentiment",
+    # El «sin automóviles» se llama de las dos formas.
+    "retail sales ex autos":     "core retail sales",
+    "jolts":                     "job openings",
+    # «Balance of Trade» y «Trade Balance» son el mismo dato.
+    "trade balance":             "balance of trade",
+    # Philadelphia Fed: el calendario lo abrevia de las dos formas.
+    "philly fed":                "philadelphia fed",
+    # El comunicado de tipos se llama de tres formas, y es un solo acto.
+    "fed interest rate":         "interest rate decision",
+    "federal funds":             "interest rate decision",
+    "fomc statement":            "interest rate decision",
 }
 
 #: Los cortes temporales que FMP publica. Se buscan por inclusión sobre el
@@ -8738,7 +8847,7 @@ def _macro_titular(f: dict) -> tuple:
     (`_macro_orden_corte`), no tirando.
     """
     n = str(f.get("evento") or "").lower()
-    sub = ("excluding" in n or "excluyendo" in n or " ex " in n
+    sub = ("excluding" in n or "excluyendo" in n
            or "private" in n or "control group" in n)
     return (1 if sub else 0, len(n), _fecha_inversa(f.get("fecha") or ""))
 
@@ -8799,6 +8908,54 @@ def _es_evento_macro(nombre: str) -> bool:
     return _macro_ficha(nombre) is not None
 
 
+#: Familias que son un COMUNICADO, no un dato: nunca traen cifra.
+#:
+#: Las actas, los discursos, la rueda de prensa, el Libro Beige y los anuncios
+#: del Tesoro **no tienen número**, y la regla de «publicado = tiene dato» los
+#: mandaba a «Próximos datos» marcados «retrasado» para siempre. Kevin nombró
+#: cinco de éstos en su lista de alto impacto y ninguno salía nunca.
+#:
+#: Si traen cifra —FMP a veces mete el tipo en el comunicado— entran por la
+#: puerta de siempre y esto no se mira.
+_MACRO_COMUNICADOS = frozenset({
+    "fomc minutes",
+    "fomc economic projections",
+    "fomc",
+    "fed chair",
+    "fed press conference",
+    "beige book",
+    "treasury refunding",
+    "treasury refunding announcement",
+    "treasury refunding financing",
+})
+
+
+def _macro_es_comunicado(nombre) -> bool:
+    """¿Es un comunicado sin cifra, y no un dato que se retrasó?"""
+    fam = _macro_familia(nombre)
+    return fam is not None and fam in _MACRO_COMUNICADOS
+
+
+def _macro_alto_del_proveedor(ev: dict) -> bool:
+    """¿FMP marca este evento como de ALTO impacto?
+
+    El calendario de FMP trae un campo `impact` —`High` / `Medium` / `Low`—
+    que ya se estaba guardando en la fila y **que nadie miraba**. Esa es la
+    otra mitad de «no me estás dando todas las noticias de alto impacto»: una
+    tabla escrita a mano nunca está completa, y lo que no casaba con ninguna
+    clave no entraba en la caja aunque el proveedor lo marcara en rojo.
+
+    Ahora la tabla manda —es la lista de Kevin, y es la que sabe la dirección
+    del dato— y esto es la red de abajo: lo que el proveedor llama de alto
+    impacto entra igual, aunque nadie lo hubiera previsto. Sin dirección, eso
+    sí: se enseña la cifra sin color, como la Fed.
+
+    Best-effort a propósito. Si el campo no viene, esto devuelve `False` y no
+    cambia nada — que es exactamente lo que hacía antes.
+    """
+    return str((ev or {}).get("impact") or "").strip().lower() == "high"
+
+
 def _macro_hora_et(cuando: str) -> str | None:
     """La hora de publicación en ET, a partir del sello de FMP (UTC).
 
@@ -8847,9 +9004,14 @@ def _num(x):
         mult = {"K": 1e3, "M": 1e6, "B": 1e9}[t[-1]]
         t = t[:-1]
     try:
-        return float(t) * mult
+        v = float(t) * mult
     except ValueError:
         return None
+    # `4.1 * 1e6` da 4099999.9999999995 en coma flotante, y eso es lo que la
+    # caja enseñaba en «Existing Home Sales». El redondeo a seis decimales
+    # mata la basura binaria sin tocar ninguna precisión real: estos valores
+    # son conteos y porcentajes con uno o dos decimales.
+    return round(v, 6)
 
 
 def _macro_calcula() -> dict:
@@ -8891,10 +9053,20 @@ def _macro_calcula() -> dict:
         if pais not in ("US", "USA", "UNITED STATES"):
             continue
         nombre = str(ev.get("event") or "").strip()
-        if not _es_evento_macro(nombre):
+        ficha = _macro_ficha(nombre)
+        alto_fmp = _macro_alto_del_proveedor(ev)
+        # La tabla manda; el `impact` del proveedor es la red de abajo. Lo que
+        # no está en la tabla NI viene marcado de alto impacto, no entra: ese
+        # filtro es lo que mantiene la caja limpia de ruido semanal.
+        if ficha is None and not alto_fmp:
             continue
         cuando = str(ev.get("date") or "")[:16]
-        nivel, mejor = _macro_ficha(nombre)
+        # Sin ficha no hay dirección: se enseña la cifra sin juicio, igual que
+        # una decisión de la Fed. Inventarle un «más alto es mejor» a un dato
+        # que no conocemos sería pintar de verde algo que no hemos leído.
+        nivel, mejor = (ficha if ficha else (1, None))
+        if alto_fmp:
+            nivel = 1
         fila = {
             "evento": nombre,
             "fecha": cuando,
@@ -8915,7 +9087,16 @@ def _macro_calcula() -> dict:
         # Publicado = tiene DATO, no «la fecha ya pasó». Un evento de ayer sin
         # cifra es uno que se retrasó, y meterlo entre los publicados con un
         # hueco lo haría parecer un dato que salió vacío.
+        #
+        # Con una excepción, y es la que hacía que las actas del FOMC, los
+        # discursos del presidente de la Fed, la rueda de prensa, el Libro
+        # Beige y los anuncios del Tesoro **no salieran nunca**: ésos no traen
+        # cifra porque no la tienen, no porque se hayan retrasado. Si la fecha
+        # ya pasó, ocurrieron: van a publicados, con un guion donde iría el
+        # número. El panel ya pinta «—» cuando el valor es nulo.
         if fila["salio"] is not None:
+            publicados.append(fila)
+        elif _macro_es_comunicado(nombre) and cuando[:10] <= hoy.isoformat():
             publicados.append(fila)
         else:
             # Publicado = tiene DATO, no «la fecha ya pasó»: un evento de ayer
