@@ -10409,10 +10409,19 @@ State, Chicago PMI, pedidos a fábrica, NFIB, Challenger, productividad y
 costes laborales unitarios, balanza comercial, Libro Beige, y las tres de
 expectativas de Michigan.
 
-**Un efecto que hay que decir:** la caja sigue cortando a **ocho filas**, y
-ahora las ocho son de alto impacto de verdad. En una ventana cargada eso
-significa que las nóminas de hace tres semanas se caen por abajo — no por
-ruido, sino porque hay ocho cosas más recientes. Subir el corte es un número.
+**El corte sube de ocho a DOCE filas.** Con el relleno fuera, las ocho pasaron
+a ser de alto impacto de verdad y se vio el efecto: en una ventana cargada las
+nóminas de hace tres semanas se caían por abajo, no por ruido sino porque
+había ocho cosas más recientes. Se lo dije y pidió doce (`_MACRO_FILAS`).
+
+«Próximos datos» se queda en ocho a propósito: mira siete días adelante y rara
+vez llega a llenarse, así que subirlo no enseñaría ni una fila más y alargaría
+la caja en el móvil.
+
+Y la ventana atrás tiene ahora un caso que la ata a la caja: con dos datos y
+medio de alto impacto por semana —el ritmo flojo—, treinta y cinco días dan
+para doce. Pedir una caja que el calendario no puede llenar sería volver a
+tener huecos, que es de donde salió el relleno.
 
 #### Dos que salieron al escribirle la lista a Kevin
 

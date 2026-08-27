@@ -8893,15 +8893,26 @@ def _macro_lectura_del_dato(salio, esperado, mejor: str | None) -> dict:
 #: Adelante son SIETE —hoy y seis más—, no veintiuno. «En los próximos datos
 #: quiero que salga desde hoy y 6 días más en adelante»: lo que se decide con
 #: esta caja es la semana, y un IPC a tres semanas vista no cambia nada hoy.
-# Atrás son CINCO semanas y no tres. Desde que la caja enseña «los últimos
-# ocho de alto impacto» en vez de «los ocho más importantes», la ventana tiene
-# que ser lo bastante ancha para que quepan ocho de nivel 1: en EE.UU. salen
-# entre dos y tres por semana, así que veintiún días se quedaban justos y la
-# caja acababa rellenando con nivel 2 sin necesidad. Ampliarla no cuesta nada
-# —es la misma petición al calendario— y no mete ruido, porque el recorte a
-# ocho lo hace la fecha.
+# Atrás son CINCO semanas y no tres. Desde que la caja enseña «los últimos de
+# alto impacto» en vez de «los más importantes», la ventana tiene que ser lo
+# bastante ancha para que quepan: en EE.UU. salen entre dos y tres por semana,
+# así que veintiún días se quedaban justos. Ampliarla no cuesta nada —es la
+# misma petición al calendario— y no mete ruido, porque el recorte lo hace la
+# fecha.
 _MACRO_DIAS_ATRAS = 35
 _MACRO_DIAS_ADELANTE = 6
+
+#: Cuántas filas caben en «Ya salieron».
+#:
+#: Eran OCHO. Con el relleno de nivel 2 fuera, las ocho pasaron a ser de alto
+#: impacto de verdad, y entonces se vio el efecto: en una ventana cargada las
+#: nóminas de hace tres semanas se caían por abajo —no por ruido, sino porque
+#: había ocho cosas más recientes—. Kevin pidió doce.
+#:
+#: «Próximos datos» se queda en ocho a propósito: mira SIETE días adelante y
+#: rara vez llega a llenarse, así que subirlo no enseñaría ni una fila más.
+_MACRO_FILAS = 12
+_MACRO_FILAS_PROXIMOS = 8
 
 
 def _es_evento_macro(nombre: str) -> bool:
@@ -9133,7 +9144,7 @@ def _macro_calcula() -> dict:
     # Los dos criterios a la vez, y en este orden: primero el nivel, después la
     # fecha. Ordenando solo por fecha, ocho peticiones de desempleo semanales
     # empujaban fuera de la caja al IPC del martes — el dato más reciente no es
-    # el más importante, y la caja tiene sitio para ocho.
+    # el más importante, y la caja tiene sitio para `_MACRO_FILAS`.
     # ── Una fila por GRUPO: indicador MÁS corte ──────────────────────────────
     #
     # FMP parte cada comunicado en variantes. Sin agrupar, las ventas
@@ -9155,10 +9166,10 @@ def _macro_calcula() -> dict:
             _familias[fam] = f
     publicados = list(_familias.values())
 
-    # ── Los ÚLTIMOS ocho, no los ocho más importantes ────────────────────
+    # ── Los ÚLTIMOS, no los más importantes ──────────────────────────────
     #
     # Aquí ordenaba por `nivel` primero y por fecha después, y eso contesta a
-    # otra pregunta: daba los ocho más IMPORTANTES de las tres últimas semanas.
+    # otra pregunta: daba los más IMPORTANTES de las tres últimas semanas.
     # Resultado en pantalla —capturado por Kevin—: un IPC de hace doce días
     # ocupando sitio mientras lo publicado ayer no aparecía. La caja se llama
     # «Ya salieron» y se lee como «lo último que salió».
@@ -9176,7 +9187,7 @@ def _macro_calcula() -> dict:
     # > interesan y no quiero que salgan en el panel.» — Kevin, 27/08/2026.
     #
     # Antes el nivel 2 rellenaba los huecos que sobraran, con el argumento de
-    # que ocho huecos vacíos no informan de nada. Pero una caja con menos
+    # que los huecos vacíos no informan de nada. Pero una caja con menos
     # filas dice la verdad —«esto es todo lo de alto impacto que ha salido»—
     # y una rellenada de segunda fila dice una mentira cómoda. Si en la
     # ventana sólo hay tres de alto impacto, salen tres.
@@ -9197,7 +9208,8 @@ def _macro_calcula() -> dict:
     # Los retrasados delante: si un dato debía salir ayer y no ha salido, es lo
     # más inminente que hay, no lo más viejo.
     proximos.sort(key=lambda x: (not x.get("retrasado"), x["fecha"], x["nivel"]))
-    publicados, proximos = publicados[:8], proximos[:8]
+    publicados = publicados[:_MACRO_FILAS]
+    proximos = proximos[:_MACRO_FILAS_PROXIMOS]
     # Ya vienen del más reciente al más viejo por el orden de arriba; esto lo
     # deja explícito para que un cambio en aquella clave no reordene la caja
     # sin que nadie lo note.

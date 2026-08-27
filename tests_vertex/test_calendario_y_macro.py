@@ -958,12 +958,16 @@ class TestLosOchoSonLosULTIMOSDeAltoImpacto:
         assert nombres == ["Core Inflation Rate YoY"], (
             f"sobraban siete huecos y se rellenaron igual: {nombres}")
 
-    def test_la_ventana_atras_da_para_ocho_de_nivel_1(self):
-        """En EE.UU. salen dos o tres de nivel 1 por semana: con veintiún días
-        la caja acababa rellenando con nivel 2 sin necesidad."""
+    def test_la_ventana_atras_da_para_LLENAR_la_caja(self):
+        """En EE.UU. salen dos o tres de alto impacto por semana. Con la caja
+        en doce filas, la ventana tiene que dar para doce: si no, se pide una
+        caja que el calendario no puede llenar."""
         import vertex_api as V
 
         assert V._MACRO_DIAS_ATRAS >= 35
+        # Dos y medio por semana es el ritmo flojo; que la ventana dé para la
+        # caja con ese ritmo, no con el bueno.
+        assert V._MACRO_DIAS_ATRAS / 7 * 2.5 >= V._MACRO_FILAS
 
     def test_el_macro_se_refresca_en_MINUTOS_no_en_un_dia(self):
         """«Si sale uno en 1 minuto y ya salió el reporte, que salga.»"""
@@ -1830,3 +1834,46 @@ class TestLoQueLaListaDeKevinNoNombra:
         import vertex_api as V
 
         assert V._es_evento_macro(evento) is True
+
+    def test_la_caja_da_DOCE_filas_y_no_ocho(self, monkeypatch):
+        """«sube el corte a 12 filas.» — Kevin, 27/08/2026.
+
+        Eran ocho. Con el relleno fuera, las ocho pasaron a ser de alto impacto
+        de verdad, y se vio el efecto: en una ventana cargada las nóminas de
+        hace tres semanas se caían por abajo, no por ruido sino porque había
+        ocho cosas más recientes.
+        """
+        import vertex_api as V
+
+        assert V._MACRO_FILAS == 12
+        # Quince datos de alto impacto, uno por día hacia atrás.
+        eventos = [
+            ("Core Inflation Rate YoY", 1), ("Inflation Rate YoY", 2),
+            ("Core PPI", 3), ("PPI MoM", 4), ("Nonfarm Payrolls", 5),
+            ("Unemployment Rate", 6), ("Average Hourly Earnings MoM", 7),
+            ("ISM Manufacturing PMI", 8), ("ISM Services PMI", 9),
+            ("Retail Sales MoM", 10), ("Personal Spending MoM", 11),
+            ("Durable Goods Orders", 12), ("Housing Starts", 13),
+            ("Existing Home Sales", 14), ("CB Consumer Confidence", 15),
+        ]
+        caja = _caja_macro(monkeypatch, [
+            (n, d, "1.0%", "0.9%", "0.8%") for n, d in eventos])
+        assert len(caja["publicados"]) == 12, (
+            f"la caja dio {len(caja['publicados'])} filas")
+        # Y son las DOCE más recientes, no doce cualesquiera.
+        assert [f["evento"] for f in caja["publicados"]] == \
+            [n for n, _ in eventos[:12]]
+
+    def test_pero_PROXIMOS_datos_se_queda_en_ocho(self, monkeypatch):
+        """Mira siete días adelante y rara vez llega a llenarse: subirlo no
+        enseñaría ni una fila más, y alargaría la caja en el móvil."""
+        import vertex_api as V
+
+        assert V._MACRO_FILAS_PROXIMOS == 8
+        caja = _caja_macro(monkeypatch, [
+            (n, -d, "", "", "") for d, n in enumerate([
+                "Core Inflation Rate YoY", "Inflation Rate YoY", "Core PPI",
+                "PPI MoM", "Nonfarm Payrolls", "Unemployment Rate",
+                "Average Hourly Earnings MoM", "ISM Manufacturing PMI",
+                "ISM Services PMI", "Retail Sales MoM"], start=1)])
+        assert len(caja["proximos"]) == 8
