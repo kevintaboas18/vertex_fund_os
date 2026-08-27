@@ -10152,11 +10152,143 @@ y la encontró **en el comentario que explica por qué no se usa**. Tercer
 tropiezo igual en esta sesión, así que ahora también aquí se mide sobre el AST
 con los docstrings vaciados.
 
+### La caja macro: el mismo dato dos veces, y el mensual que no salía nunca
+
+> «no me estas dando todas las noticias de alto impacto y creo que te
+>  confundes de nombre y si es MoM o YoY, recuerda que son diferentes.
+>  Verifica y solucionalo.» — Kevin, 27/08/2026.
+
+Tres quejas, dos averías, y la primera de las averías explicaba la primera
+queja. Verificado sobre los nombres exactos de su captura, llamando a
+`_macro_familia` uno por uno:
+
+| evento (tal cual lo manda FMP) | familia ANTES | nivel |
+|---|---|---|
+| `Core Inflation Rate YoY` | `core inflation rate` | 1 |
+| `Core CPI YoY` | `core cpi` | 1 |
+| `Inflation Rate YoY` | `inflation rate` | 1 |
+| `CPI YoY` | `cpi` | 1 |
+| `CPI MoM` | `cpi` | 1 |
+| `Nonfarm Payrolls Private` | `nonfarm payroll` | 1 |
+| `Non Farm Payrolls` | `non farm payroll` | 1 |
+
+#### 1 · «Te confundes de nombre»: cuatro de los ocho huecos eran repeticiones
+
+FMP publica la **misma serie con dos rótulos**. En la captura salían a la vez
+`Core Inflation Rate YoY` 2,50 / 2,50 / 2,60 y `Core CPI YoY` 2,50 / 2,50 /
+2,60 —los tres números idénticos—, y también `Inflation Rate YoY` 3,40 junto a
+`CPI YoY` 3,40. Como cada rótulo casaba con una clave distinta de
+`_MACRO_TABLA`, la agrupación por familia los trataba como dos indicadores y
+cada uno se quedaba con un hueco.
+
+**Y eso es exactamente por qué «no me estás dando todas las noticias de alto
+impacto»**: la caja tiene ocho huecos y **cuatro estaban gastados en decir dos
+veces lo mismo**. No faltaba nada del proveedor; sobraba repetición nuestra.
+
+Arreglo: `_MACRO_SINONIMOS` colapsa los rótulos a un nombre canónico
+(`inflation rate` → `cpi`, `core inflation rate` → `core cpi`, `producer price`
+→ `ppi`, `non farm payroll` → `nonfarm payroll`) dentro de `_macro_familia`.
+No se colapsan por parecerse: son la misma serie, y los números idénticos de
+la captura lo confirman.
+
+Lo que **no** se toca: el subyacente sigue siendo una familia aparte del
+general. Hay un caso que lo guarda, porque colapsar de más se llevaría por
+delante el matiz que más se mira.
+
+#### 2 · «MoM o YoY, recuerda que son diferentes»: el mensual no salía nunca
+
+Al revés que lo anterior. `CPI MoM` y `CPI YoY` caían **en la misma familia**,
+y `_macro_titular` elegía uno: el interanual, por `_MACRO_TITULAR_ANUAL`. Con
+lo cual el IPC mensual **no aparecía jamás en la caja**, ni ese día ni ninguno.
+Un +0,3% mensual y un +3,4% interanual son dos cifras, con dos consensos, que
+mueven el precio por separado.
+
+Arreglo: la identidad de la fila deja de ser la familia y pasa a ser
+`_macro_grupo` = **familia + corte** (`cpi|mom`, `cpi|yoy`, `gdp growth|qoq`).
+Los dos cortes salen; ninguno se descarta.
+
+La preferencia de corte no se tira, se **degrada de filtro a orden**:
+`_macro_orden_corte` pone delante el corte que cita el mercado —el interanual
+en la inflación, el mensual en la actividad— y el otro justo debajo. Sin eso,
+dos filas de la misma hora quedaban en el orden en que las mandara FMP, que es
+ninguno.
+
+De paso, `_MACRO_TITULAR_ANUAL` era un `frozenset` de familias «interanuales»
+y con dos estados **el PIB caía del lado equivocado**: en EE.UU. el titular del
+PIB es el trimestre anualizado, no el interanual. Ahora es un mapa
+(`_MACRO_CORTE_DEL_MERCADO`), y el PIB dice `qoq`.
+
+#### 3 · El sub-agregado que le quitaba el hueco al titular
+
+`Nonfarm Payrolls Private` (30,00 / 78,00 / 30,00) y `Non Farm Payrolls`
+(−23,00 / 80,00 / 20,00) son el mismo comunicado, y la cifra que se cita es la
+segunda. `_macro_titular` sólo apartaba los «excluyendo…», así que aquí ganaba
+por longitud del nombre —por suerte, no por regla—. Ahora `private` y
+`control group` cuentan como sub-agregados, igual que los «excluyendo».
+
+#### 4 · Los salarios del informe de empleo estaban en la fila de atrás
+
+`average hourly earnings` estaba en **nivel 2**, que es sólo relleno. Salen el
+mismo minuto que las nóminas y son la mitad de la lectura: nóminas fuertes con
+salarios planos y nóminas fuertes con salarios al alza mueven la curva en
+sentidos contrarios. En los calendarios del oficio va marcado en rojo igual que
+las nóminas. Subido a **nivel 1**.
+
+> Lo que **no** cambié y es discutible: `ppi` / `core ppi` siguen en nivel 2.
+> Hay calendarios que lo marcan de alto impacto y otros de medio. Es una línea
+> de código si Kevin lo quiere arriba, pero no me lo pidió y decidirlo por mi
+> cuenta cambiaría qué llena la caja el día de inflación.
+
+#### 5 · Y la nota escrita tampoco sabía de qué corte hablaba
+
+Misma avería, un piso más arriba. `_macro_dato_datos` le pasa al modelo el
+nombre del evento y sus tres cifras, y el modelo deducía el corte **leyendo el
+nombre**. Un +0,3% mensual explicado como si fuera interanual es una nota que
+miente con confianza. Ahora se le dice con todas las letras: «Es la lectura
+MENSUAL: este mes contra el mes anterior». Lo que no lleva corte no se inventa
+uno.
+
+#### Un guardián que se caía sin que nada se rompiera
+
+`test_manda_la_fecha_dentro_del_alto_impacto` eran tres
+`assert ... in inspect.getsource(...)`, y se puso rojo la primera vez que la
+clave de ordenación creció —por añadirle el desempate del corte, que no cambia
+nada de lo que ese caso vigila—. Un guardián que se cae cuando el
+comportamiento **no** cambia no vigila nada: sólo obliga a reescribirlo. Ahora
+mide el hecho sobre la caja montada: un dato de hace doce días no le gana al
+de ayer.
+
+Cuarto tropiezo de la misma clase en esta sesión, y el primero que era mío de
+esta ronda.
+
+#### Y dos casos míos que pasaban por el motivo equivocado
+
+Al escribir los guardianes nuevos, dos daban verde **sin el arreglo**:
+filtraban las filas por `"MoM" in evento`, y `Average Hourly Earnings MoM`
+también lo lleva. Medían otra fila. Se estrecharon al IPC, que es de lo que iba
+la queja, y entonces sí se pusieron rojos.
+
+Verificado en rojo antes que en verde: **13 casos** de los nuevos caen con el
+`vertex_api.py` anterior (`git stash` del fichero, batería, `stash pop`,
+`diff -q` para confirmar que el árbol vuelve idéntico).
+
+Tres de ellos no miran la caja sino el mapa: que todo sinónimo apunte a una
+clave **que existe** en `_MACRO_TABLA` —`_macro_ficha` la indexa directo, así
+que un sinónimo huérfano reventaría con `KeyError` en producción la primera vez
+que FMP publicara ese dato—, que todo rótulo colapsado esté también en la tabla
+—si no, `_macro_familia` nunca lo vería y el sinónimo no se aplicaría jamás—, y
+que la preferencia de corte se escriba con nombres ya canónicos, porque puesta
+con un rótulo dejaría de consultarse en silencio.
+
 ### Estado
 
-**3.478 tests del motor · 1.154 de la capa web (94 nuevos) · 148 de navegador ·
-342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
-verde. 0 fallos, y **sin intermitentes declarados**.**
+**3.478 tests del motor · 1.315 de la capa web (13 nuevos) · 342 checks de
+auditoría CON su repo real (0 avisos · 0 fallos, contra `/tmp/tito` en
+`53d5a20`) · los 17 diferenciales en verde. 0 fallos, y **sin intermitentes
+declarados**.**
+
+Los de navegador van dentro de los 1.315 (`tests_vertex/test_navegador.py`); la
+corrida completa de la capa web tardó 47 min 36 s.
 
 Una nota honesta sobre el intermitente del almacén: en una corrida completa
 falló `TestUnRespaldoVACIONoPISAaUnoLLENO::test_el_paquete_se_ABRE_y_se_cuenta_

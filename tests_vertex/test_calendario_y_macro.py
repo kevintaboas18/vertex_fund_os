@@ -31,6 +31,31 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+def _caja_macro(monkeypatch, eventos):
+    """Monta la caja de lo macro con un calendario inventado.
+
+    `eventos` son tuplas `(nombre, hace_cuántos_días, salió, esperado, previo)`.
+    Se usa desde varias clases, así que vive aquí y no dentro de una de ellas.
+    """
+    import vertex_api as V
+
+    monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+    hoy = date.today()
+    crudo = [{"country": "US", "event": nombre,
+              "date": (hoy - timedelta(days=dias)).isoformat() + " 12:30:00",
+              "actual": salio, "estimate": esp, "previous": prev}
+             for nombre, dias, salio, esp, prev in eventos]
+
+    class _R:
+        status_code = 200
+
+        def json(self):
+            return crudo
+
+    monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+    return V._macro_calcula()
+
+
 #: Cuántas empresas grandes reportan cada día en el escenario de temporada
 #: alta. Sesenta es realista para febrero o agosto y es lo que hace visible el
 #: recorte: 14 × 60 = 840 filas contra un tope global de 400.
@@ -636,9 +661,18 @@ class TestUnComunicadoNoOcupaCuatroHuecos:
         monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
         return V._macro_calcula()
 
-    def test_las_ventas_minoristas_ocupan_UN_hueco_y_no_cuatro(self, caja):
+    def test_las_ventas_minoristas_ocupan_DOS_huecos_y_no_cuatro(self, caja):
+        """Dos, no uno: el contrato cambió porque Kevin lo cambió.
+
+        Este caso pedía UN hueco, y con eso se perdía el interanual entero.
+        «Recuerda que son diferentes»: el mensual y el interanual son dos
+        datos, con dos consensos, y los dos salen. Lo que sigue sin poder
+        pasar —y es lo que este caso guarda— es que las cuatro variantes del
+        mismo martes ocupen los cuatro huecos: los «excluyendo…» siguen sin
+        titular.
+        """
         cuantas = [f["evento"] for f in caja["publicados"] if "Retail" in f["evento"]]
-        assert len(cuantas) == 1, (
+        assert sorted(cuantas) == ["Retail Sales MoM", "Retail Sales YoY"], (
             f"el mismo comunicado ocupa {len(cuantas)} huecos: {cuantas}")
 
     def test_los_EXCLUYENDO_no_titulan(self, caja):
@@ -647,16 +681,22 @@ class TestUnComunicadoNoOcupaCuatroHuecos:
                  if "Excluding" in f["evento"]]
         assert not malos, f"un sub-agregado se quedó con el hueco: {malos}"
 
-    def test_de_las_ventas_se_ensena_el_MoM(self, caja):
-        """Es el corte que cita el mercado: «las ventas cayeron un 0,6%»."""
+    def test_de_las_ventas_manda_el_MoM(self, caja):
+        """Es el corte que cita el mercado: «las ventas cayeron un 0,6%».
+
+        «Manda» es ir DELANTE, no ser el único: el interanual sale también, una
+        fila más abajo. Antes esto se resolvía descartando el otro corte, y era
+        la avería.
+        """
         f = next(f for f in caja["publicados"] if "Retail" in f["evento"])
         assert f["evento"] == "Retail Sales MoM" and f["salio"] == -0.6
 
-    def test_pero_de_la_inflacion_se_ensena_el_YoY(self, caja):
+    def test_pero_de_la_inflacion_manda_el_YoY(self, caja):
         """La inflación se cita a doce meses: «la inflación está en el 3,1%».
 
         Es la vuelta de tuerca del caso de arriba: la regla NO es «siempre el
-        mensual», es «el que cita el mercado para esa familia».
+        mensual», es «el que cita el mercado para esa familia» — y para el PIB
+        de EE.UU. no es ninguno de los dos, es el trimestre anualizado.
         """
         f = next(f for f in caja["publicados"]
                  if f["evento"].startswith("Inflation Rate"))
@@ -877,16 +917,23 @@ class TestLosOchoSonLosULTIMOSDeAltoImpacto:
     **los últimos ocho**, y **sólo de alto impacto**.
     """
 
-    def test_manda_la_fecha_dentro_del_alto_impacto(self):
-        import inspect
+    def test_manda_la_fecha_dentro_del_alto_impacto(self, monkeypatch):
+        """Medido sobre la caja, no sobre el texto de la función.
 
-        import vertex_api as V
-
-        fuente = inspect.getsource(V._macro_calcula)
-        assert '_altos = [f for f in publicados if f["nivel"] <= 1]' in fuente
-        assert '_altos.sort(key=lambda x: _fecha_inversa(x["fecha"]))' in fuente
-        # Y el orden viejo —importancia primero— no puede volver.
-        assert 'publicados.sort(key=lambda x: (x["nivel"], _fecha_inversa' not in fuente
+        Empezó siendo tres `assert ... in inspect.getsource(...)`, y se rompió
+        a la primera vez que la clave de ordenación creció —por añadirle el
+        desempate del corte, que no cambia nada de lo que este caso vigila—.
+        Un guardián que se cae cuando el comportamiento NO cambia no vigila
+        nada: sólo obliga a reescribirlo. Lo que hay que exigir es el hecho,
+        y el hecho es que dentro del alto impacto el más reciente va primero.
+        """
+        caja = _caja_macro(monkeypatch, [
+            ("CPI YoY", 12, "3.1%", "3.0%", "2.9%"),          # importante y VIEJO
+            ("Unemployment Rate", 1, "4.4%", "4.1%", "4.2%"),  # importante y de AYER
+        ])
+        eventos = [f["evento"] for f in caja["publicados"]]
+        assert eventos[0] == "Unemployment Rate", (
+            f"un dato de hace doce días le gana al de ayer: {eventos}")
 
     def test_el_nivel_2_solo_RELLENA_nunca_desplaza(self):
         """Ocho peticiones semanales de desempleo no pueden empujar fuera al
@@ -1046,3 +1093,187 @@ class TestLosQueReportanSALENDentroDeSuSector:
         assert len(reales) >= 8, sorted(reales)
         pedidas = set(re.findall(r"switchView\('([a-zA-Z]+)'", html))
         assert pedidas <= reales, sorted(pedidas - reales)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+class TestElNombreYElCorteNoSeConfunden:
+    """Kevin, el 27/08/2026, sobre la caja de lo macro:
+
+        «no me estas dando todas las noticias de alto impacto y creo que te
+         confundes de nombre y si es MoM o YoY, recuerda que son diferentes.»
+
+    Eran dos averías, y la primera explicaba la primera queja.
+
+    **Los nombres.** FMP publica la MISMA serie con dos rótulos. En la captura
+    salían a la vez «Core Inflation Rate YoY» 2,50 / 2,50 / 2,60 y «Core CPI
+    YoY» 2,50 / 2,50 / 2,60 —los tres números idénticos—, y también «Inflation
+    Rate YoY» 3,40 junto a «CPI YoY» 3,40. **Cuatro de los ocho huecos eran dos
+    datos repetidos**: por eso faltaban noticias de alto impacto, la mitad de la
+    caja estaba gastada en decir dos veces lo mismo.
+
+    **El corte.** Al revés: «CPI MoM» y «CPI YoY» se trataban como el mismo
+    dato y sólo salía uno. Un IPC mensual del +0,3% y uno interanual del +3,4%
+    son dos cifras, con dos consensos, que mueven el precio por separado.
+    """
+
+    @pytest.fixture(scope="function")
+    def caja(self, monkeypatch):
+        return _caja_macro(monkeypatch, [
+            # Los dos rótulos del mismo dato, con los mismos números.
+            ("Core Inflation Rate YoY", 3, "2.5%", "2.5%", "2.6%"),
+            ("Core CPI YoY",            3, "2.5%", "2.5%", "2.6%"),
+            ("Inflation Rate YoY",      3, "3.4%", "3.4%", "3.5%"),
+            ("CPI YoY",                 3, "3.4%", "3.4%", "3.5%"),
+            # Y el mensual del mismo comunicado, que es OTRO dato.
+            ("CPI MoM",                 3, "0.3%", "0.2%", "0.1%"),
+            ("Core CPI MoM",            3, "0.2%", "0.2%", "0.3%"),
+            # El informe de empleo: titular, sub-agregado y salarios.
+            ("Non Farm Payrolls",           6, "-23K", "80K", "20K"),
+            ("Nonfarm Payrolls Private",    6, "30K",  "78K", "30K"),
+            ("Average Hourly Earnings MoM", 6, "0.3%", "0.3%", "0.2%"),
+            ("Unemployment Rate",           6, "4.4%", "4.3%", "4.2%"),
+        ])
+
+    def _eventos(self, caja):
+        return [f["evento"] for f in caja["publicados"]]
+
+    def _ipc_general(self, caja):
+        """Las filas del IPC general: ni el subyacente, ni ningún otro dato.
+
+        Filtrar por «MoM» a secas era un colador —«Average Hourly Earnings
+        MoM» también lo lleva— y hacía pasar el caso sin el arreglo. Se mide
+        el IPC, que es de lo que iba la queja.
+        """
+        return [f["evento"] for f in caja["publicados"]
+                if ("CPI" in f["evento"] or "Inflation Rate" in f["evento"])
+                and "Core" not in f["evento"]]
+
+    def test_los_dos_rotulos_del_MISMO_dato_ocupan_UN_hueco(self, caja):
+        """«Core Inflation Rate YoY» y «Core CPI YoY» son la misma serie."""
+        nucleo = [e for e in self._eventos(caja)
+                  if "Core" in e and "YoY" in e]
+        assert len(nucleo) == 1, (
+            f"el mismo dato ocupa {len(nucleo)} huecos de los ocho: {nucleo}")
+
+    def test_y_lo_mismo_con_el_general(self, caja):
+        general = [e for e in self._eventos(caja)
+                   if "YoY" in e and "Core" not in e]
+        assert len(general) == 1, (
+            f"el mismo dato ocupa {len(general)} huecos de los ocho: {general}")
+
+    def test_pero_el_NUCLEO_no_se_funde_con_el_GENERAL(self, caja):
+        """Colapsar sinónimos no puede llevarse por delante el matiz: el IPC
+        subyacente y el general son dos datos distintos y los dos se miran."""
+        eventos = self._eventos(caja)
+        assert any("Core" in e and "YoY" in e for e in eventos)
+        assert any("Core" not in e and "YoY" in e for e in eventos)
+
+    def test_el_MoM_y_el_YoY_salen_LOS_DOS(self, caja):
+        """«Recuerda que son diferentes.» Antes sólo salía el interanual."""
+        ipc = self._ipc_general(caja)
+        assert len(ipc) == 2, f"el IPC general ocupa {len(ipc)} filas: {ipc}"
+        assert any("YoY" in e for e in ipc), ipc
+        assert any("MoM" in e for e in ipc), f"el IPC mensual no aparece: {ipc}"
+
+    def test_el_titular_va_DELANTE_del_otro_corte(self, caja):
+        """Los dos salen, pero la inflación se cita a doce meses: el interanual
+        arriba y el mensual debajo. Sin esto quedaban en el orden en que los
+        mandara FMP, que es ninguno."""
+        ipc = self._ipc_general(caja)
+        assert "YoY" in ipc[0] and "MoM" in ipc[-1], ipc
+
+    def test_el_sub_agregado_no_le_quita_el_hueco_al_titular(self, caja):
+        """«Nonfarm Payrolls Private» (30K) y «Non Farm Payrolls» (−23K) son el
+        mismo comunicado. La cifra que se cita es la segunda."""
+        nominas = [f for f in caja["publicados"] if "ayroll" in f["evento"]]
+        assert len(nominas) == 1, f"dos huecos para un comunicado: {nominas}"
+        # «-23K» llega expandido a miles: lo que se mide aquí es CUÁL de las
+        # dos cifras se quedó con el hueco, no cómo se escribe.
+        assert nominas[0]["salio"] == -23_000.0, (
+            f"tituló el sub-agregado: {nominas[0]['evento']}")
+
+    def test_los_salarios_del_informe_de_empleo_son_ALTO_impacto(self):
+        """Salen el mismo minuto que las nóminas y son la mitad de la lectura.
+        Estaban en nivel 2 —de relleno—, así que el día de empleo la caja
+        enseñaba dos tercios del comunicado."""
+        import vertex_api as V
+
+        assert V._macro_ficha("Average Hourly Earnings MoM")[0] == 1
+
+    def test_en_la_caja_no_hay_DOS_FILAS_CON_LOS_MISMOS_NUMEROS(self, caja):
+        """Lo que Kevin vio con sus ojos, medido tal cual.
+
+        Contar filas no sirve: sin el arreglo también salían ocho. Lo que
+        delataba la avería es que dos de ellas traían los MISMOS tres números
+        —2,50 / 2,50 / 2,60— porque eran el mismo dato con dos rótulos.
+        """
+        vistos: dict[tuple, str] = {}
+        for f in caja["publicados"]:
+            huella = (f["salio"], f["esperado"], f.get("previo"))
+            if huella[0] is None:
+                continue
+            gemelo = vistos.get(huella)
+            assert gemelo is None, (
+                f"«{f['evento']}» y «{gemelo}» traen los mismos números "
+                f"{huella}: son el mismo dato ocupando dos de los ocho huecos")
+            vistos[huella] = f["evento"]
+
+    def test_del_PIB_el_titular_es_el_TRIMESTRAL_no_el_interanual(self):
+        """En EE.UU. el PIB se cita por su trimestre anualizado: «la economía
+        creció un 3,0%». La preferencia era un `frozenset` de familias
+        «interanuales» y el PIB caía del lado equivocado."""
+        import vertex_api as V
+
+        assert V._macro_orden_corte({"evento": "GDP Growth Rate QoQ"}) == 0
+        assert V._macro_orden_corte({"evento": "GDP Growth Rate YoY"}) == 1
+
+    def test_el_corte_forma_parte_de_la_identidad_de_la_fila(self):
+        """La regla en una línea, por si algún día se vuelve a agrupar por
+        familia a secas: la fila es indicador MÁS corte."""
+        import vertex_api as V
+
+        assert V._macro_grupo("CPI MoM") != V._macro_grupo("CPI YoY")
+        assert V._macro_grupo("CPI YoY") == V._macro_grupo("Inflation Rate YoY")
+        assert V._macro_grupo("CPI YoY") != V._macro_grupo("Core CPI YoY")
+
+    def test_todo_sinonimo_apunta_a_una_clave_QUE_EXISTE(self):
+        """`_macro_ficha` indexa `_MACRO_TABLA` con lo que devuelve
+        `_macro_familia`, y eso ahora es el nombre canónico. Un sinónimo que
+        apuntara a un nombre que no está en la tabla reventaría con `KeyError`
+        la primera vez que FMP publicara ese dato — en producción, no aquí."""
+        import vertex_api as V
+
+        for rotulo, canonico in V._MACRO_SINONIMOS.items():
+            assert canonico in V._MACRO_TABLA, (
+                f"«{rotulo}» se colapsa a «{canonico}», que no está en la tabla")
+            assert rotulo in V._MACRO_TABLA, (
+                f"«{rotulo}» no está en la tabla, así que _macro_familia nunca "
+                f"lo verá y el sinónimo no se aplica jamás")
+
+    def test_toda_preferencia_de_corte_apunta_a_una_familia_CANONICA(self):
+        """El mapa se consulta con el nombre ya canonizado. Poner ahí
+        «inflation rate» dejaría una entrada muerta que nadie volvería a
+        mirar, y la preferencia del IPC dejaría de aplicarse en silencio."""
+        import vertex_api as V
+
+        for fam in V._MACRO_CORTE_DEL_MERCADO:
+            assert fam in V._MACRO_TABLA, f"«{fam}» no está en la tabla"
+            assert fam not in V._MACRO_SINONIMOS, (
+                f"«{fam}» es un rótulo que se colapsa a "
+                f"«{V._MACRO_SINONIMOS[fam]}»: esta entrada nunca se consulta")
+
+    def test_la_nota_del_modelo_SABE_si_es_mensual_o_interanual(self):
+        """El nombre lo dice —«CPI MoM»— pero el modelo escribe la nota leyendo
+        el nombre, y un +0,3% mensual explicado como si fuera interanual es una
+        nota que miente con confianza. Se le dice con todas las letras."""
+        import vertex_api as V
+
+        base = {"fecha": "2026-08-24", "salio": 0.3, "esperado": 0.2,
+                "anterior": 0.1, "mejor": "bajo", "bueno": False}
+        mensual = V._macro_dato_datos({**base, "evento": "CPI MoM"})
+        anual = V._macro_dato_datos({**base, "evento": "CPI YoY"})
+        assert "MENSUAL" in mensual and "INTERANUAL" not in mensual
+        assert "INTERANUAL" in anual
+        # Y lo que no lleva corte no se inventa uno.
+        suelto = V._macro_dato_datos({**base, "evento": "Unemployment Rate"})
+        assert "MENSUAL" not in suelto and "INTERANUAL" not in suelto

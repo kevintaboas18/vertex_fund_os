@@ -8538,7 +8538,13 @@ _MACRO_TABLA = {
     "unemployment rate":           (1, "bajo"),
     "initial jobless":             (2, "bajo"),
     "continuing jobless":          (2, "bajo"),
-    "average hourly earnings":     (2, "bajo"),   # salarios = inflación futura
+    # Sale DENTRO del informe de empleo, el mismo minuto que las nóminas y el
+    # paro, y es la mitad de la lectura: nóminas fuertes con salarios planos y
+    # nóminas fuertes con salarios al alza mueven la curva en sentidos
+    # contrarios. Estaba en nivel 2 —de relleno— y por eso el día de empleo la
+    # caja enseñaba dos tercios del comunicado. En los calendarios del oficio
+    # va marcado en rojo, igual que las nóminas.
+    "average hourly earnings":     (1, "bajo"),   # salarios = inflación futura
     "job openings":                (2, "alto"),
     # ── Actividad: cuanto MÁS ALTA, mejor ────────────────────────────────
     "gdp growth":                  (1, "alto"),
@@ -8575,20 +8581,84 @@ _MACRO_TABLA = {
 _MACRO_CLAVES = tuple(sorted(_MACRO_TABLA, key=len, reverse=True))
 
 
-def _macro_familia(nombre: str) -> str | None:
-    """La clave de la tabla que casa con este nombre. La FAMILIA del dato.
+#: Nombres que FMP usa para el MISMO indicador. Se colapsan a uno.
+#:
+#: Capturado por Kevin: la caja enseñaba a la vez «Core Inflation Rate YoY»
+#: 2,50 / 2,50 / 2,60 y «Core CPI YoY» 2,50 / 2,50 / 2,60 —los mismos tres
+#: números—, y también «Inflation Rate YoY» 3,40 junto a «CPI YoY» 3,40.
+#: **Cuatro de los ocho huecos eran dos datos repetidos**, y por eso «no me
+#: estás dando todas las noticias de alto impacto»: la mitad de la caja estaba
+#: gastada en decir dos veces lo mismo.
+#:
+#: No se colapsan por parecido de nombre sino porque son la misma serie: en el
+#: calendario de FMP «Inflation Rate YoY» ES el IPC interanual, y los números
+#: idénticos de la captura lo confirman.
+_MACRO_SINONIMOS = {
+    "inflation rate":      "cpi",
+    "core inflation rate": "core cpi",
+    "consumer price":      "cpi",
+    "producer price":      "ppi",
+    "non farm payroll":    "nonfarm payroll",
+}
 
-    Un mismo comunicado sale de FMP partido en variantes —«Retail Sales MoM»,
-    «Retail Sales YoY», «Retail Sales Excluding Autos MoM», «Retail Sales
-    Excluding Gas and Autos MoM»— y las cuatro son el MISMO dato mirado por
-    cuatro cortes. Todas casan con la clave «retail sales», y esa clave es lo
-    que las agrupa.
+#: Los cortes temporales que FMP publica. Se buscan por inclusión sobre el
+#: nombre, y hoy ninguno es prefijo de otro, así que el orden da igual — si
+#: algún día se añade uno que sí lo sea, tendrá que ir antes que el corto, por
+#: el mismo motivo que `_MACRO_CLAVES` va de larga a corta.
+_MACRO_CORTES = ("mom", "yoy", "qoq")
+
+
+def _macro_corte(nombre: str) -> str:
+    """El corte temporal del dato: `mom`, `yoy`, `qoq` o `""`.
+
+    **MoM y YoY NO son el mismo dato**, y ésta es la otra mitad de lo que Kevin
+    cazó. Un IPC mensual del +0,3% y un IPC interanual del +3,4% son dos cifras
+    distintas, con dos consensos distintos, que mueven el precio por separado.
+    Agrupar las dos bajo «cpi» hacía que sólo saliera una —la interanual, que
+    era la que ganaba el desempate de `_macro_titular`— y que **el IPC mensual
+    no apareciera nunca**.
+    """
+    n = str(nombre or "").lower()
+    for c in _MACRO_CORTES:
+        if c in n:
+            return c
+    return ""
+
+
+def _macro_familia(nombre: str) -> str | None:
+    """La clave de la TABLA que casa con este nombre: nivel y dirección.
+
+    Ojo: esto NO es lo que agrupa las filas de la caja —eso es `_macro_grupo`—.
+    Aquí sólo se resuelve de qué indicador se trata para poder mirar su nivel
+    de impacto y si «más alto» es mejor o peor.
+
+    Los sinónimos de FMP se colapsan (`_MACRO_SINONIMOS`) para que «Inflation
+    Rate» y «CPI» no se traten como dos indicadores distintos.
     """
     n = str(nombre or "").lower()
     for clave in _MACRO_CLAVES:
         if clave in n:
-            return clave
+            return _MACRO_SINONIMOS.get(clave, clave)
     return None
+
+
+def _macro_grupo(nombre: str) -> str | None:
+    """La identidad de la FILA: indicador **más** corte temporal.
+
+    Un mismo comunicado sale de FMP partido en variantes —«Retail Sales MoM»,
+    «Retail Sales Excluding Autos MoM», «Retail Sales Control Group»— y ésas sí
+    son el mismo dato mirado por cortes distintos: una fila basta, y
+    `_macro_titular` elige cuál.
+
+    Lo que **no** son la misma fila es el mensual y el interanual del mismo
+    indicador. Meter el corte en la identidad es lo que permite que los dos
+    salgan, que es lo que Kevin pidió: «recuerda que son diferentes».
+    """
+    fam = _macro_familia(nombre)
+    if fam is None:
+        return None
+    corte = _macro_corte(nombre)
+    return f"{fam}|{corte}" if corte else fam
 
 
 def _macro_ficha(nombre: str) -> tuple[int, str | None] | None:
@@ -8597,43 +8667,80 @@ def _macro_ficha(nombre: str) -> tuple[int, str | None] | None:
     return _MACRO_TABLA[clave] if clave else None
 
 
-#: Las familias cuyo titular es la lectura INTERANUAL, no la mensual.
+#: El corte por el que el mercado CITA cada familia. Lo que no está aquí se
+#: cita mes a mes (`_MACRO_CORTE_POR_DEFECTO`).
 #:
-#: La inflación se cita a doce meses —«la inflación está en el 3,1%»— y la
-#: actividad se cita mes a mes —«las ventas minoristas cayeron un 0,6%»—. Son
-#: convenciones del oficio, no una preferencia: elegir la variante equivocada
-#: hace que la caja enseñe un número que nadie reconoce.
-_MACRO_TITULAR_ANUAL = frozenset({
-    "core cpi", "cpi", "consumer price", "core pce price", "pce price",
-    "core inflation rate", "inflation rate", "core ppi", "ppi",
-    "producer price", "gdp growth",
-})
+#: La inflación se cita a doce meses —«la inflación está en el 3,1%»—, la
+#: actividad mes a mes —«las ventas minoristas cayeron un 0,6%»— y el PIB de
+#: EE.UU. por su trimestre anualizado —«la economía creció un 3,0%»—. Son
+#: convenciones del oficio, no una preferencia.
+#:
+#: Ojo a lo que esto YA NO hace: antes era una lista que servía para DESCARTAR
+#: el otro corte, y por eso el IPC mensual no salía nunca. Ahora los dos cortes
+#: son filas distintas (`_macro_grupo`) y esto sólo decide cuál va DELANTE
+#: cuando los dos salen el mismo día. Nada se descarta por el corte.
+#:
+#: Era un `frozenset` de familias «interanuales», y con eso el PIB quedaba mal:
+#: en EE.UU. el titular del PIB es el QoQ anualizado, no el interanual, y una
+#: lista de dos estados no sabe decirlo. Un mapa sí.
+#:
+#: Sólo nombres canónicos: `_macro_familia` ya colapsa los sinónimos de FMP,
+#: así que «inflation rate» llega aquí como «cpi» y poner las dos formas
+#: dejaría una entrada muerta que nadie volvería a mirar.
+_MACRO_CORTE_POR_DEFECTO = "mom"
+_MACRO_CORTE_DEL_MERCADO = {
+    "core cpi":       "yoy",
+    "cpi":            "yoy",
+    "core pce price": "yoy",
+    "pce price":      "yoy",
+    "core ppi":       "yoy",
+    "ppi":            "yoy",
+    "gdp growth":     "qoq",
+}
+
+
+def _macro_orden_corte(f: dict) -> int:
+    """0 si este corte es el que cita el mercado para su familia; 1 si no.
+
+    No sirve para tirar nada —MoM y YoY salen los dos—, sino para que del
+    mismo comunicado el titular vaya arriba: «la inflación está en el 3,4%»
+    primero y el +0,3% mensual debajo. Sin esto, dos filas de la misma hora
+    quedaban en el orden en que las mandara FMP, que es ninguno.
+    """
+    corte = _macro_corte(f.get("evento") or "")
+    if not corte:
+        return 0
+    fam = _macro_familia(f.get("evento") or "")
+    quiero = _MACRO_CORTE_DEL_MERCADO.get(fam, _MACRO_CORTE_POR_DEFECTO)
+    return 0 if corte == quiero else 1
 
 
 def _macro_titular(f: dict) -> tuple:
-    """Cómo de «titular» es esta variante dentro de su familia. Menor = más.
+    """Cómo de «titular» es esta variante dentro de su GRUPO. Menor = más.
 
-    Cuando una familia trae cuatro cortes, el que se enseña es el que mira el
-    mercado, no el primero que llegue:
+    Grupo, no familia: el grupo ya lleva el corte dentro (`_macro_grupo`), así
+    que aquí nunca compiten un mensual y un interanual —ésos son dos filas—.
+    Lo que compite son las variantes del MISMO corte:
 
-     · Los «excluyendo…» van los últimos. Son sub-agregados: útiles para
-       entender el dato, no para titularlo. En la captura del 22/08 dos de los
-       cinco huecos de la caja eran «Excluyendo Automóviles» y «Excluyendo
-       Gasolina y Automóviles» del MISMO comunicado.
+     · Los sub-agregados van los últimos. Un «excluyendo…» o un «private» son
+       recortes del comunicado: útiles para entender el dato, no para
+       titularlo. En la captura del 22/08 dos de los cinco huecos de la caja
+       eran «Excluyendo Automóviles» y «Excluyendo Gasolina y Automóviles» del
+       MISMO comunicado; en la del 27/08, «Nonfarm Payrolls Private» (30K)
+       salía junto a «Non Farm Payrolls» (−23K), que es la cifra que se cita.
      · A igualdad, gana el nombre más CORTO, que es el que no lleva
        calificativos: «Retail Sales MoM» antes que «Retail Sales Control Group».
      · Y a igualdad de nombre, el más reciente.
+
+    Aquí había un tercer criterio —«de esta familia enséñame el YoY»— que ya no
+    está: descartaba el otro corte, y era la razón por la que el IPC mensual no
+    aparecía nunca. Esa preferencia sigue viva, pero ordenando
+    (`_macro_orden_corte`), no tirando.
     """
     n = str(f.get("evento") or "").lower()
-    excluye = 1 if ("excluding" in n or "excluyendo" in n or " ex " in n) else 0
-    # El corte que cita el mercado para ESTA familia. Sin esto, MoM y YoY
-    # empatan en longitud y ganaba el que llegara primero: la caja enseñaba
-    # unas ventas minoristas interanuales, que no es el número que se mira.
-    fam = _macro_familia(n) or ""
-    quiero = "yoy" if fam in _MACRO_TITULAR_ANUAL else "mom"
-    otro = "mom" if quiero == "yoy" else "yoy"
-    corte = 0 if quiero in n else (1 if otro not in n else 2)
-    return (excluye, corte, len(n), _fecha_inversa(f.get("fecha") or ""))
+    sub = ("excluding" in n or "excluyendo" in n or " ex " in n
+           or "private" in n or "control group" in n)
+    return (1 if sub else 0, len(n), _fecha_inversa(f.get("fecha") or ""))
 
 
 def _fecha_inversa(f: str) -> tuple:
@@ -8829,18 +8936,22 @@ def _macro_calcula() -> dict:
     # fecha. Ordenando solo por fecha, ocho peticiones de desempleo semanales
     # empujaban fuera de la caja al IPC del martes — el dato más reciente no es
     # el más importante, y la caja tiene sitio para ocho.
-    # ── Una fila por FAMILIA, no una por variante ────────────────────────────
+    # ── Una fila por GRUPO: indicador MÁS corte ──────────────────────────────
     #
-    # FMP parte cada comunicado en cortes. Sin agrupar, las ventas minoristas
-    # de un solo martes ocupaban CUATRO de los ocho huecos de la caja —MoM,
-    # YoY, sin automóviles y sin gasolina ni automóviles— y empujaban fuera al
-    # resto de la semana. La caja parecía tener cinco datos y tenía dos.
+    # FMP parte cada comunicado en variantes. Sin agrupar, las ventas
+    # minoristas de un solo martes ocupaban CUATRO de los ocho huecos de la
+    # caja —MoM, YoY, sin automóviles y sin gasolina ni automóviles— y
+    # empujaban fuera al resto de la semana. La caja parecía tener cinco datos
+    # y tenía dos.
     #
-    # Se conserva el titular de cada familia (`_macro_titular`); los otros
-    # cortes no se pierden para siempre, se dejan de titular.
+    # Agrupaba por FAMILIA, y eso se pasaba de largo: metía el mensual y el
+    # interanual en el mismo saco y el mensual no salía nunca. El grupo lleva
+    # el corte dentro, así que lo que se funde son las variantes del MISMO
+    # corte —los «excluyendo…», el «private»—, y de ésas se conserva el titular
+    # (`_macro_titular`).
     _familias: dict[str, dict] = {}
     for f in publicados:
-        fam = _macro_familia(f["evento"]) or f["evento"]
+        fam = _macro_grupo(f["evento"]) or f["evento"]
         actual = _familias.get(fam)
         if actual is None or _macro_titular(f) < _macro_titular(actual):
             _familias[fam] = f
@@ -8869,14 +8980,16 @@ def _macro_calcula() -> dict:
     # no informa de nada. Nunca desplazan a uno de nivel 1.
     _altos = [f for f in publicados if f["nivel"] <= 1]
     _resto = [f for f in publicados if f["nivel"] > 1]
-    _altos.sort(key=lambda x: _fecha_inversa(x["fecha"]))
-    _resto.sort(key=lambda x: (_fecha_inversa(x["fecha"]), x["nivel"]))
+    _altos.sort(key=lambda x: (_fecha_inversa(x["fecha"]),
+                               _macro_orden_corte(x)))
+    _resto.sort(key=lambda x: (_fecha_inversa(x["fecha"]), x["nivel"],
+                               _macro_orden_corte(x)))
     publicados = _altos + _resto
     # Los retrasados delante: si un dato debía salir ayer y no ha salido, es lo
     # más inminente que hay, no lo más viejo.
     _fam_prox: dict[str, dict] = {}
     for f in proximos:
-        fam = (_macro_familia(f["evento"]) or f["evento"]) + f["fecha"][:10]
+        fam = (_macro_grupo(f["evento"]) or f["evento"]) + f["fecha"][:10]
         actual = _fam_prox.get(fam)
         if actual is None or _macro_titular(f) < _macro_titular(actual):
             _fam_prox[fam] = f
@@ -9318,9 +9431,21 @@ def _macro_dato_datos(f: dict) -> str:
                   if f.get("sorpresa") == 0 else "")
     else:
         juicio = "Sorprendió BIEN." if bueno else "Sorprendió MAL."
+    # El corte, dicho con todas las letras. El nombre ya lo lleva —«CPI MoM»—,
+    # pero el modelo escribe la nota leyendo el nombre, y un +0,3% mensual
+    # explicado como si fuera interanual es una nota que miente con confianza.
+    # «Recuerda que son diferentes» — Kevin, 27/08/2026.
+    _corte = _macro_corte(f.get("evento") or "")
+    corte = {
+        "mom": "  Es la lectura MENSUAL: este mes contra el mes anterior.\n",
+        "yoy": "  Es la lectura INTERANUAL: este mes contra el mismo mes del "
+               "año pasado.\n",
+        "qoq": "  Es la lectura TRIMESTRAL, anualizada.\n",
+    }.get(_corte, "")
     return (
         f"EL DATO\n"
         f"  {f.get('evento')}\n"
+        f"{corte}"
         f"  publicado el {f.get('fecha')}\n"
         f"  salió {_n(f.get('salio'))} · se esperaba {_n(f.get('esperado'))}"
         f" · el anterior fue {_n(f.get('anterior'))}\n"
