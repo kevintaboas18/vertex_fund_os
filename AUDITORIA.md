@@ -10480,13 +10480,21 @@ Verificado en rojo antes que en verde: **31 casos** de la primera ronda y
 
 ### Estado
 
-**3.478 tests del motor · 1.315 de la capa web (13 nuevos) · 342 checks de
-auditoría CON su repo real (0 avisos · 0 fallos, contra `/tmp/tito` en
-`53d5a20`) · los 17 diferenciales en verde. 0 fallos, y **sin intermitentes
+**3.480 tests del motor · 1.474 de la capa web (172 nuevos del macro) · 342
+checks de auditoría CON su repo real (0 avisos · 0 fallos, contra `/tmp/tito`
+en `53d5a20`) · los 17 diferenciales en verde. 0 fallos, y **sin intermitentes
 declarados**.**
 
-Los de navegador van dentro de los 1.315 (`tests_vertex/test_navegador.py`); la
-corrida completa de la capa web tardó 47 min 36 s.
+Los de navegador van dentro de los 1.474 (`tests_vertex/test_navegador.py`); la
+corrida completa de la capa web tardó 45 min 37 s.
+
+La corrida lleva estampado el md5 de `vertex_api.py` al empezar y al terminar
+—`52de66b4af67` las dos veces—, que es la única forma de saber que midió el
+mismo árbol de punta a punta. Hizo falta: en esta sesión invalidé una corrida
+yo mismo, haciendo un `git checkout` de otra rama con la batería andando, que
+reescribe el disco unos segundos. Los push a la rama de trabajo se hacen desde
+entonces con `git commit-tree` contra el tip remoto, que no toca un solo
+fichero.
 
 Una nota honesta sobre el intermitente del almacén: en una corrida completa
 falló `TestUnRespaldoVACIONoPISAaUnoLLENO::test_el_paquete_se_ABRE_y_se_cuenta_
