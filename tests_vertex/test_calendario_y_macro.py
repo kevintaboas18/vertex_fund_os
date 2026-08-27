@@ -1864,9 +1864,15 @@ class TestLoQueLaListaDeKevinNoNombra:
         assert [f["evento"] for f in caja["publicados"]] == \
             [n for n, _ in eventos[:12]]
 
-    def test_pero_PROXIMOS_datos_se_queda_en_ocho(self, monkeypatch):
-        """Mira siete días adelante y rara vez llega a llenarse: subirlo no
-        enseñaría ni una fila más, y alargaría la caja en el móvil."""
+    def test_en_PROXIMOS_datos_el_ocho_es_para_los_RETRASADOS(self, monkeypatch):
+        """«no se puede quedar ninguna afuera.» — Kevin, 27/08/2026.
+
+        El ocho no puede recortar lo que está en el calendario por delante:
+        son siete días, no da para una lista larga. Lo que reparte es el sitio
+        de los RETRASADOS, que son los que pueden ser muchos —cinco semanas de
+        ventana atrás—. Este caso pedía exactamente ocho, y lo escribí yo antes
+        de que Kevin viera tres datos de mañana que no salían.
+        """
         import vertex_api as V
 
         assert V._MACRO_FILAS_PROXIMOS == 8
@@ -1876,7 +1882,8 @@ class TestLoQueLaListaDeKevinNoNombra:
                 "PPI MoM", "Nonfarm Payrolls", "Unemployment Rate",
                 "Average Hourly Earnings MoM", "ISM Manufacturing PMI",
                 "ISM Services PMI", "Retail Sales MoM"], start=1)])
-        assert len(caja["proximos"]) == 8
+        # Diez por delante: salen los diez, porque están en el calendario.
+        assert len(caja["proximos"]) == 10
 
     def test_el_PCE_con_su_nombre_LARGO_tiene_su_PROPIA_fila(self, monkeypatch):
         """«no tienes este que es alto impacto: Core Personal Consumption
@@ -1949,3 +1956,165 @@ class TestLoQueLaListaDeKevinNoNombra:
         cortes = sorted(g for g in V._MACRO_GRUPOS_EXCLUIDOS
                         if g.split("|")[-1] not in V._MACRO_CORTES)
         assert not cortes, f"grupos con un corte que no existe: {cortes}"
+
+    def test_lo_de_MANANA_no_lo_tapan_los_huecos_viejos(self, monkeypatch):
+        """«tambien estan estas que no los tienes ni en los proximos datos y
+        son mañana. no se puede quedar ninguna afuera.» — Kevin, 27/08/2026.
+
+        La ventana mira cinco semanas atrás, y cualquier entrada vieja que FMP
+        dejó sin cifra cuenta como «retrasada». Había más de ocho, iban
+        DELANTE y encima ordenadas de la MÁS VIEJA a la más nueva: se comían
+        los ocho huecos antes de llegar al día siguiente.
+        """
+        manana = ["UoM Consumer Sentiment Index",
+                  "Non Farm Payrolls Annual Revision Prel",
+                  "Fed Chair Warsh Speech"]
+        viejos = ["Core PPI", "PPI MoM", "Housing Starts", "Building Permits Prel",
+                  "Existing Home Sales", "CB Consumer Confidence",
+                  "Durable Goods Orders", "JOLTs Job Openings",
+                  "ADP National Employment Report", "ISM Services PMI"]
+        caja = _caja_macro(monkeypatch, (
+            [(n, -1, "", "", "") for n in manana]
+            + [(n, i + 2, "", "", "") for i, n in enumerate(viejos)]))
+        nombres = [f["evento"] for f in caja["proximos"]]
+        for n in manana:
+            assert n in nombres, f"«{n}» es de mañana y no sale: {nombres}"
+
+    def test_y_de_los_retrasados_manda_el_MAS_RECIENTE(self, monkeypatch):
+        """Iban del más viejo al más nuevo, así que el hueco MÁS ANTIGUO
+        encabezaba la caja — justo el que menos dice."""
+        caja = _caja_macro(monkeypatch, [
+            ("Core Inflation Rate YoY", 1, "", "", ""),
+            ("Nonfarm Payrolls", 20, "", "", ""),
+        ])
+        retrasados = [f["evento"] for f in caja["proximos"] if f.get("retrasado")]
+        assert retrasados[0] == "Core Inflation Rate YoY", (
+            f"encabeza el más viejo: {retrasados}")
+
+    @pytest.mark.parametrize("evento", [
+        "JOLTs Job Quits", "JOLTs Job Hires", "JOLTs Layoffs and Discharges",
+    ])
+    def test_de_la_encuesta_JOLTS_solo_sale_VACANTES(self, monkeypatch, evento):
+        """«esta noticia es bajo impacto: JOLTs Job Quits. esta es la de alto
+        impacto: JOLTs Job Openings.» — Kevin, 27/08/2026.
+
+        La clave era `jolts` a secas y la encuesta publica cuatro series, así
+        que las cuatro entraban como alto impacto **y en la misma familia**.
+        Y como gana el nombre más corto, «JOLTs Job Quits» (15 letras) le
+        quitaba el hueco a «JOLTs Job Openings» (18): el panel enseñaba
+        renuncias donde debía enseñar vacantes.
+        """
+        import vertex_api as V
+
+        assert V._es_evento_macro(evento) is False
+        assert V._macro_grupo(evento) != V._macro_grupo("JOLTs Job Openings")
+        caja = _caja_macro(monkeypatch, [
+            (evento, 1, "3.1M", "3.0M", "3.2M"),
+            ("JOLTs Job Openings", 1, "7.4M", "7.2M", "7.1M"),
+        ])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert nombres == ["JOLTs Job Openings"], f"salió lo que no era: {nombres}"
+
+    def test_el_informe_de_ADP_se_llama_por_su_NOMBRE(self, monkeypatch):
+        """«y esta no es "ADP Employment Change (Aug)": es esta: ADP National
+        Employment Report.» — Kevin, 27/08/2026.
+
+        Son el mismo comunicado con dos rótulos, así que una sola fila — eso
+        estaba bien. Lo que fallaba es cuál de los dos se enseña: a igualdad
+        gana el más corto, y el alias le ganaba al nombre oficial.
+        """
+        import vertex_api as V
+
+        caja = _caja_macro(monkeypatch, [
+            ("ADP Employment Change", 1, "59K", "60K", "104K"),
+            ("ADP National Employment Report", 1, "59K", "60K", "104K"),
+        ])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert nombres == ["ADP National Employment Report"], nombres
+
+    def test_pero_el_nombre_preferido_NO_resucita_a_un_sub_agregado(self):
+        """El criterio nuevo va PRIMERO en el desempate, así que hay que
+        comprobar que no le abre la puerta a un «excluyendo…» que llevara la
+        palabra preferida dentro."""
+        import vertex_api as V
+
+        titular = {"evento": "ADP National Employment Report", "fecha": "2026-09-02"}
+        sub = {"evento": "ADP National Employment Report Private", "fecha": "2026-09-02"}
+        assert V._macro_titular(sub) > V._macro_titular(titular)
+
+    def test_cada_NOMBRE_PREFERIDO_apunta_a_una_familia_REAL(self):
+        """Una familia mal escrita no rompería nada: sencillamente no
+        preferiría nunca, en silencio, y volvería a ganar el alias corto."""
+        import vertex_api as V
+
+        reales = {V._MACRO_SINONIMOS.get(k, k) for k in V._MACRO_TABLA}
+        huerfanas = sorted(set(V._MACRO_NOMBRE_PREFERIDO) - reales)
+        assert not huerfanas, f"familias que no existen: {huerfanas}"
+
+    @pytest.mark.parametrize("evento", [
+        "Retail Sales Control Group",
+        "Retail Sales Excluding Gas and Autos MoM",
+        "Nonfarm Payrolls Private",
+        "Core CPI Excluding Shelter YoY",
+    ])
+    def test_un_RECORTE_del_comunicado_NO_ENTRA(self, monkeypatch, evento):
+        """Ordenarlos los últimos DENTRO de su grupo no bastaba.
+
+        Salió barriendo la tabla con nombres reales: «Retail Sales Control
+        Group» no lleva corte, así que forma su PROPIO grupo —`retail sales`,
+        contra `retail sales|mom`— y se llevaba una fila entera. El desempate
+        de `_macro_titular` nunca llegaba a mirarlo, porque sólo ordena dentro
+        de un mismo grupo.
+        """
+        import vertex_api as V
+
+        assert V._es_evento_macro(evento) is False
+        caja = _caja_macro(monkeypatch, [
+            (evento, 1, "0.1%", "0.2%", "0.2%"),
+            ("Retail Sales MoM", 1, "0.6%", "0.3%", "0.2%"),
+            ("Core Inflation Rate YoY", 2, "2.9%", "3.0%", "3.1%"),
+        ])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert evento not in nombres, f"el recorte se llevó una fila: {nombres}"
+
+    def test_pero_el_SIN_AUTOS_no_es_un_recorte_sino_su_propia_familia(self):
+        """La regla no puede llevarse por delante lo que Kevin sí nombró: el
+        «Ex Autos» va marcado aparte en los calendarios y está en su lista."""
+        import vertex_api as V
+
+        assert V._es_evento_macro("Retail Sales Ex Autos MoM") is True
+        assert V._es_evento_macro("Core Retail Sales MoM") is True
+        assert V._es_evento_macro("Core Inflation Rate YoY") is True
+
+    @pytest.mark.parametrize("evento", ["CPI s.a", "Core CPI s.a", "CPI Index NSA"])
+    def test_el_NIVEL_del_indice_no_es_la_TASA_de_inflacion(self, monkeypatch, evento):
+        """El índice va por 315; la tasa, por 3,4 %. Son series distintas.
+
+        Sin clave propia caían en la familia del IPC sin corte, y como gana el
+        nombre más corto, «CPI s.a» (7 letras) le habría quitado el hueco a la
+        tasa que se cita.
+        """
+        import vertex_api as V
+
+        assert V._es_evento_macro(evento) is False
+        caja = _caja_macro(monkeypatch, [
+            (evento, 1, "315.6", "315.4", "314.8"),
+            ("Inflation Rate YoY", 1, "3.4%", "3.4%", "3.5%"),
+        ])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert nombres == ["Inflation Rate YoY"], f"salió el índice: {nombres}"
+
+    def test_el_titular_del_ISM_es_el_PMI_y_no_un_subindice(self, monkeypatch):
+        """Precios, empleo y nuevos pedidos del ISM caen en la misma familia
+        que el PMI. No es un fallo —son partes del mismo comunicado— pero el
+        que se enseña tiene que ser el PMI."""
+        import vertex_api as V
+
+        for cual in ("Manufacturing", "Services"):
+            caja = _caja_macro(monkeypatch, [
+                (f"ISM {cual} Prices", 1, "58.1", "57.0", "56.4"),
+                (f"ISM {cual} New Orders", 1, "51.2", "50.5", "50.1"),
+                (f"ISM {cual} PMI", 1, "54.2", "53.0", "52.8"),
+            ])
+            nombres = [f["evento"] for f in caja["publicados"]]
+            assert nombres == [f"ISM {cual} PMI"], nombres

@@ -10368,6 +10368,66 @@ que un sinónimo cuya clave no esté en la tabla es un **alias muerto** que no
 casa nunca. «Philly Fed» y «Trade Balance» se perdían por eso. Hay dos
 guardianes que ahora barren los sinónimos en las dos direcciones.
 
+#### El barrido: dejar de arreglar de uno en uno
+
+> «estas confundiendote mucho, verifica antes de subir asegurate al 100%.»
+> — Kevin, 27/08/2026.
+
+Tiene razón: iban cuatro rondas de correcciones, y todas las cazó él mirando
+el panel. Así que en vez de esperar a la quinta, pasé un corpus de ~140
+nombres reales de publicaciones de EE. UU. por la tabla y miré **qué familia
+se traga qué**. Salieron seis, cuatro de ellas de la misma clase.
+
+**Lo que Kevin cazó:**
+
+- **JOLTS.** La clave era `jolts` a secas, y la encuesta publica cuatro
+  series: vacantes, renuncias, contrataciones y despidos. Las cuatro casaban
+  con ella, así que las cuatro entraban como alto impacto **y en la misma
+  familia** — y como gana el nombre más corto, «JOLTs Job Quits» (15 letras)
+  le quitaba el hueco a «JOLTs Job Openings» (18). El panel enseñaba
+  renuncias donde debía enseñar vacantes. La clave se fue: «Job Openings»
+  casa por sí sola, y las otras tres quedan nombradas y excluidas.
+
+- **ADP.** «ADP Employment Change» y «ADP National Employment Report» son el
+  mismo comunicado con dos rótulos —una fila, eso estaba bien—, pero a
+  igualdad gana el más corto y el alias le ganaba al nombre oficial. Ahora hay
+  `_MACRO_NOMBRE_PREFERIDO`: familia → trozo que tiene que llevar el rótulo
+  bueno, y va **primero** en el desempate. Con un caso que comprueba que la
+  excepción no le abre la puerta a un sub-agregado que llevara la palabra
+  dentro.
+
+- **Lo de mañana, tapado por huecos de hace semanas.** Tres datos de alto
+  impacto del día siguiente no salían en «Próximos datos». La ventana mira
+  cinco semanas atrás, y **cualquier entrada vieja que FMP dejó sin cifra
+  cuenta como «retrasada»**; había más de ocho, iban delante, y encima
+  ordenadas **de la más vieja a la más nueva**, así que el hueco más antiguo
+  encabezaba la caja. Dos arreglos: los retrasados ordenan del más reciente al
+  más viejo, y el recorte **no toca lo que está por venir** — son siete días,
+  no da para una lista larga. El ocho reparte el sitio de los retrasados.
+
+**Lo que salió del barrido, y él no había visto todavía:**
+
+- **Un recorte del comunicado se llevaba una fila entera.** Ordenarlos los
+  últimos dentro de su grupo no bastaba: «Retail Sales Control Group» no lleva
+  corte, así que forma su **propio** grupo —`retail sales`, contra
+  `retail sales|mom`— y el desempate nunca llegaba a mirarlo, porque sólo
+  ordena dentro de un mismo grupo. Ahora un «excluding» / «excluyendo» /
+  «private» / «control group» **no entra**. Con un caso que comprueba que la
+  regla no se lleva por delante el «Ex Autos», que Kevin sí nombró.
+
+- **El nivel del índice no es la tasa.** «CPI s.a» va por 315; la tasa, por
+  3,4 %. Son series distintas, y sin clave propia caían en la familia del IPC
+  sin corte: «CPI s.a» (7 letras) le habría quitado el hueco a la tasa que se
+  cita. Excluidas las tres —`cpi s.a`, `core cpi s.a`, `cpi index nsa`—.
+
+Y una que el barrido confirmó que **no** era un fallo: los subíndices del ISM
+—precios, empleo, nuevos pedidos— caen en la misma familia que el PMI, y el
+que titula es el PMI, que es lo que se quiere. Queda con un caso para que siga
+siendo así.
+
+Verificado en rojo antes que en verde: **15 casos** caen con el `vertex_api.py`
+anterior.
+
 #### El PCE: uno que no se veía y otro que no debía verse
 
 Kevin, mirando el panel ya con los cambios:

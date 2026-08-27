@@ -8530,6 +8530,13 @@ _MACRO_TABLA = {
     # ── Inflación: cuanto MÁS BAJA, mejor ────────────────────────────────
     "core cpi":                    (1, "bajo"),
     "cpi":                         (1, "bajo"),
+    # El NIVEL del índice (≈315) no es la TASA de inflación (≈3,4 %). Son
+    # series distintas y los calendarios las marcan flojas. Sin estas claves
+    # caían en la familia del IPC sin corte —igual que «CPI Index NSA»— y como
+    # gana el nombre más corto, «CPI s.a» le habría quitado el hueco a la tasa.
+    "core cpi s.a":                (2, "bajo"),
+    "cpi s.a":                     (2, "bajo"),
+    "cpi index nsa":               (2, "bajo"),
     "consumer price":              (1, "bajo"),
     "core inflation rate":         (1, "bajo"),
     "inflation rate":              (1, "bajo"),
@@ -8556,7 +8563,16 @@ _MACRO_TABLA = {
     "initial jobless":             (1, "bajo"),
     "continuing jobless":          (2, "bajo"),
     "job openings":                (1, "alto"),
-    "jolts":                       (1, "alto"),
+    # `jolts` a secas era la clave, y la encuesta JOLTS publica CUATRO series:
+    # vacantes, renuncias, contrataciones y despidos. Las cuatro casaban con
+    # ella, así que las cuatro entraban como alto impacto Y en la misma
+    # familia — y como gana el nombre más corto, «JOLTs Job Quits» le quitaba
+    # el hueco a «JOLTs Job Openings», que es la que se cita. Kevin lo vio en
+    # el panel. La clave se fue: «JOLTs Job Openings» casa con `job openings`
+    # por sí sola, y las otras tres quedan nombradas y excluidas.
+    "job quits":                   (2, "alto"),
+    "job hires":                   (2, "alto"),
+    "layoffs and discharges":      (2, "bajo"),
     # «ADP National Employment Report» no contiene «adp employment», que era
     # la clave vieja: el informe de ADP no entraba nunca.
     "adp":                         (1, "alto"),
@@ -8695,7 +8711,6 @@ _MACRO_SINONIMOS = {
     "uom consumer sentiment":    "michigan consumer sentiment",
     # El «sin automóviles» se llama de las dos formas.
     "retail sales ex autos":     "core retail sales",
-    "jolts":                     "job openings",
     # «Balance of Trade» y «Trade Balance» son el mismo dato.
     "trade balance":             "balance of trade",
     # Philadelphia Fed: el calendario lo abrevia de las dos formas.
@@ -8820,6 +8835,45 @@ def _macro_orden_corte(f: dict) -> int:
     return 0 if corte == quiero else 1
 
 
+#: Cuando FMP publica el MISMO comunicado con dos rótulos, cuál de los dos se
+#: enseña. Familia → trozo que tiene que aparecer en el nombre bueno.
+#:
+#: > «y esta no es "ADP Employment Change (Aug)": es esta: ADP National
+#: > Employment Report» — Kevin, 27/08/2026.
+#:
+#: A igualdad, `_macro_titular` prefiere el nombre más CORTO, y eso está bien
+#: para separar un titular de un sub-agregado —«Retail Sales MoM» antes que
+#: «Retail Sales Control Group»—. Pero falla cuando el proveedor manda el
+#: mismo dato con un alias corto: entonces el alias gana y el nombre oficial
+#: no se ve nunca. Esto es la excepción, y va PRIMERO en el desempate.
+_MACRO_NOMBRE_PREFERIDO = {
+    "adp": "national",
+}
+
+
+def _macro_nombre_preferido(nombre) -> bool:
+    """¿Es éste el rótulo con el que se quiere ver su familia?"""
+    fam = _macro_familia(nombre)
+    trozo = _MACRO_NOMBRE_PREFERIDO.get(fam)
+    return bool(trozo) and trozo in str(nombre or "").lower()
+
+
+#: Recortes del comunicado: útiles para entender el dato, no para titularlo.
+#:
+#: Ordenarlos los últimos DENTRO de su grupo no bastaba, y se vio barriendo la
+#: tabla con nombres reales: «Retail Sales Control Group» no lleva corte, así
+#: que forma su PROPIO grupo —`retail sales`, contra `retail sales|mom`— y se
+#: llevaba una fila entera para él. El desempate nunca llegaba a mirarlo.
+#: Ahora no entran, que es lo que Kevin lleva pidiendo desde la captura del
+#: 22/08, donde dos de los cinco huecos eran «Excluyendo…».
+_MACRO_SUB_AGREGADOS = ("excluding", "excluyendo", "private", "control group")
+
+
+def _macro_es_sub_agregado(nombre) -> bool:
+    n = str(nombre or "").lower()
+    return any(t in n for t in _MACRO_SUB_AGREGADOS)
+
+
 def _macro_titular(f: dict) -> tuple:
     """Cómo de «titular» es esta variante dentro de su GRUPO. Menor = más.
 
@@ -8843,9 +8897,9 @@ def _macro_titular(f: dict) -> tuple:
     (`_macro_orden_corte`), no tirando.
     """
     n = str(f.get("evento") or "").lower()
-    sub = ("excluding" in n or "excluyendo" in n
-           or "private" in n or "control group" in n)
-    return (1 if sub else 0, len(n), _fecha_inversa(f.get("fecha") or ""))
+    return (0 if _macro_nombre_preferido(n) else 1,
+            1 if _macro_es_sub_agregado(n) else 0,
+            len(n), _fecha_inversa(f.get("fecha") or ""))
 
 
 def _fecha_inversa(f: str) -> tuple:
@@ -8911,6 +8965,7 @@ _MACRO_FILAS = 12
 _MACRO_FILAS_PROXIMOS = 8
 
 
+
 def _es_evento_macro(nombre: str) -> bool:
     """¿Es de ALTO impacto? Nada más entra en el panel.
 
@@ -8925,7 +8980,7 @@ def _es_evento_macro(nombre: str) -> bool:
     ficha = _macro_ficha(nombre)
     if ficha is None or ficha[0] > 1:
         return False
-    return not _macro_grupo_excluido(nombre)
+    return not (_macro_grupo_excluido(nombre) or _macro_es_sub_agregado(nombre))
 
 
 #: Familias que son un COMUNICADO, no un dato: nunca traen cifra.
@@ -9117,7 +9172,8 @@ def _macro_calcula() -> dict:
         # excluiría nada.
         if alto_fmp and ficha is None:
             nivel = 1
-        if nivel > 1 or _macro_grupo_excluido(nombre):
+        if (nivel > 1 or _macro_grupo_excluido(nombre)
+                or _macro_es_sub_agregado(nombre)):
             continue
         fila = {
             "evento": nombre,
@@ -9230,10 +9286,25 @@ def _macro_calcula() -> dict:
             _fam_prox[fam] = f
     proximos = list(_fam_prox.values())
     # Los retrasados delante: si un dato debía salir ayer y no ha salido, es lo
-    # más inminente que hay, no lo más viejo.
-    proximos.sort(key=lambda x: (not x.get("retrasado"), x["fecha"], x["nivel"]))
+    # más inminente que hay. Pero del más RECIENTE al más viejo — estaban
+    # ordenados al revés, así que el hueco MÁS ANTIGUO encabezaba la caja.
+    #
+    # Y el recorte no puede tocar lo que está por venir. Kevin lo cazó con tres
+    # datos de alto impacto de MAÑANA que no salían por ningún lado: la ventana
+    # mira cinco semanas atrás, y cualquier entrada vieja que FMP dejó sin
+    # cifra cuenta como «retrasada» — había más de ocho, iban delante, y se
+    # comían los ocho huecos antes de llegar al día siguiente.
+    #
+    # «no se puede quedar ninguna afuera»: lo que está en el calendario por
+    # delante sale ENTERO —son siete días, no da para una lista larga— y los
+    # retrasados se reparten lo que sobre.
+    _retrasados = [f for f in proximos if f.get("retrasado")]
+    _porvenir = [f for f in proximos if not f.get("retrasado")]
+    _retrasados.sort(key=lambda x: (_fecha_inversa(x["fecha"]), x["nivel"]))
+    _porvenir.sort(key=lambda x: (x["fecha"], x["nivel"]))
+    _hueco = max(0, _MACRO_FILAS_PROXIMOS - len(_porvenir))
+    proximos = _retrasados[:_hueco] + _porvenir
     publicados = publicados[:_MACRO_FILAS]
-    proximos = proximos[:_MACRO_FILAS_PROXIMOS]
     # Ya vienen del más reciente al más viejo por el orden de arriba; esto lo
     # deja explícito para que un cambio en aquella clave no reordene la caja
     # sin que nadie lo note.
