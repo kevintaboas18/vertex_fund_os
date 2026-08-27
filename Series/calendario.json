@@ -418,20 +418,6 @@
   "macro": {
     "publicados": [
       {
-        "evento": "Core PCE Price Index YoY (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 3.3,
-        "esperado": 3.3,
-        "anterior": 3.3,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
         "evento": "PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 3.7,
@@ -444,6 +430,20 @@
         "hora_et": "08:30",
         "sorpresa": 0.10000000000000009,
         "bueno": false
+      },
+      {
+        "evento": "Core PCE Price Index YoY (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 3.3,
+        "esperado": 3.3,
+        "anterior": 3.3,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
+        "bueno": null
       },
       {
         "evento": "GDP Growth Rate QoQ (Q2)",
@@ -488,11 +488,11 @@
         "bueno": null
       },
       {
-        "evento": "CPI YoY (Jul)",
+        "evento": "Core Inflation Rate YoY (Jul)",
         "fecha": "2026-08-12 12:30",
-        "salio": 3.4,
-        "esperado": 3.4,
-        "anterior": 3.5,
+        "salio": 2.5,
+        "esperado": 2.5,
+        "anterior": 2.6,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
@@ -502,11 +502,11 @@
         "bueno": null
       },
       {
-        "evento": "Core Inflation Rate YoY (Jul)",
+        "evento": "CPI YoY (Jul)",
         "fecha": "2026-08-12 12:30",
-        "salio": 2.5,
-        "esperado": 2.5,
-        "anterior": 2.6,
+        "salio": 3.4,
+        "esperado": 3.4,
+        "anterior": 3.5,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
@@ -568,7 +568,7 @@
         "esperado": 208.0,
         "anterior": 206.0,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "medium",
         "nivel": 2,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -583,7 +583,7 @@
         "esperado": 1790.0,
         "anterior": 1799.0,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "low",
         "nivel": 2,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -620,21 +620,6 @@
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
-      },
-      {
-        "evento": "ADP Employment Change (Aug)",
-        "fecha": "2026-09-02 12:15",
-        "salio": null,
-        "esperado": 59.0,
-        "anterior": 44.0,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 2,
-        "mejor": "alto",
-        "hora_et": "08:15",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
       }
     ],
     "filas": [],
@@ -642,6 +627,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-08-26T21:13:50.257331+00:00",
-  "generado_macro": "2026-08-27T03:55:32.484101+00:00",
-  "generado": "2026-08-27T03:55:32.484101+00:00"
+  "generado_macro": "2026-08-26T21:13:50.257331+00:00",
+  "generado": "2026-08-26T21:13:50.257331+00:00"
 }
