@@ -79,27 +79,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5161604,
+          "medio": 5165534,
           "relativo": 0.59,
           "respalda": false
         },
         "1M": {
-          "medio": 6966811,
+          "medio": 6967747,
           "relativo": 0.8,
           "respalda": false
         },
         "3M": {
-          "medio": 8652521,
+          "medio": 8652833,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 10774363,
+          "medio": 10774519,
           "relativo": 1.24,
           "respalda": true
         },
         "1A": {
-          "medio": 14032387,
+          "medio": 14032465,
           "relativo": 1.61,
           "respalda": true
         }
@@ -165,27 +165,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5468054,
+          "medio": 5475022,
           "relativo": 0.53,
           "respalda": false
         },
         "1M": {
-          "medio": 7520775,
+          "medio": 7522434,
           "relativo": 0.72,
           "respalda": false
         },
         "3M": {
-          "medio": 10610847,
+          "medio": 10611400,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 12504218,
+          "medio": 12504495,
           "relativo": 1.2,
           "respalda": true
         },
         "1A": {
-          "medio": 15438699,
+          "medio": 15438837,
           "relativo": 1.49,
           "respalda": true
         }
@@ -736,7 +736,7 @@
         "cuadrante": "lagging",
         "fuerza": -6.0665,
         "impulso": -0.0483,
-        "volumen_rel": 0.646,
+        "volumen_rel": 0.6507,
         "flujo": null,
         "roc_5": -0.0483,
         "roc_20": 4.5206,
@@ -1559,5 +1559,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-27T05:21:47.029356+00:00"
+  "generado": "2026-08-27T05:58:02.048418+00:00"
 }
