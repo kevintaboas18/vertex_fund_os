@@ -8639,20 +8639,20 @@ _MACRO_TABLA = {
     # Fed cita en las conferencias, y no estaba por ningún lado.
     "employment cost":             (1, "bajo"),
     # Las expectativas de inflación de Michigan. Son DOS series distintas
-    # —un año y cinco años—, y se leen por separado: por eso son dos claves
-    # y no una. Van antes que la genérica porque `_MACRO_CLAVES` ordena de
-    # clave larga a corta.
+    # —un año y cinco años—, y por eso son dos claves y no una. Van antes que
+    # la genérica porque `_MACRO_CLAVES` ordena de clave larga a corta.
     #
-    # El horizonte de CINCO años queda en nivel 2 a propósito. La caja sólo
-    # tiene OCHO huecos y ordena por fecha: el día de Michigan salen el
-    # sentimiento, las expectativas del consumidor y los dos horizontes de
-    # inflación a la vez, y con los cuatro en nivel 1 se llevaban tres huecos
-    # y empujaban al IPC fuera de la caja. El de un año es el que mueve el
-    # mercado ese día; el de cinco es el ancla que mira la Fed, y sale
-    # igualmente cuando hay sitio. Subirlo es cambiar este 2 por un 1.
-    "1 year inflation expectations": (1, "bajo"),
+    # Las TRES quedan EXCLUIDAS, y esto es una corrección mía. Las metí en
+    # nivel 1 por criterio propio; cuando Kevin apretó la regla —«solo alto
+    # impacto»— fui a comprobarlo y **no lo puedo sostener**: en los
+    # calendarios, la carpeta roja del comunicado de Michigan es el índice de
+    # SENTIMIENTO, y las expectativas de inflación van como línea de menor
+    # impacto debajo. Sin poder abrir un calendario para verificarlo, la
+    # respuesta honesta a «solo alto impacto» es dejarlas fuera. Si Kevin las
+    # quiere, es cambiar estos 2 por un 1.
+    "1 year inflation expectations": (2, "bajo"),
     "5 year inflation expectations": (2, "bajo"),
-    "inflation expectations":      (1, "bajo"),
+    "inflation expectations":      (2, "bajo"),
     # ── Impacto medio: relleno, nunca desplazan a un nivel 1 ─────────────
     "philadelphia fed":            (2, "alto"),
     "philly fed":                  (2, "alto"),
@@ -8905,7 +8905,18 @@ _MACRO_DIAS_ADELANTE = 6
 
 
 def _es_evento_macro(nombre: str) -> bool:
-    return _macro_ficha(nombre) is not None
+    """¿Es de ALTO impacto? Nada más entra en el panel.
+
+    > «solo noticias de alto impacto. Si son mediano impacto o bajo no me
+    > interesan y no quiero que salgan en el panel.» — Kevin, 27/08/2026.
+
+    El `nivel 2` dejó de ser relleno y es ahora una lista de EXCLUSIÓN: son
+    los que ya se miraron y **no** son de alto impacto. Estar ahí no es estar
+    a medias — es estar fuera, y además blinda contra la red de abajo, que si
+    no promovería a nivel 1 cualquier cosa que FMP marque `High`.
+    """
+    ficha = _macro_ficha(nombre)
+    return ficha is not None and ficha[0] <= 1
 
 
 #: Familias que son un COMUNICADO, no un dato: nunca traen cifra.
@@ -8923,7 +8934,6 @@ _MACRO_COMUNICADOS = frozenset({
     "fomc",
     "fed chair",
     "fed press conference",
-    "beige book",
     "treasury refunding",
     "treasury refunding announcement",
     "treasury refunding financing",
@@ -9065,8 +9075,15 @@ def _macro_calcula() -> dict:
         # una decisión de la Fed. Inventarle un «más alto es mejor» a un dato
         # que no conocemos sería pintar de verde algo que no hemos leído.
         nivel, mejor = (ficha if ficha else (1, None))
-        if alto_fmp:
+        # La red de abajo sube a alto impacto lo que NO conocemos y el
+        # proveedor marca `High`. Lo que la tabla pone en nivel 2, en cambio,
+        # es una decisión tomada: «esto se miró y no es de alto impacto». Si
+        # el `impact` de FMP pudiera pisarla, la lista de exclusión no
+        # excluiría nada.
+        if alto_fmp and ficha is None:
             nivel = 1
+        if nivel > 1:
+            continue
         fila = {
             "evento": nombre,
             "fecha": cuando,
@@ -9153,19 +9170,21 @@ def _macro_calcula() -> dict:
     # sólo deja pasar lo que está en `_MACRO_TABLA`, y la agrupación por
     # familia impide que un solo comunicado ocupe cuatro huecos. Sin esas dos
     # cosas, ordenar por fecha sí llenaría la caja de ruido; con ellas, no.
-    # Y sólo los de ALTO IMPACTO: «que tenga un alto impacto». `nivel 1` es
-    # esa lista —IPC, nóminas, paro, PIB, ventas minoristas, ISM y la Fed—; el
-    # `nivel 2` son los de segunda fila (peticiones semanales, vivienda,
-    # confianza). Los de nivel 2 sólo se usan para RELLENAR si en la ventana no
-    # hay ocho de nivel 1, porque la caja tiene ocho huecos y dejarlos vacíos
-    # no informa de nada. Nunca desplazan a uno de nivel 1.
-    _altos = [f for f in publicados if f["nivel"] <= 1]
-    _resto = [f for f in publicados if f["nivel"] > 1]
-    _altos.sort(key=lambda x: (_fecha_inversa(x["fecha"]),
-                               _macro_orden_corte(x)))
-    _resto.sort(key=lambda x: (_fecha_inversa(x["fecha"]), x["nivel"],
-                               _macro_orden_corte(x)))
-    publicados = _altos + _resto
+    # Y SÓLO los de alto impacto. El relleno de nivel 2 se fue:
+    #
+    # > «solo noticias de alto impacto. Si son mediano impacto o bajo no me
+    # > interesan y no quiero que salgan en el panel.» — Kevin, 27/08/2026.
+    #
+    # Antes el nivel 2 rellenaba los huecos que sobraran, con el argumento de
+    # que ocho huecos vacíos no informan de nada. Pero una caja con menos
+    # filas dice la verdad —«esto es todo lo de alto impacto que ha salido»—
+    # y una rellenada de segunda fila dice una mentira cómoda. Si en la
+    # ventana sólo hay tres de alto impacto, salen tres.
+    #
+    # El corte ya está hecho arriba, en el bucle: lo de nivel 2 ni siquiera
+    # llega hasta aquí. Esto es sólo el orden.
+    publicados.sort(key=lambda x: (_fecha_inversa(x["fecha"]),
+                                   _macro_orden_corte(x)))
     # Los retrasados delante: si un dato debía salir ayer y no ha salido, es lo
     # más inminente que hay, no lo más viejo.
     _fam_prox: dict[str, dict] = {}

@@ -10368,6 +10368,52 @@ que un sinónimo cuya clave no esté en la tabla es un **alias muerto** que no
 casa nunca. «Philly Fed» y «Trade Balance» se perdían por eso. Hay dos
 guardianes que ahora barren los sinónimos en las dos direcciones.
 
+#### Solo alto impacto: el nivel 2 deja de rellenar y pasa a EXCLUIR
+
+> «solo noticias de alto impacto. verifica e investiga las noticias de alto
+> impacto que son las que quiero. Si son mediano impacto o bajo no me
+> interesan y no quiero que salgan en el panel.» — Kevin, 27/08/2026.
+
+El `nivel 2` era **relleno**: cuando en la ventana no había ocho de nivel 1,
+se completaba con los de segunda fila, con el argumento de que ocho huecos
+vacíos no informan de nada. Ese argumento estaba mal. Una caja con tres filas
+dice la verdad —«esto es todo lo de alto impacto que ha salido»— y una
+rellenada de segunda fila dice una mentira cómoda.
+
+Ahora el `nivel 2` es una **lista de exclusión**: son los que ya se miraron y
+no son de alto impacto. No salen ni en «Ya salieron» ni en «Próximos datos».
+Siguen en la tabla porque hacen falta para reconocerlos — y porque **blindan
+contra la red de abajo**: sin ficha, un `Chicago PMI` que FMP marcase `High`
+se colaría. La red sólo promueve lo que **no** está en la tabla.
+
+**Una corrección mía, no de Kevin.** La ronda anterior metí las expectativas
+de inflación de Michigan en nivel 1 por criterio propio. Al apretar la regla
+fui a comprobarlo y **no lo puedo sostener**: en los calendarios la carpeta
+roja del comunicado de Michigan es el índice de SENTIMIENTO, y las
+expectativas de inflación van como línea de menor impacto debajo. Sin poder
+abrir un calendario para verificarlo, la respuesta honesta a «solo alto
+impacto» es dejarlas fuera. El Employment Cost Index se queda en nivel 1: de
+ése sí estoy seguro. Las tres de Michigan pasan a la lista de exclusión.
+
+**Y un quinto guardián que medía la prosa.** `test_el_nivel_2_solo_RELLENA_
+nunca_desplaza` comprobaba `"publicados = _altos + _resto" in
+inspect.getsource(...)`. Eso mide la línea, no el resultado: se pondría en
+rojo por reordenar una línea sin cambiar nada, y en verde si el relleno se
+colara por otro sitio. Reescrito para medir la caja.
+
+**Lo que queda excluido**, por si Kevin quiere subir alguno (es cambiar un `2`
+por un `1`): S&P Global PMI las tres —las «flash», que algunos calendarios sí
+marcan en rojo—, peticiones continuadas, producción industrial, nuevas
+viviendas, precios de importación, deflactor del PIB, Philly Fed, Empire
+State, Chicago PMI, pedidos a fábrica, NFIB, Challenger, productividad y
+costes laborales unitarios, balanza comercial, Libro Beige, y las tres de
+expectativas de Michigan.
+
+**Un efecto que hay que decir:** la caja sigue cortando a **ocho filas**, y
+ahora las ocho son de alto impacto de verdad. En una ventana cargada eso
+significa que las nóminas de hace tres semanas se caen por abajo — no por
+ruido, sino porque hay ocho cosas más recientes. Subir el corte es un número.
+
 #### Dos que salieron al escribirle la lista a Kevin
 
 Le estaba enumerando qué saldrá en el panel y me encontré con esto:

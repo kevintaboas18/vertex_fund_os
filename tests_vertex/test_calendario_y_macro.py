@@ -937,15 +937,26 @@ class TestLosOchoSonLosULTIMOSDeAltoImpacto:
         assert eventos[0] == "Unemployment Rate", (
             f"un dato de hace doce días le gana al de ayer: {eventos}")
 
-    def test_el_nivel_2_solo_RELLENA_nunca_desplaza(self):
-        """Ocho peticiones semanales de desempleo no pueden empujar fuera al
-        IPC del martes; pero si en la ventana no hay ocho de nivel 1, dejar
-        huecos vacíos tampoco informa de nada."""
-        import inspect
+    def test_el_nivel_2_NO_SALE_aunque_SOBREN_huecos(self, monkeypatch):
+        """Kevin: «solo noticias de alto impacto. Si son mediano impacto o bajo
+        no me interesan y no quiero que salgan en el panel.»
 
-        import vertex_api as V
-
-        assert "publicados = _altos + _resto" in inspect.getsource(V._macro_calcula)
+        Antes el nivel 2 rellenaba: con un solo dato de alto impacto, la caja
+        salía con ocho filas. Este caso medía la línea del código —
+        `inspect.getsource`—, que es medir la prosa y no el resultado: se
+        habría puesto en rojo por reordenar una línea sin cambiar nada, y en
+        verde si el relleno se colara por otro sitio. Ahora mide la caja.
+        """
+        caja = _caja_macro(monkeypatch, [
+            ("Core Inflation Rate YoY", 3, "2.9%", "3.0%", "3.1%"),
+            ("Chicago PMI", 1, "48.1", "47.0", "46.5"),
+            ("New Home Sales", 1, "670K", "660K", "655K"),
+            ("Continuing Jobless Claims", 1, "1.92M", "1.90M", "1.89M"),
+            ("Industrial Production MoM", 2, "0.4%", "0.2%", "0.1%"),
+        ])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert nombres == ["Core Inflation Rate YoY"], (
+            f"sobraban siete huecos y se rellenaron igual: {nombres}")
 
     def test_la_ventana_atras_da_para_ocho_de_nivel_1(self):
         """En EE.UU. salen dos o tres de nivel 1 por semana: con veintiún días
@@ -1485,22 +1496,28 @@ _ALTO_IMPACTO_QUE_KEVIN_NO_NOMBRO = (
     # El coste laboral trimestral del BLS: la medida de salarios que la Fed
     # cita en cada conferencia de prensa.
     "Employment Cost Index QoQ",
-    # Michigan publica DOS horizontes de expectativas, y se leen aparte.
-    # El de cinco años está a propósito en el relleno: ver `_MACRO_TABLA`.
-    "Michigan 1 Year Inflation Expectations Prel",
-    "Michigan Inflation Expectations",
 )
 
-#: De impacto medio: entran como relleno —nivel 2— y **nunca** desplazan a un
-#: nivel 1. Antes no entraban de ninguna forma.
-_RELLENO_NUEVO = (
+#: Lo que se miró y **NO** es de alto impacto. No sale en el panel:
+#:
+#: > «solo noticias de alto impacto. Si son mediano impacto o bajo no me
+#: > interesan y no quiero que salgan en el panel.» — Kevin, 27/08/2026.
+#:
+#: Estar en la tabla en nivel 2 no es estar a medias: es estar fuera. Y sirve
+#: para algo más que documentar — blinda contra la red de abajo, que si no
+#: promovería a alto impacto cualquier cosa que FMP marque `High`.
+_EXCLUIDOS = (
     "Philadelphia Fed Manufacturing Index",
     "Philly Fed Business Conditions",
     "NY Empire State Manufacturing Index",
     "Chicago PMI",
     "Factory Orders MoM",
     "Michigan Consumer Expectations Prel",
+    # Las tres de expectativas de inflación de Michigan: las había puesto yo
+    # en alto impacto por criterio propio y no lo puedo sostener.
+    "Michigan 1 Year Inflation Expectations Prel",
     "Michigan 5 Year Inflation Expectations Final",
+    "Michigan Inflation Expectations",
     "NFIB Business Optimism Index",
     "Challenger Job Cuts",
     "Nonfarm Productivity QoQ Final",
@@ -1524,13 +1541,19 @@ class TestLoQueLaListaDeKevinNoNombra:
         assert ficha[0] == 1, f"«{evento}» entraría sólo como relleno"
         assert V._es_evento_macro(evento) is True
 
-    @pytest.mark.parametrize("evento", _RELLENO_NUEVO)
-    def test_el_relleno_al_menos_entra(self, evento):
+    @pytest.mark.parametrize("evento", _EXCLUIDOS)
+    def test_lo_que_NO_es_de_alto_impacto_NO_entra(self, evento):
+        """Están en la tabla —hicieron falta para reconocerlos— pero el filtro
+        no los deja pasar. Antes rellenaban huecos vacíos; Kevin los quiere
+        fuera, y una caja con menos filas dice la verdad."""
         import vertex_api as V
 
         ficha = V._macro_ficha(evento)
-        assert ficha is not None, f"«{evento}» no casa con ninguna clave"
-        assert V._es_evento_macro(evento) is True
+        assert ficha is not None, (
+            f"«{evento}» no casa con ninguna clave: sin ficha, la red de abajo "
+            f"lo dejaría entrar si FMP lo marcase «High»")
+        assert ficha[0] == 2, f"«{evento}» está en nivel {ficha[0]}"
+        assert V._es_evento_macro(evento) is False
 
     def test_los_DOS_horizontes_de_Michigan_son_DOS_filas(self):
         """Un año y cinco años no son la misma expectativa: si cayeran en la
@@ -1584,21 +1607,21 @@ class TestLoQueLaListaDeKevinNoNombra:
 
         assert V._macro_grupo(a) != V._macro_grupo(b)
 
-    def test_el_relleno_nuevo_NO_le_quita_el_hueco_a_un_alto_impacto(
-            self, monkeypatch):
-        """Es toda la razón de ser del nivel 2: son catorce claves nuevas, y si
-        alguna entrase como nivel 1 empujaría al IPC fuera de la caja."""
+    def test_la_caja_se_queda_CORTA_antes_que_rellenarse(self, monkeypatch):
+        """Diecisiete excluidos de AYER contra un IPC de hace diez días.
+
+        Antes rellenaban los huecos y la caja salía con ocho filas. Ahora sale
+        con UNA: «esto es todo lo de alto impacto que ha salido» es verdad, y
+        una caja rellenada de segunda fila es una mentira cómoda.
+        """
         import vertex_api as V
 
-        hoy = date.today()
-        # Catorce rellenos de AYER contra un IPC de hace diez días: si el
-        # relleno contase como alto impacto, el IPC no cabría.
-        eventos = [(n, 1, "1.0%", "0.9%", "0.8%") for n in _RELLENO_NUEVO]
+        eventos = [(n, 1, "1.0%", "0.9%", "0.8%") for n in _EXCLUIDOS]
         eventos.append(("Core Inflation Rate YoY", 10, "2.9%", "3.0%", "3.1%"))
         caja = _caja_macro(monkeypatch, eventos)
         nombres = [f["evento"] for f in caja["publicados"]]
-        assert "Core Inflation Rate YoY" in nombres, (
-            f"el relleno desplazó al IPC: {nombres}")
+        assert nombres == ["Core Inflation Rate YoY"], (
+            f"la caja se rellenó con lo que no es de alto impacto: {nombres}")
 
     def test_la_tabla_no_tiene_direcciones_INVENTADAS(self):
         """`mejor` sólo puede ser «alto», «bajo» o nada. Un valor escrito mal
@@ -1697,7 +1720,6 @@ class TestLoQueLaListaDeKevinNoNombra:
         "FOMC Minutes",
         "Fed Chair Powell Speech",
         "Fed Press Conference",
-        "Fed Beige Book",
         "Treasury Refunding Announcement",
         "Treasury Refunding Financing Estimates",
     ])
@@ -1760,3 +1782,51 @@ class TestLoQueLaListaDeKevinNoNombra:
         reales = {V._MACRO_SINONIMOS.get(k, k) for k in V._MACRO_TABLA}
         huerfanos = sorted(V._MACRO_COMUNICADOS - reales)
         assert not huerfanos, f"comunicados que no son familia: {huerfanos}"
+
+    def test_el_PROVEEDOR_no_puede_pisar_una_EXCLUSION_explicita(self, monkeypatch):
+        """La red de abajo sube lo que NO conocemos y FMP marca `High`. Pero
+        el nivel 2 es una decisión tomada —«esto se miró y no es de alto
+        impacto»—, y si el `impact` del proveedor pudiera pisarla, la lista de
+        exclusión no excluiría nada."""
+        import vertex_api as V
+
+        hoy = date.today()
+        crudo = [{"country": "US", "event": "Chicago PMI",
+                  "date": (hoy - timedelta(days=1)).isoformat() + " 12:30:00",
+                  "actual": "48.1", "estimate": "47.0", "previous": "46.5",
+                  "impact": "High"}]
+
+        class _R:
+            status_code = 200
+
+            def json(self):
+                return crudo
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        caja = V._macro_calcula()
+        assert not [f for f in caja["publicados"] if "Chicago" in f["evento"]], (
+            "FMP lo marcó «High» y se coló pese a estar excluido a mano")
+        assert not [f for f in caja["proximos"] if "Chicago" in f["evento"]]
+
+    def test_y_lo_EXCLUIDO_tampoco_sale_en_PROXIMOS_datos(self, monkeypatch):
+        """«no quiero que salgan en el panel» es el panel entero: la caja de
+        lo que ya salió y la de lo que viene."""
+        import vertex_api as V
+
+        caja = _caja_macro(monkeypatch, [
+            ("Chicago PMI", -3, "", "", ""),
+            ("Fed Beige Book", -4, "", "", ""),
+            ("Core Inflation Rate YoY", -2, "", "", ""),
+        ])
+        nombres = [f["evento"] for f in caja["proximos"]]
+        assert nombres == ["Core Inflation Rate YoY"], (
+            f"lo excluido se coló en «Próximos datos»: {nombres}")
+
+    @pytest.mark.parametrize("evento", _ALTO_IMPACTO_DE_KEVIN)
+    def test_y_NADA_de_la_lista_de_Kevin_se_perdio_por_el_camino(self, evento):
+        """El filtro nuevo es más estrecho. Este caso es el que avisa si al
+        estrecharlo se llevó por delante algo que él sí pidió."""
+        import vertex_api as V
+
+        assert V._es_evento_macro(evento) is True
