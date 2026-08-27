@@ -1877,3 +1877,75 @@ class TestLoQueLaListaDeKevinNoNombra:
                 "Average Hourly Earnings MoM", "ISM Manufacturing PMI",
                 "ISM Services PMI", "Retail Sales MoM"], start=1)])
         assert len(caja["proximos"]) == 8
+
+    def test_el_PCE_con_su_nombre_LARGO_tiene_su_PROPIA_fila(self, monkeypatch):
+        """«no tienes este que es alto impacto: Core Personal Consumption
+        Expenditure» — Kevin, 27/08/2026.
+
+        Sí estaba en la tabla, y en nivel 1. Lo que pasaba es que era un
+        SINÓNIMO de `core pce price`, así que caía en el mismo grupo que «Core
+        PCE Prices QoQ», y `_macro_titular` prefiere el nombre más corto: el
+        largo perdía el hueco y no se veía nunca. Es la misma clase de fallo
+        que el de la primera ronda, pero al revés — allí se enseñaba el mismo
+        dato dos veces, y aquí se enseñaba uno de dos.
+        """
+        import vertex_api as V
+
+        largo = "Core Personal Consumption Expenditure"
+        assert V._macro_grupo(largo) != V._macro_grupo("Core PCE Price Index MoM")
+        assert V._macro_grupo(largo) != V._macro_grupo("Core PCE Prices QoQ 2nd Est")
+
+        caja = _caja_macro(monkeypatch, [
+            ("Core PCE Price Index MoM", 1, "0.2%", "0.3%", "0.3%"),
+            (largo, 1, "2.9%", "3.0%", "3.1%"),
+        ])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert largo in nombres, f"se lo tragó otro nombre: {nombres}"
+
+    @pytest.mark.parametrize("evento", [
+        "Core PCE Prices QoQ 2nd Est",
+        "Core PCE Prices QoQ Adv",
+        "Core PCE Prices QoQ Final",
+        "PCE Prices QoQ 2nd Est",
+    ])
+    def test_el_PCE_TRIMESTRAL_es_del_informe_del_PIB_y_NO_sale(
+            self, monkeypatch, evento):
+        """«este no es alto impacto, es bajo: Core PCE Prices QoQ 2nd Est.»
+
+        El mensual es el comunicado de la BEA que mira la Fed. El trimestral
+        sale tres veces —avance, segunda y tercera estimación— revisando
+        decimales de un trimestre ya cerrado, dentro del informe del PIB. Su
+        hermano, el deflactor del PIB, ya estaba excluido.
+        """
+        import vertex_api as V
+
+        assert V._es_evento_macro(evento) is False
+        caja = _caja_macro(monkeypatch, [
+            (evento, 1, "2.5%", "2.5%", "2.6%"),
+            ("Core PCE Price Index MoM", 2, "0.2%", "0.3%", "0.3%"),
+        ])
+        nombres = [f["evento"] for f in caja["publicados"]]
+        assert nombres == ["Core PCE Price Index MoM"], (
+            f"el trimestral del PIB se coló: {nombres}")
+
+    def test_pero_el_PCE_MENSUAL_e_INTERANUAL_siguen_siendo_alto_impacto(self):
+        """Excluir un corte no puede llevarse por delante la familia entera:
+        el mensual es justo el que Kevin nombró en su lista de 32."""
+        import vertex_api as V
+
+        for evento in ("Core PCE Price Index MoM", "Core PCE Price Index YoY",
+                       "PCE Price Index MoM"):
+            assert V._es_evento_macro(evento) is True, evento
+
+    def test_cada_GRUPO_excluido_apunta_a_una_familia_REAL(self):
+        """Un grupo mal escrito —«core pce prices|qoq», en plural— no rompería
+        nada: sencillamente no excluiría nunca, en silencio."""
+        import vertex_api as V
+
+        reales = {V._MACRO_SINONIMOS.get(k, k) for k in V._MACRO_TABLA}
+        rotos = sorted(g for g in V._MACRO_GRUPOS_EXCLUIDOS
+                       if g.split("|")[0] not in reales)
+        assert not rotos, f"grupos que no son familia: {rotos}"
+        cortes = sorted(g for g in V._MACRO_GRUPOS_EXCLUIDOS
+                        if g.split("|")[-1] not in V._MACRO_CORTES)
+        assert not cortes, f"grupos con un corte que no existe: {cortes}"

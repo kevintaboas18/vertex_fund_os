@@ -8691,10 +8691,6 @@ _MACRO_SINONIMOS = {
     "consumer price":            "cpi",
     "producer price":            "ppi",
     "non farm payroll":          "nonfarm payroll",
-    # El PCE con su nombre largo: «Core Personal Consumption Expenditure» y
-    # «Core PCE Price Index» son el mismo dato.
-    "core personal consumption": "core pce price",
-    "personal consumption":      "pce price",
     # «UoM» y «University of Michigan» son el mismo índice.
     "uom consumer sentiment":    "michigan consumer sentiment",
     # El «sin automóviles» se llama de las dos formas.
@@ -8927,7 +8923,9 @@ def _es_evento_macro(nombre: str) -> bool:
     no promovería a nivel 1 cualquier cosa que FMP marque `High`.
     """
     ficha = _macro_ficha(nombre)
-    return ficha is not None and ficha[0] <= 1
+    if ficha is None or ficha[0] > 1:
+        return False
+    return not _macro_grupo_excluido(nombre)
 
 
 #: Familias que son un COMUNICADO, no un dato: nunca traen cifra.
@@ -8949,6 +8947,32 @@ _MACRO_COMUNICADOS = frozenset({
     "treasury refunding announcement",
     "treasury refunding financing",
 })
+
+
+#: Grupos —familia MÁS corte— que se caen aunque su familia sea de alto
+#: impacto.
+#:
+#: > «este no es alto impacto, es bajo: Core PCE Prices QoQ 2nd Est»
+#: > — Kevin, 27/08/2026.
+#:
+#: Y tiene razón: el índice de precios del PCE **mensual** es el comunicado de
+#: la BEA que mira la Fed, y es de alto impacto. El **trimestral** es otra
+#: cosa: es un subproducto del informe del PIB, que sale tres veces —avance,
+#: segunda y tercera estimación— revisando decimales de un trimestre ya
+#: cerrado. El deflactor del PIB, que es su hermano y sale en el mismo
+#: comunicado, ya estaba excluido; esto lo pone de acuerdo.
+#:
+#: El nivel vive en la familia, así que un caso como éste —«esta familia sí,
+#: pero este corte no»— no se puede decir con la tabla. Por eso el conjunto.
+_MACRO_GRUPOS_EXCLUIDOS = frozenset({
+    "core pce price|qoq",
+    "pce price|qoq",
+})
+
+
+def _macro_grupo_excluido(nombre) -> bool:
+    """¿Es un corte que se cae aunque su familia sea de alto impacto?"""
+    return (_macro_grupo(nombre) or "") in _MACRO_GRUPOS_EXCLUIDOS
 
 
 def _macro_es_comunicado(nombre) -> bool:
@@ -9093,7 +9117,7 @@ def _macro_calcula() -> dict:
         # excluiría nada.
         if alto_fmp and ficha is None:
             nivel = 1
-        if nivel > 1:
+        if nivel > 1 or _macro_grupo_excluido(nombre):
             continue
         fila = {
             "evento": nombre,

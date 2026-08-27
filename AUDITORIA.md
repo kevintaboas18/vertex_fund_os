@@ -10368,6 +10368,43 @@ que un sinónimo cuya clave no esté en la tabla es un **alias muerto** que no
 casa nunca. «Philly Fed» y «Trade Balance» se perdían por eso. Hay dos
 guardianes que ahora barren los sinónimos en las dos direcciones.
 
+#### El PCE: uno que no se veía y otro que no debía verse
+
+Kevin, mirando el panel ya con los cambios:
+
+> «no tienes este que es alto impacto: Core Personal Consumption Expenditure»
+> «y este no es alto impacto, es bajo: Core PCE Prices QoQ 2nd Est»
+
+Las dos ciertas, y son el mismo nudo.
+
+**«Core Personal Consumption Expenditure» sí estaba** —en la tabla y en nivel
+1—, pero como **sinónimo** de `core pce price`. Eso lo metía en el mismo grupo
+que «Core PCE Prices QoQ», y `_macro_titular` prefiere el nombre más corto:
+el largo perdía el hueco y no se veía nunca. Es la misma clase de fallo que el
+de la primera ronda, pero al revés — allí se enseñaba el mismo dato dos veces,
+aquí se enseñaba uno de dos. Ahora es **su propia familia**.
+
+**Y el trimestral no es el mensual.** El índice de precios del PCE **mensual**
+es el comunicado de la BEA que mira la Fed: alto impacto. El **trimestral**
+sale tres veces —avance, segunda y tercera estimación— revisando decimales de
+un trimestre ya cerrado, dentro del informe del PIB. Su hermano, el deflactor
+del PIB, ya estaba excluido; esto los pone de acuerdo.
+
+Eso hizo falta una pieza nueva: **el nivel vive en la familia**, así que «esta
+familia sí, pero este corte no» no se puede decir con la tabla.
+`_MACRO_GRUPOS_EXCLUIDOS` guarda grupos enteros —familia MÁS corte—, hoy
+`core pce price|qoq` y `pce price|qoq`. Con un caso que comprueba que cada
+entrada apunta a una familia y a un corte que existen: una escrita mal —«core
+pce prices|qoq», en plural— no rompería nada, sencillamente no excluiría nunca
+y en silencio.
+
+**Lo que queda por confirmar en el panel de verdad.** Si FMP publicase la misma
+cifra bajo los dos nombres, separarlos en dos familias la enseñaría dos veces.
+No lo puedo comprobar desde aquí —sin clave de FMP y con el proxy bloqueando
+todo calendario—, así que queda dicho: si aparece duplicada, la respuesta es
+volver a unirlas con un sinónimo y quitarle el hueco al nombre corto, no
+deshacer el corte trimestral.
+
 #### Solo alto impacto: el nivel 2 deja de rellenar y pasa a EXCLUIR
 
 > «solo noticias de alto impacto. verifica e investiga las noticias de alto
