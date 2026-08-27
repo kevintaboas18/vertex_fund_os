@@ -10577,13 +10577,38 @@ Verificado en rojo antes que en verde: **31 casos** de la primera ronda y
 
 ### Estado
 
-**3.480 tests del motor · 1.474 de la capa web (172 nuevos del macro) · 342
+**3.486 tests del motor · 1.498 de la capa web (196 nuevos del macro) · 342
 checks de auditoría CON su repo real (0 avisos · 0 fallos, contra `/tmp/tito`
-en `53d5a20`) · los 17 diferenciales en verde. 0 fallos, y **sin intermitentes
-declarados**.**
+en `53d5a20`) · los 17 diferenciales en verde. 0 fallos.**
 
-Los de navegador van dentro de los 1.474 (`tests_vertex/test_navegador.py`); la
-corrida completa de la capa web tardó 45 min 37 s.
+Los de navegador van dentro de los 1.498 (`tests_vertex/test_navegador.py`); la
+corrida completa de la capa web tardó 46 min 20 s.
+
+#### El intermitente del almacén, medido en vez de declarado
+
+La PRIMERA corrida de la capa web sobre este árbol dio **dos fallos**, los dos
+en `test_almacen.py::TestUnRespaldoVACIONoPISAaUnoLLENO`. Venía inmediatamente
+después de un reinicio del contenedor que mató una batería a media ejecución
+—la misma pinta que el intermitente que llevaba declarado desde el 22/08—.
+
+En vez de declararlo otra vez, se midió. Cuatro corridas:
+
+| Qué se midió | Resultado |
+|---|---|
+| `test_almacen.py` solo | **128 pasan** |
+| `test_13f…` + `test_almacen.py` (el ÚNICO fichero que corre antes) | **132 pasan** |
+| La capa web ENTERA sobre `origin/main` limpio, sin una línea mía | **1.474 pasan** |
+| La capa web ENTERA sobre este árbol, segunda corrida | **1.498 pasan** |
+
+Y el diff contra `origin/main` no toca `vertex_almacen.py` ni su test: son
+`AUDITORIA.md`, `test_calendario_y_macro.py` y `vertex_api.py`. Además
+`test_almacen.py` es el **segundo** fichero que corre y el del macro va
+después, así que por orden de ejecución no puede alcanzarlo.
+
+Queda como lo que el propio fichero ya nombra —`_CONTENCION`: «la SQLite viva
+o el `git` del almacén ocupados por otro proceso»—, no como una regresión.
+Sigue sin estar arreglado y sigue declarado; lo que cambia es que ahora hay
+cuatro medidas debajo en vez de una corazonada.
 
 La corrida lleva estampado el md5 de `vertex_api.py` al empezar y al terminar
 —`52de66b4af67` las dos veces—, que es la única forma de saber que midió el
