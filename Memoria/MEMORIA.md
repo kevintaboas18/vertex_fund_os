@@ -17,5 +17,5 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [NVDA](tesis/NVDA.md) | 2026-08-26 | Oportunidad Moderada | 70 | opciones |
 | [PLTR](tesis/PLTR.md) | 2026-08-18 | DESFAVORABLE | 46 | acciones |
 | [SPXC](tesis/SPXC.md) | 2026-08-20 | DESFAVORABLE | 44 | acciones |
-| [SPY](tesis/SPY.md) | 2026-08-26 | Oportunidad Moderada | 62 | opciones |
+| [SPY](tesis/SPY.md) | 2026-08-27 | Oportunidad Moderada | 62 | opciones |
 | [TSLA](tesis/TSLA.md) | 2026-08-27 | Oportunidad Moderada | 61 | opciones |
