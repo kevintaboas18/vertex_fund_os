@@ -4,10 +4,10 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 61.0 / 100 |
-| Spot | $345.82 |
-| Régimen de gamma | negative |
-| Nodo imán | $300.00 |
-| Gamma flip | $346.47 |
+| Spot | $348.79 |
+| Régimen de gamma | positive |
+| Nodo imán | $400.00 |
+| Gamma flip | $346.37 |
 | Sub-agentes activos | 6 de 6 |
 
 ## Los 6 sub-agentes
@@ -25,26 +25,26 @@
 
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
-| 10 días | $330.00 | $340.00 | $350.00 | 59.0 |
-| 20 días | $330.00 | $340.00 | $350.00 | 56.0 |
-| 30 días | $330.00 | $340.00 | $350.00 | 55.0 |
+| 10 días | $340.00 | $350.00 | $360.00 | 56.0 |
+| 20 días | $340.00 | $350.00 | $360.00 | 53.0 |
+| 30 días | $330.00 | $340.00 | $350.00 | 52.0 |
 
 ## Niveles importantes
 
 | Precio | Tipo | Fuerza | P(toque) | Por qué |
 |---|---|---|---|---|
-| $382.25 | resistencia | 76 | 26% | el precio reaccionó 5 veces aquí · 93,290 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $364.99 | resistencia | 67 | 53% | el precio reaccionó 3 veces aquí · 48,240 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $352.14 | resistencia | 58 | 81% | el precio reaccionó 1 vez aquí · 120,522 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $368.60 | resistencia | 55 | 46% | el precio reaccionó 1 vez aquí · 67,076 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $337.24 | soporte | 54 | 82% | el precio reaccionó 1 vez aquí · 89,086 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $377.50 | resistencia | 42 | 32% | 107,808 contratos abiertos de calls · venta de calls por dinero real |
-| $330.00 | soporte | 41 | 64% | 77,372 contratos abiertos de puts · venta de puts por dinero real |
-| $320.00 | soporte | 41 | 42% | 69,424 contratos abiertos de puts · venta de puts por dinero real |
-| $372.50 | resistencia | 41 | 39% | 90,325 contratos abiertos de calls · venta de calls por dinero real |
-| $310.00 | soporte | 40 | 25% | 49,745 contratos abiertos de puts · venta de puts por dinero real |
-| $345.00 | soporte | 37 | 100% | 33,397 contratos abiertos de puts · venta de puts por dinero real |
-| $325.60 | soporte | 36 | 54% | el precio reaccionó 1 vez aquí · 31,655 contratos abiertos de puts · confluencia precio + opciones |
+| $364.99 | resistencia | 68 | 57% | el precio reaccionó 3 veces aquí · 48,240 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $352.14 | resistencia | 58 | 88% | el precio reaccionó 1 vez aquí · 120,522 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $368.60 | resistencia | 55 | 50% | el precio reaccionó 1 vez aquí · 67,076 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $337.24 | soporte | 54 | 73% | el precio reaccionó 1 vez aquí · 89,086 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $325.60 | soporte | 49 | 45% | el precio reaccionó 1 vez aquí · 31,655 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $330.00 | soporte | 42 | 55% | 77,372 contratos abiertos de puts · venta de puts por dinero real |
+| $377.50 | resistencia | 42 | 34% | 107,808 contratos abiertos de calls · venta de calls por dinero real |
+| $320.00 | soporte | 41 | 34% | 69,424 contratos abiertos de puts · venta de puts por dinero real |
+| $372.50 | resistencia | 41 | 42% | 90,325 contratos abiertos de calls · venta de calls por dinero real |
+| $310.00 | soporte | 40 | 19% | 49,745 contratos abiertos de puts · venta de puts por dinero real |
+| $360.00 | resistencia | 39 | 68% | 65,835 contratos abiertos de calls · venta de calls por dinero real |
+| $345.00 | soporte | 38 | 93% | 33,397 contratos abiertos de puts · venta de puts por dinero real |
 
 ## Los 3 flujos más grandes
 
