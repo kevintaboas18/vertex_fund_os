@@ -432,20 +432,6 @@
         "bueno": null
       },
       {
-        "evento": "PCE Price Index YoY (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 3.7,
-        "esperado": 3.6,
-        "anterior": 3.7,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.10000000000000009,
-        "bueno": false
-      },
-      {
         "evento": "Core PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 3.3,
@@ -458,6 +444,20 @@
         "hora_et": "08:30",
         "sorpresa": 0.0,
         "bueno": null
+      },
+      {
+        "evento": "PCE Price Index YoY (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 3.7,
+        "esperado": 3.6,
+        "anterior": 3.7,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.10000000000000009,
+        "bueno": false
       },
       {
         "evento": "PCE Prices QoQ (Q2)",
@@ -474,18 +474,18 @@
         "bueno": false
       },
       {
-        "evento": "Core PCE Price Index MoM (Jul)",
+        "evento": "Core PCE Prices QoQ (Q2)",
         "fecha": "2026-08-26 12:30",
-        "salio": 0.2,
-        "esperado": 0.2,
-        "anterior": 0.1,
+        "salio": 3.6,
+        "esperado": 3.4,
+        "anterior": 4.4,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
+        "sorpresa": 0.20000000000000018,
+        "bueno": false
       },
       {
         "evento": "PCE Price Index MoM (Jul)",
@@ -502,18 +502,18 @@
         "bueno": false
       },
       {
-        "evento": "Core PCE Prices QoQ (Q2)",
+        "evento": "Core PCE Price Index MoM (Jul)",
         "fecha": "2026-08-26 12:30",
-        "salio": 3.6,
-        "esperado": 3.4,
-        "anterior": 4.4,
+        "salio": 0.2,
+        "esperado": 0.2,
+        "anterior": 0.1,
         "unidad": "",
-        "impacto": "low",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
-        "sorpresa": 0.20000000000000018,
-        "bueno": false
+        "sorpresa": 0.0,
+        "bueno": null
       },
       {
         "evento": "Retail Sales MoM (Jul)",
@@ -612,6 +612,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-08-26T21:13:50.257331+00:00",
-  "generado_macro": "2026-08-27T14:57:39.250975+00:00",
-  "generado": "2026-08-27T14:57:39.250975+00:00"
+  "generado_macro": "2026-08-27T15:12:36.349880+00:00",
+  "generado": "2026-08-27T15:12:36.349880+00:00"
 }
