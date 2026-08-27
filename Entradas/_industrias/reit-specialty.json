@@ -1,0 +1,22 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-27",
+  "_como_se_obtuvo": "Resuelto al analizar EQIX. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 47600000000,
+  "_cita_verificada": "https://omdia.tech.informa.com/om021088/cloud--colocation-services-market-tracker--2h21-analysis",
+  "tam_source": "Omdia + colocation service market + 2025",
+  "tam_source_tier": 3,
+  "tam_anio": 2025,
+  "_ambito": "mundial",
+  "_capa": "ingresos del mercado de servicios de colocation",
+  "_capa_coincide": "EQIX es un proveedor global de servicios de colocation e interconexión de centros de datos, que genera ingresos directamente de los servicios de colocation.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFJdlSFRbHn0xsGRECjV6MBIb_KW2AAcGL_wen4HtNIsw4zftbZyA3PKN1HlREJH8Qugb25XOpDHkl9M50qvXCA1CwsZ5zqt8-_D63ipyQAAcCKIZp28leqyPNA0WeDy7mvaOhoFjRcRrR1WW-qGEmGk2baIlfAtqqU9vrwQbewGq88nQgwg4xlCIvXqE81eNJpu4jklEQJlW_hFQ==",
+  "_cita_textual": "The colocation service market is forecast to reach $47.6bn in 2025; interconnection growth remains strong.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "_segmento_patrones": [
+    "colocation",
+    "data center"
+  ],
+  "_capa_juzgada": "La cifra mide los ingresos del mercado de servicios de colocation, que es precisamente donde Equinix factura por sus servicios."
+}
