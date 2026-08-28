@@ -7340,8 +7340,19 @@ def tito_tape(ticker: str, period: str = "5d",
 #  Las preguntas y el hashing viven en `vertex_cuentas.py`.
 # ═══════════════════════════════════════════════════════════════════════════
 
-_PERFIL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "Perfil Inversionista")
+#: Dónde viven los perfiles. `VERTEX_PERFILES` lo mueve.
+#:
+#: La variable de entorno hace falta de verdad, y no es comodidad: los casos de
+#: `test_idioma.py` levantan un servidor REAL en un subproceso —con su
+#: `VERTEX_DB` y su `VERTEX_ALMACEN` propios— y registran un usuario contra él.
+#: Un `monkeypatch` no cruza a otro proceso, así que ese registro escribía el
+#: perfil en la carpeta DE VERDAD, uno por corrida. Se acumularon **187**
+#: ficheros —176 «Ann», 3 «Prueba», 2 «Kevin»…— y nadie los vio nunca, porque
+#: `Perfil Inversionista/usuarios/` está en `.gitignore` y ni siquiera
+#: `git status` los enseña. Los cazó el guardián de `conftest.py`.
+_PERFIL_DIR = (os.environ.get("VERTEX_PERFILES", "").strip()
+               or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "Perfil Inversionista"))
 
 #: El `.md` de referencia: el que Kevin escribió a mano. Es el respaldo cuando
 #: no hay sesión (scripts, cron, el preflight) y el que da los valores por

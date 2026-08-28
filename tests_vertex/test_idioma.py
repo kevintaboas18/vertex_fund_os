@@ -468,7 +468,13 @@ def _servidor(puerto, tmp):
     entorno = dict(os.environ,
                    EDGAR_USER_AGENT="Vertex test@example.com",
                    VERTEX_DB=str(tmp / "vertex.db"),
-                   VERTEX_ALMACEN=str(tmp / "almacen"))
+                   VERTEX_ALMACEN=str(tmp / "almacen"),
+                   # Y los PERFILES. Es un subproceso: un `monkeypatch` no
+                   # llega hasta aquí, así que sin esta línea el registro de
+                   # usuario escribía en la carpeta de verdad — uno por
+                   # corrida, 187 acumulados y nadie los vio, porque
+                   # `usuarios/` está en `.gitignore`.
+                   VERTEX_PERFILES=str(tmp / "Perfil Inversionista"))
     entorno.pop("VERTEX_GIT_TOKEN", None)
     p = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "vertex_api:app",

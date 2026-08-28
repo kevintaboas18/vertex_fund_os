@@ -14,6 +14,7 @@ agente leyendo del otro-- asi que la garantia se escribe, no se supone.
 
 from __future__ import annotations
 
+import os
 import hashlib
 import sqlite3
 import sys
@@ -105,3 +106,41 @@ def test_en_modo_default_su_md_refleja_el_de_referencia(conn, perfiles):
     assert propio.is_file()
     assert _sha(perfiles / "Kevin.md") == antes
     assert CU.leer_perfil(conn, u["id"])["capital"] == CU.perfil_por_defecto()["capital"]
+
+
+def test_VERTEX_PERFILES_mueve_la_carpeta_de_perfiles(tmp_path):
+    """Sin esta variable, un SUBPROCESO no se puede aislar.
+
+    `test_idioma.py` levanta un servidor de verdad —con su `VERTEX_DB` y su
+    `VERTEX_ALMACEN` propios— y registra un usuario contra él. Un
+    `monkeypatch` no cruza a otro proceso, así que ese registro escribía el
+    perfil en la carpeta DE VERDAD: uno por corrida, **187 acumulados**, y
+    nadie los vio nunca porque `Perfil Inversionista/usuarios/` está en
+    `.gitignore` — ni `git status` los enseña.
+
+    Se comprueba en un proceso nuevo porque la constante se resuelve al
+    importar, que es justo la parte que tiene que funcionar.
+    """
+    import subprocess
+
+    destino = tmp_path / "Perfiles de prueba"
+    salida = subprocess.run(
+        [sys.executable, "-c",
+         "import vertex_api as V; print(V._PERFIL_DIR)"],
+        cwd=str(RAIZ), env={**os.environ, "VERTEX_PERFILES": str(destino)},
+        capture_output=True, text=True, timeout=120)
+    assert salida.returncode == 0, salida.stderr[-400:]
+    assert salida.stdout.strip() == str(destino)
+
+
+def test_y_sin_la_variable_sigue_siendo_la_de_siempre(tmp_path):
+    """Mover la carpeta es para los tests; en producción no cambia nada."""
+    import subprocess
+
+    entorno = {k: v for k, v in os.environ.items() if k != "VERTEX_PERFILES"}
+    salida = subprocess.run(
+        [sys.executable, "-c",
+         "import vertex_api as V; print(V._PERFIL_DIR)"],
+        cwd=str(RAIZ), env=entorno, capture_output=True, text=True, timeout=120)
+    assert salida.returncode == 0, salida.stderr[-400:]
+    assert salida.stdout.strip() == str(RAIZ / "Perfil Inversionista")

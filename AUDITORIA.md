@@ -10351,6 +10351,35 @@ justo lo que faltaba: las tres veces el daño existía y nadie lo veía.
 Comprobado con un test sucio a propósito: el caso pasa —como pasaba antes— y
 la corrida falla nombrando `Memoria/tesis/_PRUEBA_GUARDIAN.md`.
 
+**Se vigila por CONTENIDO, no por fecha.** Con el `mtime`, la primera corrida
+completa salió en rojo por un fichero reescrito con exactamente el mismo texto:
+`git status` no lo ve, no hay dato dañado, y poner la suite en rojo por eso
+enseña a ignorar al guardián — que es como muere un guardián.
+
+#### Y lo primero que cazó: 187 perfiles, invisibles hasta para `git status`
+
+La segunda corrida siguió en rojo, y esta vez era de verdad.
+`Perfil Inversionista/usuarios/` está en `.gitignore`, así que **ni `git
+status` lo enseña**: ahí había **187 ficheros** de corridas viejas —176 «Ann»,
+3 «Prueba», 2 «Kevin», 3 «R», 2 «Ana», 1 «A»—, todos con fecha del 13/08 y
+todos diciendo «Perfil por defecto. Esta persona NO ha personalizado su
+perfil». Basura de tests, comprobada uno a uno antes de tocar nada.
+
+El culpable, localizado corriendo los ficheros de uno en uno: `test_idioma.py`
+levanta un servidor **de verdad en un subproceso** —con su `VERTEX_DB` y su
+`VERTEX_ALMACEN` propios— y registra un usuario contra él. **Un `monkeypatch`
+no cruza a otro proceso**, así que el perfil caía en la carpeta real: uno por
+corrida, desde agosto.
+
+Por eso `_PERFIL_DIR` acepta ahora `VERTEX_PERFILES`, igual que la base y el
+almacén ya aceptaban la suya. No es comodidad: es la única forma de aislar un
+subproceso. Con dos casos que lo comprueban en un proceso nuevo —con la
+variable y sin ella—, porque la constante se resuelve al importar y eso es
+justo lo que tiene que funcionar.
+
+Los 187 ficheros **no se han borrado**: la carpeta no está en git, así que
+borrarla no se deshace, y esa decisión es de Kevin.
+
 La causa es la de siempre: la ruta de `Memoria/` se calculaba con `__file__`
 —en **tres** sitios—, así que no se podía apuntar a otro lado. Es el tercer
 directorio con el mismo fallo: `_PERFIL_DIR` lo tuvo, `REPORTES_LOCAL` lo tuvo
