@@ -184,6 +184,23 @@ Reglas que no se negocian aquí:
 - **Drift no puntúa.** Es contexto de posicionamiento. En cuanto publique un
   score, el portafolio pasa a ser un tercer agente que nadie auditó.
 
+## El vigilante de las tesis
+
+Cada tesis guarda **qué la invalidaría** —un nivel exacto, no una frase— y
+`vertex_vigilante.py` lo comprueba cada mañana contra las barras del día. La
+regla no se reescribe ahí: se evalúa con la del motor
+(`levels_engine.breakout_confirmed`, TECH-BCONF-031), reconstruyendo la zona
+con los números que guarda `prediccion.json`. El ATR y el volumen se
+recalculan — congelarlos sería medir hoy con una regla vieja.
+
+Sale por el correo pre-market (`/api/premarket/enviar`, que dispara el workflow
+de GitHub) y por `/api/tesis/vigilante` para verlo a mano. Si algo se rompió va
+**en el asunto**, y el nivel va **en dólares**: «NVDA perdió su soporte (nivel
+$198,58), cerró en $184,00». Lo que no se pudo medir se dice — `roto = None`
+(«no sé») es distinto de `roto = False` («no se rompió»).
+
+Son avisos para volver a mirar una tesis, nunca órdenes de compra o venta.
+
 ## Auditoría en curso
 
 `AUDITORIA.md` tiene los 26 hallazgos de la auditoría inicial con su

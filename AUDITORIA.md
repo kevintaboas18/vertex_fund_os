@@ -10678,12 +10678,13 @@ Verificado en rojo antes que en verde: **31 casos** de la primera ronda y
 
 ### Estado
 
-**3.486 tests del motor · 1.498 de la capa web (196 nuevos del macro) · 342
-checks de auditoría CON su repo real (0 avisos · 0 fallos, contra `/tmp/tito`
-en `53d5a20`) · los 17 diferenciales en verde. 0 fallos.**
+**3.491 tests del motor · 1.523 de la capa web · 342 checks de auditoría CON
+su repo real (0 avisos · 0 fallos, contra `/tmp/tito` en `53d5a20`) · los 17
+diferenciales en verde. 0 fallos.**
 
-Los de navegador van dentro de los 1.498 (`tests_vertex/test_navegador.py`); la
-corrida completa de la capa web tardó 46 min 20 s.
+Los de navegador van dentro de los 1.523 (`tests_vertex/test_navegador.py`); la
+corrida completa de la capa web tardó 44 min 34 s. Los últimos 30 son del bucle
+de aprendizaje: 23 del vigilante, 5 del track record y 2 del almacén.
 
 #### El intermitente del almacén, medido en vez de declarado
 
