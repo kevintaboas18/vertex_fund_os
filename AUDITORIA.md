@@ -10280,6 +10280,107 @@ que FMP publicara ese dato—, que todo rótulo colapsado esté también en la t
 que la preferencia de corte se escriba con nombres ya canónicos, porque puesta
 con un rótulo dejaría de consultarse en silencio.
 
+### El bucle que no se cerraba: la predicción, el track record y el vigilante
+
+> «vamos hacer esto: solucionalo y arreglalo.» — Kevin, 28/08/2026, sobre los
+> tres agujeros del bucle de aprendizaje.
+
+Investigando los tres, **dos de mis tres diagnósticos estaban mal**. Van
+corregidos con la medida delante.
+
+#### 1. `Proyecciones/` NO estaba vacío — me equivoqué de sitio
+
+Dije que el agente de opciones no archivaba nada. Miré el árbol de trabajo, y
+los datos vivos **no viven ahí**: viven en el almacén, que es la rama `datos`.
+Medido: **118 `scorecard.json`** archivados. `_archiva_opciones` se llama, está
+probado y funciona. El fallo era mío por mirar donde no era.
+
+#### 2. Lo que SÍ estaba roto: la predicción no llegaba a existir
+
+`_wbj_write_prediccion` escribía junto a `vertex_api.py`, o sea en el disco del
+repositorio — y Render en plan free **no tiene disco persistente**. Medido
+sobre la rama `datos`: **63 ficheros bajo `Reportes/`** —los `reporte.json` y
+sus `RESUMEN.md`, que sí pasan por el almacén— y **cero `prediccion.json`**.
+
+Ahora se escribe en los dos sitios: el almacén (lo que dura) y el disco local
+(de donde lee `wbj track` en una máquina de verdad). El mismo payload en las
+dos, así que no hay que decidir cuál manda. Con un caso dentro de
+`TestUnContenedorNuevo` —la prueba que borra el disco entero como hace
+Render— que comprueba que la predicción vuelve.
+
+#### 3. Y la razón REAL de «sin predicciones todavía»: nadie podía leerlas
+
+Dije que el track record estaba ciego un año por `MATURITY_DAYS = 365`. Eso es
+verdad para el **veredicto**, pero no era la causa: `evaluate` ya calculaba un
+desvío prorrateado para las predicciones en curso desde el primer día.
+
+La causa es que **el panel escribía un formato que el motor no sabe leer**.
+`wbj.memoria._is_usable` exige `date`, `price`, `bear`, `base`, `bull`; el
+panel escribía `fecha`, `price_at_analysis` y `targets_12m`. Y
+`load_predictions` **descarta lo que no entiende en silencio**.
+
+Medido el 28/08/2026 sobre `Reportes/`:
+
+| | Cuántas |
+|---|---|
+| Ficheros de predicción | 29 |
+| Legibles (las del CLI) | **11** |
+| **Descartadas sin una línea de aviso** | **18** — todas las del panel |
+
+Tres arreglos:
+
+- El panel escribe **los dos juegos de claves**. Las viejas se quedan: son las
+  que ya están en disco y en `datos`, y quitarlas rompería lo archivado.
+- `source` es `cerebro` y no `quick`: estos números salen del perfil estricto
+  de Victor, y `wbj.memoria` separa las dos fuentes a propósito porque puntúan
+  la misma empresa distinto (AAPL 8.0/10 rápido contra 3.9/10 estricto).
+- **El descarte deja de ser mudo.** `load_predictions` guarda lo que tiró en
+  `DESCARTADAS`, `track` lo cuenta y `calibracion.md` lo dice. Un track record
+  vacío porque no hay predicciones y uno vacío porque nadie supo leerlas se
+  veían idénticos desde fuera, y así estuvo semanas.
+
+Y el veredicto se separa del «cómo va»: una vencida mide el retorno entero
+contra el caso base entero; una en curso mide lo que va contra la parte
+prorrateada. Estaban promediados en el mismo número. Separados, el de en curso
+da señal desde la primera semana —comprobado: una predicción del panel a 30
+días ya da un desvío de +10,6%— sin poder leerse nunca como un veredicto.
+
+#### 4. El vigilante: abrir el cajón donde estaba la alarma
+
+`vertex_vigilante.py`. Dos decisiones lo sostienen:
+
+**La regla no se reescribe.** Se evalúa con la del motor —
+`levels_engine.breakout_confirmed`, TECH-BCONF-031, la misma que produjo la
+frase de la tesis— reconstruyendo la zona con los números que ahora guarda
+`prediccion.json`. Reimplementarla habría creado dos versiones de la misma
+condición, y el día que una cambiara la otra seguiría avisando de otra cosa.
+
+**El ATR y el volumen se recalculan.** No se congelan con la tesis: la regla
+los mide sobre las últimas sesiones, y un ATR de hace tres semanas es medir hoy
+con una regla vieja.
+
+Sale por el correo pre-market, que **ya existía y viajaba vacío de lo de
+Kevin**: mandaba movers genéricos del mercado. El bloque va arriba y, si algo
+se rompió, **en el asunto** — que es lo único que se lee en la pantalla
+bloqueada del teléfono. Y el nivel va **en dólares**: «perdió su soporte (nivel
+$198,58), cerró en $184,00», no `close < zone_low - 0.25*ATR14`.
+
+Lo que no se pudo medir **se dice**. Un vigilante que calla cuando le faltan
+datos se lee igual que uno que dice que todo va bien, y `roto = None` («no sé»)
+es distinto de `roto = False` («no se rompió»).
+
+#### Dos fallos que los propios casos destaparon
+
+Los dos silenciosos, y los dos por creerle al payload en vez de a la carpeta:
+
+- **Con el ticker equivocado se piden las barras de otra empresa** y se mide la
+  tesis contra el precio de quien no es.
+- **Con la fecha equivocada gana la tesis vieja** y se vigila una que ya se
+  corrigió sola.
+
+`Reportes/<TICKER>/<fecha>/` es la ruta canónica del archivo —es de donde
+`vertex_archivo.lista_reportes` saca las dos cosas— y ahora también aquí.
+
 ### La lista de alto impacto la pone Kevin, y el proveedor es la red de abajo
 
 > «las noticias de alto impacto te las dare porque las estas haciendo mal.»

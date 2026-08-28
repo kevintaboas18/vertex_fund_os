@@ -172,11 +172,47 @@ def guarda_reporte_acciones(ticker: str, payload: dict, *, cuando=None,
                             alm: Almacen | None = None) -> dict[str, str]:
     """Un análisis del agente de ACCIONES → `Reportes/<TICKER>/<fecha>/`.
 
-    Convive con el `prediccion.json` que ya escribe `_wbj_write_prediccion` en
-    esa misma carpeta: uno es el reporte, el otro la predicción congelada que
+    Convive con el `prediccion.json` que escribe `guarda_prediccion` en esa
+    misma carpeta: uno es el reporte, el otro la predicción congelada que
     `wbj track` compara después contra el precio real. No se tocan.
     """
     return _guarda(ACCIONES, ticker, payload, cuando=cuando, alm=alm)
+
+
+def guarda_prediccion(ticker: str, payload: dict, *, cuando=None,
+                      alm: Almacen | None = None) -> str:
+    """La predicción congelada → `Reportes/<TICKER>/<fecha>/prediccion.json`.
+
+    **Esto es lo que hace que exista un track record.** `_wbj_write_prediccion`
+    la escribía junto a `vertex_api.py`, o sea en el disco del repositorio, y
+    Render en plan free **no tiene disco persistente**: cada redeploy y cada
+    despertar tras dormir lo borra. Medido el 28/08/2026 sobre la rama `datos`:
+    63 ficheros bajo `Reportes/` —los `reporte.json` y sus `RESUMEN.md`, que sí
+    pasan por el almacén— y **cero `prediccion.json`**. Por eso
+    `Memoria/calibracion.md` seguía diciendo «sin predicciones todavía»
+    mientras el panel llevaba semanas produciendo análisis: no es que el
+    horizonte no hubiera vencido, es que **la predicción no llegaba a existir**.
+
+    No pasa por `_guarda` a propósito: aquél escribe el reporte, su `.md`, el
+    índice y la memoria. Aquí sólo hay que dejar un JSON quieto en la carpeta
+    que ya existe, sin tocar el índice ni reescribir la tesis.
+
+    Dos análisis del mismo ticker el mismo día se pisan, igual que en el
+    fichero local: la carpeta es por día, y el track record quiere UNA
+    predicción por ticker y fecha. Las dos copias dicen lo mismo, que es lo
+    que evita tener que decidir cuál manda.
+    """
+    a = alm or _por_defecto()
+    tk, f = _saneado(ticker), _fecha(cuando)
+    ruta = f"{_base(ACCIONES, tk, f)}/prediccion.json"
+    a.guarda(ruta, payload)
+    # Se sube AHORA, por el mismo motivo que el reporte: la ventana del hilo de
+    # fondo es justo por donde se pierden las cosas cuando Render reinicia.
+    try:
+        a.sincroniza(mensaje=f"predicción de {tk}")
+    except Exception:                          # noqa: BLE001
+        pass                                   # el hilo de fondo lo reintenta
+    return ruta
 
 
 def guarda_reporte_opciones(ticker: str, payload: dict, *, cuando=None,

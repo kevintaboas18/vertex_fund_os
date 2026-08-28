@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -501,6 +502,11 @@ class TestUnContenedorNuevo:
         V._archiva_opciones({"ok": True, "ticker": "WULF", "score": 61,
                              "verdict": "Oportunidad Moderada", "spot": 18.42,
                              "scores": {"aggression": 7.0}})
+        # La predicción congelada, que es lo que después mide `wbj track`.
+        V._wbj_write_prediccion("AAPL", "20260828_120000_AAPL", 231.4, 258.0,
+                                "Quality", 71.5,
+                                {"12m": {"bull": 300.0, "base": 258.0, "bear": 190.0}},
+                                "FAVORABLE")
         V.init_db()
         conn = V._db(); C.crear_tablas(conn); conn.commit()
         C.crear_usuario(conn, "ana@ejemplo.com", "Ana", "contrasena-larga-1234")
@@ -534,6 +540,44 @@ class TestUnContenedorNuevo:
         assert [(r["ticker"], r["titular"]) for r in acc] == [("AAPL", "Comprar · 78/100")]
         assert [(r["ticker"], r["titular"]) for r in opc] == \
             [("WULF", "Oportunidad Moderada · 61/100")]
+
+    def test_vuelve_la_PREDICCION_que_es_el_track_record(self):
+        """Sin esto no puede existir un track record, y no existía.
+
+        `_wbj_write_prediccion` escribía junto a `vertex_api.py`, o sea en el
+        disco del repositorio, y Render en plan free lo borra en cada redeploy.
+        Medido el 28/08/2026 sobre la rama `datos`: **63 ficheros bajo
+        `Reportes/` y CERO `prediccion.json`**. Por eso `calibracion.md` seguía
+        diciendo «sin predicciones todavía» con el panel llevando semanas
+        produciendo análisis: no es que el horizonte no hubiera vencido, es que
+        la predicción no llegaba a existir.
+        """
+        import vertex_api as V
+
+        self._sesion_uno()
+        self._borra_el_disco()
+        V._arranca_almacen()
+
+        alm = __import__("vertex_almacen").almacen
+        hoy = date.today().isoformat()
+        pred = alm.lee_json(f"Reportes/AAPL/{hoy}/prediccion.json")
+        assert pred is not None, (
+            "la predicción no sobrevivió al borrado: sin ella el track record "
+            "no puede llenarse nunca")
+        assert pred["ticker"] == "AAPL"
+        assert pred["price_at_analysis"] == 231.4
+        assert pred["targets_12m"] == {"bull": 300.0, "base": 258.0, "bear": 190.0}
+
+    def test_y_no_se_cuela_en_la_lista_de_REPORTES(self):
+        """Vive en la misma carpeta que `reporte.json` y NO es un reporte:
+        `lista_reportes` filtra por nombre de archivo, y esto lo comprueba."""
+        import vertex_archivo as AR
+
+        self._sesion_uno()
+        alm = __import__("vertex_almacen").almacen
+        acc = AR.lista_reportes(AR.ACCIONES, alm=alm)
+        assert [r["ticker"] for r in acc] == ["AAPL"], (
+            f"la predicción se contó como un reporte: {acc}")
 
     def test_vuelven_las_cuentas_Y_LA_CONTRASENA_SIGUE_SIRVIENDO(self):
         import vertex_api as V

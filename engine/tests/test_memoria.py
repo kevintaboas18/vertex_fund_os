@@ -379,3 +379,103 @@ def test_unusable_records_are_dropped(tmp_path, broken):
     d.mkdir(parents=True)
     (d / "prediccion.json").write_text(json.dumps(rec), encoding="utf-8")
     assert load_predictions(tmp_path) == []
+
+
+# ── Lo que el panel escribe, y lo que este módulo puede leer ────────────────
+#
+# Medido el 28/08/2026 sobre `Reportes/` del repositorio: 29 ficheros de
+# predicción, **11 legibles** —los del CLI— y **18 descartados sin una línea
+# de aviso**, que eran exactamente todos los del panel web. Ésa, y no el
+# horizonte de doce meses, es la razón por la que `calibracion.md` decía
+# «sin predicciones todavía» con semanas de análisis hechos.
+
+def _panel(ticker="NVDA", fecha="2026-08-05"):
+    """Un `prediccion.json` tal y como lo escribe `_wbj_write_prediccion`."""
+    return {
+        "report_id": f"x_{ticker}", "ticker": ticker, "fecha": fecha,
+        "price_at_analysis": 220.37, "fair_value": 296.72,
+        "profile": "Speculative", "raw_total": 51.9,
+        "recommendation": "ESPECULATIVO",
+        "targets_12m": {"bull": 341.22, "base": 296.72, "bear": 209.82},
+        "framework": "WBJ v2.0.0",
+        # …y las claves que este módulo exige, que es lo que faltaba.
+        "date": fecha, "price": 220.37,
+        "bear": 209.82, "base": 296.72, "bull": 341.22,
+        "horizon_days": 365, "source": "cerebro", "score10": 5.19,
+    }
+
+
+def test_la_prediccion_del_PANEL_la_lee_el_track_record(tmp_path):
+    d = tmp_path / "NVDA" / "2026-08-05"
+    d.mkdir(parents=True)
+    (d / "prediccion.json").write_text(json.dumps(_panel()), encoding="utf-8")
+
+    preds = load_predictions(tmp_path)
+    assert len(preds) == 1, "el panel volvió a escribir algo que nadie puede leer"
+    assert preds[0]["price"] == 220.37 and preds[0]["base"] == 296.72
+    assert preds[0]["source"] == "cerebro", (
+        "sale del perfil ESTRICTO de Victor; mezclarla con el scorecard rápido "
+        "mediría dos sistemas como uno")
+
+
+def test_lo_que_NO_se_puede_leer_se_CUENTA_en_vez_de_callarse(tmp_path):
+    """Saltarse lo ilegible está bien; saltárselo en SILENCIO es lo que dejó
+    esto pudriéndose semanas. Un track record vacío porque no hay predicciones
+    y uno vacío porque nadie supo leerlas se veían idénticos desde fuera."""
+    from wbj.memoria import DESCARTADAS
+
+    d = tmp_path / "NVDA" / "2026-08-05"
+    d.mkdir(parents=True)
+    viejo = {k: v for k, v in _panel().items()
+             if k not in ("date", "price", "bear", "base", "bull",
+                          "horizon_days", "source", "score10")}
+    (d / "prediccion.json").write_text(json.dumps(viejo), encoding="utf-8")
+
+    assert load_predictions(tmp_path) == []
+    assert len(DESCARTADAS) == 1
+    assert "NVDA" in DESCARTADAS[0]
+
+
+def test_y_calibracion_md_lo_DICE(tmp_path):
+    reportes, memoria = tmp_path / "Reportes", tmp_path / "Memoria"
+    d = reportes / "NVDA" / "2026-08-05"
+    d.mkdir(parents=True)
+    (d / "prediccion.json").write_text(json.dumps({"ticker": "NVDA"}), encoding="utf-8")
+
+    s = track(reportes, memoria, lambda t: 250.0, today=date(2026, 8, 28))
+    assert s["ilegibles"] == 1
+    md = (memoria / "calibracion.md").read_text(encoding="utf-8")
+    assert "no se pudieron leer" in md
+    # Y no entra en ninguna media: no se sabe qué decía.
+    assert s["sesgo_medio"] is None and s["total"] == 0
+
+
+def test_el_VEREDICTO_y_el_COMO_VA_no_se_promedian_juntos(tmp_path):
+    """Una vencida mide el retorno entero contra el caso base entero: un
+    veredicto. Una en curso mide lo que va contra la parte prorrateada: un
+    «cómo va», y muy ruidoso al principio. Estaban en el mismo número."""
+    reportes, memoria = tmp_path / "Reportes", tmp_path / "Memoria"
+    for tk, fecha in (("AAA", "2025-08-01"), ("BBB", "2026-08-20")):
+        d = reportes / tk / fecha
+        d.mkdir(parents=True)
+        (d / "prediccion.json").write_text(
+            json.dumps({**_panel(tk, fecha), "ticker": tk}), encoding="utf-8")
+
+    s = track(reportes, memoria, lambda t, on=None: 250.0, today=date(2026, 8, 28))
+    assert s["n_maduras_medidas"] == 1 and s["n_en_curso"] == 1
+    assert s["sesgo_maduras"] is not None and s["sesgo_en_curso"] is not None
+    assert s["sesgo_maduras"] != s["sesgo_en_curso"], (
+        "si salen iguales, este caso no está midiendo la separación")
+    md = (memoria / "calibracion.md").read_text(encoding="utf-8")
+    assert "Veredicto" in md and "Cómo va" in md
+    assert "No es un veredicto" in md
+
+
+def test_sin_ninguna_en_curso_no_se_INVENTA_un_cero(tmp_path):
+    """Cero es una medida; la ausencia de medida no lo es, y no pueden
+    imprimirse igual."""
+    reportes, memoria = tmp_path / "Reportes", tmp_path / "Memoria"
+    s = track(reportes, memoria, lambda t: 100.0, today=date(2026, 8, 28))
+    assert s["sesgo_en_curso"] is None and s["sesgo_maduras"] is None
+    md = (memoria / "calibracion.md").read_text(encoding="utf-8")
+    assert "Cómo va" not in md and "Veredicto" not in md

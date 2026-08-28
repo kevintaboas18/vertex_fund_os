@@ -132,9 +132,69 @@ def table_html(rows: list[dict], color: str) -> str:
     return f'<table style="width:100%;border-collapse:collapse;font-size:14px;">{tr}</table>'
 
 
-def build_email(now: datetime, gainers: list[dict], losers: list[dict]) -> tuple[str, str, str]:
+def bloque_tesis(avisos: dict | None) -> tuple[str, str, str]:
+    """Las tesis que se rompieron por su propio criterio: texto, HTML y asunto.
+
+    Va ARRIBA del correo, antes de los movers. Los movers son contexto del
+    mercado; esto es del libro de quien lo lee, y hasta hoy la tubería llevaba
+    sólo lo primero. La tesis guardaba desde el principio qué la invalidaría
+    —un nivel exacto y medible— y nadie lo miraba nunca.
+
+    Lo que NO se pudo medir se dice. Un vigilante que calla cuando le faltan
+    datos se lee igual que uno que dice que todo va bien, y no es lo mismo.
+    """
+    a = avisos or {}
+    rotas, sin_datos = a.get("rotas") or [], a.get("sin_datos") or []
+    if not a.get("revisadas"):
+        return "", "", ""
+
+    def _linea(r):
+        lado = ("perdió su soporte" if r.get("lado") == "soporte"
+                else "superó su resistencia")
+        n, c = r.get("nivel"), r.get("cierre")
+        donde = f" (nivel ${n:,.2f})" if isinstance(n, (int, float)) else ""
+        cerro = f", cerró en ${c:,.2f}" if isinstance(c, (int, float)) else ""
+        return f"{r.get('ticker')}: {lado}{donde}{cerro}"
+
+    en_pie = len(a.get("en_pie") or [])
+    if rotas:
+        cabeza = f"⚠️ {len(rotas)} tesis se rompió" if len(rotas) == 1 else \
+                 f"⚠️ {len(rotas)} tesis se rompieron"
+        subject = f"{cabeza} — " if len(rotas) else ""
+        cuerpo = "\n".join(f"- {_linea(r)}" for r in rotas)
+        html_filas = "".join(
+            f'<li style="margin:4px 0;">{html.escape(_linea(r))}</li>' for r in rotas)
+        html_cuerpo = (f'<ul style="margin:8px 0 0;padding-left:20px;font-size:14px;">'
+                       f'{html_filas}</ul>')
+        color = "#d63031"
+    else:
+        cabeza = "✅ Ninguna tesis rota"
+        subject = ""
+        cuerpo = "Ninguna de las tesis abiertas rompió su nivel de invalidación."
+        html_cuerpo = ('<p style="font-size:14px;margin:8px 0 0;">Ninguna de las tesis '
+                       'abiertas rompió su nivel de invalidación.</p>')
+        color = "#00b894"
+
+    pie = f"{en_pie} en pie"
+    if sin_datos:
+        nombres = ", ".join(str(r.get("ticker")) for r in sin_datos[:5])
+        pie += f" · {len(sin_datos)} sin poder medir ({nombres})"
+
+    texto = (f"TUS TESIS — {cabeza}\n{cuerpo}\n({pie})\n\n"
+             "Es un aviso para volver a mirarlas, no una orden de compra o venta.\n")
+    htmlb = (f'<h2 style="font-size:15px;margin:0 0 10px;color:{color};">'
+             f'{html.escape(cabeza)} — tus tesis</h2>{html_cuerpo}'
+             f'<p style="font-size:12px;color:#888;margin:8px 0 0;">{html.escape(pie)} · '
+             'Es un aviso para volver a mirarlas, no una orden de compra o venta.</p>'
+             '<hr style="border:none;border-top:1px solid #eee;margin:18px 0;">')
+    return texto, htmlb, subject
+
+
+def build_email(now: datetime, gainers: list[dict], losers: list[dict],
+                avisos: dict | None = None) -> tuple[str, str, str]:
     fecha = f"{DIAS[now.weekday()]} {now.day} {MESES[now.month]} {now.year}"
-    subject = f"📈 Pre-Market Movers — {fecha}"
+    tesis_txt, tesis_html, tesis_asunto = bloque_tesis(avisos)
+    subject = f"{tesis_asunto}📈 Pre-Market Movers — {fecha}"
 
     big = sorted([r for r in gainers + losers if r["mcap"] >= LARGE_CAP_MIN],
                  key=lambda r: -abs(r["pct"]))[:6]
@@ -148,6 +208,7 @@ def build_email(now: datetime, gainers: list[dict], losers: list[dict]) -> tuple
     text = f"""PRE-MARKET MOVERS — {fecha}
 (Pre-market en vivo, {now.strftime('%H:%M')} ET — FMP)
 
+{tesis_txt}
 LO MÁS IMPORTANTE (large caps, $10B+):
 {txt_rows(big) or '- (ninguna large cap con movimiento fuerte hoy)'}
 
@@ -173,6 +234,7 @@ Warren Buffett Jr 🎩📈
     <div style="font-size:13px;opacity:.85;margin-top:4px;">Pre-market en vivo · {now.strftime('%H:%M')} ET · FMP</div>
   </div>
   <div style="border:1px solid #e5e5f0;border-top:none;padding:20px 24px;border-radius:0 0 12px 12px;">
+    {tesis_html}
     <h2 style="font-size:15px;margin:0 0 10px;color:#6c5ce7;">🔥 Lo más importante — large caps ($10B+)</h2>
     {big_html}
     <h2 style="font-size:15px;margin:22px 0 10px;color:#00b894;">🚀 Ganadores pre-market (small caps — alta volatilidad)</h2>

@@ -3368,6 +3368,54 @@ def get_explore(limit: int = 15):
     }
 
 
+def _barras_para_el_vigilante(ticker: str):
+    """Las barras diarias de un ticker, en la forma que come el motor.
+
+    Reusa `_fmp_daily_bars`, que ya es la fuente de historia diaria del
+    sistema: el vigilante no añade ni un proveedor ni una clave nueva.
+
+    Devuelve `None` —no un DataFrame vacío— cuando no hay datos. El vigilante
+    trata «no se pudo medir» distinto de «no se rompió», y un vacío que se
+    lee como cero sesiones borraría esa diferencia.
+    """
+    try:
+        filas = _fmp_daily_bars(ticker, period="1y") or []
+        if len(filas) < 60:
+            return None
+        import pandas as _pd
+
+        return _pd.DataFrame(
+            [{"date": datetime.fromtimestamp(f[0]).strftime("%Y-%m-%d"),
+              "open": f[1], "high": f[2], "low": f[3], "close": f[4],
+              "volume": f[5]} for f in filas])
+    except Exception:                            # noqa: BLE001
+        return None
+
+
+def _avisos_del_vigilante() -> dict:
+    """Qué tesis se rompieron por su propio criterio. Best-effort.
+
+    Nunca lanza: el correo pre-market sale igual sin esto. Un vigilante que
+    tumba el correo del que cuelga es peor que no tener vigilante.
+    """
+    try:
+        import vertex_almacen as _va
+        import vertex_vigilante as _vg
+
+        return _vg.revisa_todas(_va.almacen, _barras_para_el_vigilante)
+    except Exception as e:                       # noqa: BLE001
+        logging.getLogger(__name__).warning("vigilante omitido: %s", e)
+        return {"rotas": [], "en_pie": [], "sin_datos": [], "sin_nivel": [],
+                "revisadas": 0}
+
+
+@app.get("/api/tesis/vigilante")
+def tesis_vigilante(request: Request):
+    """El vigilante a mano, para verlo sin esperar al correo de mañana."""
+    _exige_token(request)
+    return {"ok": True, **_avisos_del_vigilante()}
+
+
 @app.post("/api/premarket/enviar")
 def premarket_enviar(request: Request, forzar: bool = False, seco: bool = False):
     """Manda el correo pre-market desde AQUI, no desde el runner de GitHub.
@@ -3431,7 +3479,10 @@ def premarket_enviar(request: Request, forzar: bool = False, seco: bool = False)
     if not correos:
         correos, fuente = [d.strip() for d in _pm.EMAIL_TO.split(",") if d.strip()], "EMAIL_TO"
 
-    asunto, texto, html = _pm.build_email(ahora, gainers, losers)
+    # Las tesis que se rompieron por su propio criterio. Va ARRIBA del correo:
+    # los movers del día son contexto, y esto es lo tuyo.
+    avisos = _avisos_del_vigilante()
+    asunto, texto, html = _pm.build_email(ahora, gainers, losers, avisos=avisos)
     if seco:
         return {"ok": True, "seco": True, "para": correos, "fuente": fuente,
                 "asunto": asunto}
@@ -13238,21 +13289,117 @@ def _wbj_actualizar_indice_memoria(ticker, fecha, profile, raw, fair_value):
                 + "\n".join(otras + ([""] if otras else []) + lineas) + "\n")
 
 
-def _wbj_write_prediccion(ticker, report_id, price, fair_value, profile, raw, targets, recommendation):
+def _nivel_de_invalidacion(nivel: dict) -> dict | None:
+    """La condición de invalidación de un nivel, EN NÚMEROS.
+
+    La tesis guardaba la regla en prosa —«Broken by a confirmed close <
+    zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5…»— y ahí se quedaba:
+    un nivel exacto, medible, con datos que el sistema se baja todos los días,
+    y **nada lo comprobaba nunca**. Una alarma escrita a mano y metida en un
+    cajón.
+
+    Aquí sale lo mínimo que hace falta para volver a evaluarla: de qué lado
+    está la zona y dónde empieza y acaba. El ATR y el volumen NO se guardan a
+    propósito — se recalculan con las barras del día, que es lo que hace la
+    regla; congelar un ATR de hace tres semanas sería medir con una regla vieja.
+    """
+    if not isinstance(nivel, dict):
+        return None
+    bajo, alto = nivel.get("zone_low"), nivel.get("zone_high")
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+               for v in (bajo, alto)):
+        return None
+    # El lado sale de la REGLA, no de la etiqueta: es la regla la que dice
+    # hacia dónde se rompe, y es la que se va a evaluar.
+    regla = str(nivel.get("invalidation") or "")
+    if "zone_high" in regla:
+        lado = "resistencia"
+    elif "zone_low" in regla:
+        lado = "soporte"
+    else:
+        return None                              # sin lado no hay qué medir
+    return {"lado": lado, "zona_baja": float(bajo), "zona_alta": float(alto),
+            "etiqueta": nivel.get("label"), "regla": regla or None}
+
+
+def _wbj_write_prediccion(ticker, report_id, price, fair_value, profile, raw, targets,
+                          recommendation, invalidacion=None):
     """Guarda Reportes/<TICKER>/<fecha>/prediccion.json (para el track record).
-    Nunca se edita luego. Best-effort."""
+
+    Nunca se edita luego. Se escribe en DOS sitios, y hace falta:
+
+    - **El almacén** (`vertex_archivo.guarda_prediccion`) es el que dura. Render
+      en plan free no tiene disco persistente, así que la copia de al lado del
+      código se borra en cada redeploy. Sin esta línea el track record no podía
+      llenarse nunca: el 28/08/2026 la rama `datos` tenía 63 ficheros bajo
+      `Reportes/` y **cero `prediccion.json`**.
+    - **El disco local**, junto a `vertex_api.py`, que es de donde lee
+      `wbj track` (su `settings.reports_dir` es la raíz del repositorio). En
+      una máquina de verdad el repositorio ya es persistente, así que ahí ésta
+      es la copia útil.
+
+    Las dos llevan el MISMO payload, así que no hay que decidir cuál manda. Y
+    cada una va en su propio `try`: perder el archivo durable por un disco
+    lleno sería malo, perder los dos por el mismo fallo, peor.
+    """
+    fecha = datetime.now().strftime("%Y-%m-%d")
+    _t12 = (targets or {}).get("12m", {}) or {}
+    payload = {"report_id": report_id, "ticker": ticker.upper(), "fecha": fecha,
+               "price_at_analysis": price, "fair_value": fair_value, "profile": profile,
+               "raw_total": raw, "recommendation": recommendation,
+               "targets_12m": _t12, "framework": "WBJ v2.0.0"}
+    # La condición de invalidación en números, para que el vigilante pueda
+    # comprobarla cada mañana en vez de dejarla escrita y sin mirar.
+    if invalidacion:
+        payload["invalidacion"] = invalidacion
+    # ── Y AHORA, con los nombres que el motor sabe leer ──────────────────
+    #
+    # Esto es lo que hacía que el track record estuviera vacío, y no el
+    # horizonte. `wbj.memoria._is_usable` exige `date`, `price`, `bear`, `base`
+    # y `bull`; el panel escribía `fecha`, `price_at_analysis` y `targets_12m`.
+    # `load_predictions` **descarta lo que no entiende en silencio**, así que
+    # cada análisis hecho desde el panel se tiraba sin una línea de aviso.
+    #
+    # Medido el 28/08/2026 sobre `Reportes/`: 29 ficheros, **11 legibles** —los
+    # once que escribe el CLI— y **18 ilegibles**, que son exactamente todos
+    # los del panel. Por eso `calibracion.md` decía «sin predicciones todavía».
+    #
+    # Las claves viejas se quedan: son las que ya están escritas en disco y en
+    # la rama `datos`, y quitarlas rompería la lectura de lo archivado. Un
+    # fichero lleva los dos juegos y dicen lo mismo.
+    #
+    # `source` es «cerebro» y no «quick» a propósito: estos números salen del
+    # perfil estricto de Victor (`wbj.raw_total`, `wbj.profile`), no del
+    # scorecard rápido. `wbj.memoria` separa las dos fuentes porque puntúan la
+    # misma empresa distinto —AAPL 8.0/10 rápido contra 3.9/10 estricto— y
+    # mezclarlas mediría dos sistemas como uno.
+    _num = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    _bear, _base, _bull = (_num(_t12.get("bear")), _num(_t12.get("base")),
+                           _num(_t12.get("bull")))
+    if None not in (_num(price), _bear, _base, _bull):
+        payload.update({
+            "date": fecha,
+            "price": price,
+            "bear": _bear, "base": _base, "bull": _bull,
+            "horizon_days": 365,
+            "source": "cerebro",
+            "score10": (round(raw / 10.0, 2)
+                        if isinstance(raw, (int, float)) and not isinstance(raw, bool)
+                        else None),
+        })
     try:
-        fecha = datetime.now().strftime("%Y-%m-%d")
         base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Reportes", ticker.upper(), fecha)
         os.makedirs(base, exist_ok=True)
-        payload = {"report_id": report_id, "ticker": ticker.upper(), "fecha": fecha,
-                   "price_at_analysis": price, "fair_value": fair_value, "profile": profile,
-                   "raw_total": raw, "recommendation": recommendation,
-                   "targets_12m": (targets or {}).get("12m", {}), "framework": "WBJ v2.0.0"}
         with open(os.path.join(base, "prediccion.json"), "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"[Predicción] no se pudo escribir {ticker}: {e}")
+        print(f"[Predicción] no se pudo escribir {ticker} en disco: {e}")
+    try:
+        import vertex_archivo as _ar
+
+        _ar.guarda_prediccion(ticker, payload)
+    except Exception as e:                       # noqa: BLE001
+        print(f"[Predicción] no se pudo archivar {ticker}: {e}")
 
 
 class WBJExplanation(BaseModel):
@@ -15993,14 +16140,18 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
                 _thesis_m = (analisis_json.get("tesis_inversion_completa")
                              or f"{_gates.get('classification')} — perfil {_prof_m}; fair value base ${_fv_m}.")
                 _inval_m = None
+                _nivel_m = None
                 for _lv in ((_eng.get("victor_levels") or {}).get("levels", []) or []):
                     if isinstance(_lv, dict) and _lv.get("invalidation") is not None:
-                        _inval_m = _lv["invalidation"]; break
+                        _inval_m = _lv["invalidation"]
+                        _nivel_m = _nivel_de_invalidacion(_lv)
+                        break
                 if _inval_m is None:
                     _inval_m = analisis_json.get("target_bear_12m")
                 _wbj_write_thesis_md(ticker, precio_actual, _prof_m, _raw_m, _fv_m, targets, _thesis_m, _inval_m)
                 _wbj_write_prediccion(ticker, report_id, precio_actual, _fv_m, _prof_m, _raw_m,
-                                      targets, _gates.get("recommendation"))
+                                      targets, _gates.get("recommendation"),
+                                      invalidacion=_nivel_m)
             except Exception as _wme:
                 print(f"[analyze] memoria (tesis/predicción) omitida: {str(_wme)[:120]}")
             analisis_json["scores_source"] = "victor"

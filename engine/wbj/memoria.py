@@ -86,17 +86,39 @@ def _is_usable(rec: object) -> bool:
     return isinstance(horizon, int) and horizon > 0
 
 
+#: Files under `Reportes/*/*/prediccion*.json` that parsed as JSON but that
+#: `_is_usable` rejected, from the most recent `load_predictions` call.
+#:
+#: Skipping what cannot be read is right; skipping it in SILENCE is what let
+#: this rot for weeks. Measured 2026-08-28: of 29 prediction files, 11 were
+#: readable and **18 were dropped without a word** -- every single one written
+#: by the web panel, which used `fecha`/`price_at_analysis`/`targets_12m`
+#: while this module requires `date`/`price`/`bear`/`base`/`bull`. The panel
+#: now writes both, but a silent drop must never again be indistinguishable
+#: from an empty record: `track` reports this count, and `calibracion.md`
+#: prints it.
+DESCARTADAS: list[str] = []
+
+
 def load_predictions(reports_dir: Path) -> list[dict]:
-    """All saved predictions, oldest first. Ignores malformed files."""
+    """All saved predictions, oldest first.
+
+    Files that cannot be parsed or that `_is_usable` rejects are skipped and
+    their paths recorded in `DESCARTADAS`, so "no predictions" and "plenty of
+    predictions nobody could read" stop looking the same from the outside.
+    """
     preds = []
+    DESCARTADAS.clear()
     if not reports_dir.exists():
         return preds
     for p in sorted(reports_dir.glob("*/*/prediccion*.json")):
         try:
             rec = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
+            DESCARTADAS.append(str(p))
             continue
         if not _is_usable(rec):
+            DESCARTADAS.append(str(p))
             continue
         # Files written before the split carry no `source`; they are all
         # quick-scorecard predictions.
@@ -195,6 +217,12 @@ def evaluate(pred: dict, price_now: float, today: date,
     }
 
 
+def _media(vals: list[float]) -> float | None:
+    """The mean, or None for an empty sample. Zero is a measurement; None is
+    the absence of one, and they must not print the same."""
+    return round(sum(vals) / len(vals), 4) if vals else None
+
+
 def track(reports_dir: Path, memoria_dir: Path, price_fn, today: date) -> dict:
     """Evaluate every saved prediction and write Memoria/calibracion.md.
 
@@ -212,7 +240,12 @@ def track(reports_dir: Path, memoria_dir: Path, price_fn, today: date) -> dict:
             return None
 
     rows = []
-    for pred in load_predictions(reports_dir):
+    predicciones = load_predictions(reports_dir)
+    # Lo que no se pudo leer viaja con el resumen. Un track record vacío
+    # porque no hay predicciones y uno vacío porque nadie supo leerlas se
+    # veían idénticos desde fuera, y así estuvo semanas.
+    descartadas = list(DESCARTADAS)
+    for pred in predicciones:
         price_now = _price(pred["ticker"])
         if price_now is None:
             # BACKTESTING_AND_CALIBRATION.md's anti-bias rules: "no
@@ -251,6 +284,10 @@ def track(reports_dir: Path, memoria_dir: Path, price_fn, today: date) -> dict:
     summary = {
         "as_of": today.isoformat(),
         "total": len(rows),
+        # Ficheros de predicción que existen y NO se pudieron leer. No entran
+        # en ninguna media: no se sabe qué decían. Pero se cuentan y se dicen.
+        "ilegibles": len(descartadas),
+        "ilegibles_rutas": descartadas,
         # Rows kept in the sample but not measurable -- a delisted name, a
         # matured call with no maturity close. Reported so the reader can see
         # how much of the record the aggregates below do NOT cover.
@@ -265,6 +302,20 @@ def track(reports_dir: Path, memoria_dir: Path, price_fn, today: date) -> dict:
         # split is what a caller should read.
         "sesgo_medio": (round(sum(r["deviation"] for r in scored) / len(scored), 4)
                         if scored else None),
+        # ...and the same blend across TIME. A matured row's deviation is the
+        # full realised return against the full base case: a verdict. An
+        # in-flight row's is today's return against the pro-rated slice of it:
+        # a progress reading, and a noisy one early on -- three weeks of price
+        # against three weeks of a twelve-month forecast moves on nothing.
+        #
+        # They answer different questions and were being averaged into one
+        # number. Split, the in-flight figure gives signal from week one --
+        # which is the whole point, because a verdict needs a year -- without
+        # ever being mistaken for a verdict.
+        "sesgo_en_curso": _media([r["deviation"] for r in scored if not r["mature"]]),
+        "n_en_curso": len([r for r in scored if not r["mature"]]),
+        "sesgo_maduras": _media([r["deviation"] for r in scored if r["mature"]]),
+        "n_maduras_medidas": len([r for r in scored if r["mature"]]),
         "sesgo_por_fuente": {
             src: {
                 "sesgo_medio": round(sum(r["deviation"] for r in group) / len(group), 4),
@@ -282,7 +333,8 @@ def track(reports_dir: Path, memoria_dir: Path, price_fn, today: date) -> dict:
     # CLAUDE.md requires to declare a material bias. Parsing the prose back
     # out would be brittle, so the same summary is written structured.
     (memoria_dir / "calibracion.json").write_text(
-        json.dumps({k: v for k, v in summary.items() if k != "rows"}, indent=2),
+        json.dumps({k: v for k, v in summary.items()
+                    if k not in ("rows", "ilegibles_rutas")}, indent=2),
         encoding="utf-8")
     return summary
 
@@ -341,14 +393,39 @@ def _render(s: dict) -> str:
         f"{s.get('juzgadas', 0)} con precio al vencimiento"
         + (f", {s['sin_medir']} sin medir" if s.get("sin_medir") else "") + ")",
     ]
+    if s.get("ilegibles"):
+        lines += [
+            f"- ⚠️ **{s['ilegibles']} ficheros de predicción no se pudieron leer** y "
+            "no entran en ninguna media de aquí abajo.",
+            "  No se sabe qué decían, así que no se cuentan ni a favor ni en contra —",
+            "  pero tampoco se callan: un track record vacío porque no hay predicciones",
+            "  y uno vacío porque nadie supo leerlas se veían idénticos desde fuera.",
+        ]
     if s["hit_rate"] is not None:
         lines.append(f"- Acierto en rango Bear–Bull (juzgadas al vencimiento): "
                      f"**{s['hit_rate']:.0%}**")
+    def _adj(v):
+        return ("optimista — los targets Medio van por encima de la realidad"
+                if v < 0 else
+                "conservador — la realidad va por encima del escenario Medio")
+
     if s["sesgo_medio"] is not None:
-        adj = ("optimista — los targets Medio van por encima de la realidad"
-               if s["sesgo_medio"] < 0 else
-               "conservador — la realidad va por encima del escenario Medio")
-        lines.append(f"- Sesgo medio vs escenario Medio (prorrateado): **{s['sesgo_medio']:+.1%}** ({adj})")
+        lines.append(f"- Sesgo medio vs escenario Medio (prorrateado): "
+                     f"**{s['sesgo_medio']:+.1%}** ({_adj(s['sesgo_medio'])})")
+    # El veredicto y el «cómo va» son dos preguntas distintas y estaban
+    # promediadas en el mismo número. Separadas, la de en curso da señal desde
+    # la primera semana —que es de lo que se trata, porque un veredicto tarda
+    # un año— sin que nunca se pueda leer como un veredicto.
+    if s.get("sesgo_maduras") is not None:
+        lines.append(f"- **Veredicto** (sólo las {s['n_maduras_medidas']} vencidas, "
+                     f"medidas el día que cerró su horizonte): "
+                     f"**{s['sesgo_maduras']:+.1%}** ({_adj(s['sesgo_maduras'])})")
+    if s.get("sesgo_en_curso") is not None:
+        lines.append(f"- **Cómo va** (las {s['n_en_curso']} en curso, contra la parte "
+                     f"prorrateada del escenario Medio): **{s['sesgo_en_curso']:+.1%}**")
+        lines.append("  No es un veredicto: tres semanas de precio contra tres semanas "
+                     "de un pronóstico a doce meses se mueven con casi nada. Sirve para "
+                     "ver la deriva temprano, no para dar por buena ni por mala la tesis.")
     by_source = s.get("sesgo_por_fuente") or {}
     if len(by_source) > 1:
         lines.append("- Sesgo por sistema (el rápido y el estricto puntúan distinto, "
