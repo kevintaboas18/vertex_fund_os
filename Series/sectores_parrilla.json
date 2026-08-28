@@ -251,27 +251,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 6849203,
+          "medio": 6853728,
           "relativo": 0.68,
           "respalda": false
         },
         "1M": {
-          "medio": 8981421,
+          "medio": 8982499,
           "relativo": 0.89,
           "respalda": false
         },
         "3M": {
-          "medio": 10239607,
+          "medio": 10239967,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 11020929,
+          "medio": 11021109,
           "relativo": 1.09,
           "respalda": false
         },
         "1A": {
-          "medio": 11879083,
+          "medio": 11879173,
           "relativo": 1.17,
           "respalda": false
         }
@@ -423,27 +423,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 8626116,
+          "medio": 8627720,
           "relativo": 0.77,
           "respalda": false
         },
         "1M": {
-          "medio": 9554598,
+          "medio": 9554980,
           "relativo": 0.86,
           "respalda": false
         },
         "3M": {
-          "medio": 11393397,
+          "medio": 11393524,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 13201509,
+          "medio": 13201572,
           "relativo": 1.18,
           "respalda": false
         },
         "1A": {
-          "medio": 14873532,
+          "medio": 14873564,
           "relativo": 1.33,
           "respalda": true
         }
@@ -509,27 +509,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 16761819,
+          "medio": 16767591,
           "relativo": 0.86,
           "respalda": false
         },
         "1M": {
-          "medio": 19871115,
+          "medio": 19872489,
           "relativo": 1.02,
           "respalda": false
         },
         "3M": {
-          "medio": 19900764,
+          "medio": 19901222,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 21772807,
+          "medio": 21773036,
           "relativo": 1.11,
           "respalda": false
         },
         "1A": {
-          "medio": 22160919,
+          "medio": 22161033,
           "relativo": 1.13,
           "respalda": false
         }
@@ -624,11 +624,11 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 14.54,
-      "cambio_pct": 0.21,
+      "precio": 14.51,
+      "cambio_pct": 0.0,
       "rsi": 43.3,
       "sma200": 18.4,
-      "sma200_dist": -21.0,
+      "sma200_dist": -21.16,
       "cambios": {
         "7D": -9.37,
         "1M": -29.77,
@@ -760,7 +760,7 @@
         "cuadrante": "weakening",
         "fuerza": 9.1659,
         "impulso": -1.567,
-        "volumen_rel": 0.8049,
+        "volumen_rel": 0.8073,
         "flujo": null,
         "roc_5": -1.567,
         "roc_20": 0.927,
@@ -808,7 +808,7 @@
         "cuadrante": "lagging",
         "fuerza": -3.2734,
         "impulso": -1.3805,
-        "volumen_rel": 0.9224,
+        "volumen_rel": 0.9232,
         "flujo": null,
         "roc_5": -1.3805,
         "roc_20": -4.2529,
@@ -832,7 +832,7 @@
         "cuadrante": "lagging",
         "fuerza": -6.7534,
         "impulso": -2.4354,
-        "volumen_rel": 0.8128,
+        "volumen_rel": 0.8142,
         "flujo": null,
         "roc_5": -2.4354,
         "roc_20": -7.0016,
@@ -1589,5 +1589,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-28T08:10:44.492066+00:00"
+  "generado": "2026-08-28T08:46:45.150143+00:00"
 }
