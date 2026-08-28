@@ -1151,9 +1151,9 @@
   "subagents": {
     "aggression": {
       "score": 4.0,
-      "ratio": 0.4311,
-      "premium_ask": 134386740.0,
-      "premium_bid": 177335757.0,
+      "ratio": 0.4315,
+      "premium_ask": 134493740.0,
+      "premium_bid": 177227267.0,
       "premium_mid": 0,
       "n": 284
     },
@@ -1365,6 +1365,26 @@
         }
       ],
       "outcomes": [
+        {
+          "id": 3371345413,
+          "timestamp": "2026-08-28T13:38:00.767Z",
+          "type": "call",
+          "strike": 500.0,
+          "expiration": "2027-01-15",
+          "premium": 107000,
+          "direction": "alcista",
+          "entry_price": 578.55,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
         {
           "id": 3371030161,
           "timestamp": "2026-08-28T13:32:38.958Z",
@@ -1832,26 +1852,6 @@
           "strike": 800.0,
           "expiration": "2026-09-18",
           "premium": 1153250,
-          "direction": "bajista",
-          "entry_price": 569.39,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 0,
-          "validated": false,
-          "resolved": false
-        },
-        {
-          "id": 3370302532,
-          "timestamp": "2026-08-27T19:47:12.435Z",
-          "type": "put",
-          "strike": 900.0,
-          "expiration": "2026-12-18",
-          "premium": 925400,
           "direction": "bajista",
           "entry_price": 569.39,
           "mfe_pct": 0.0,
@@ -4400,7 +4400,7 @@
     "flows_corruptos": 0,
     "flows_sin_id": 0,
     "escrituras_fallidas": null,
-    "flows_nuevos": 49,
+    "flows_nuevos": 0,
     "memoria_desde": "2026-07-14T13:54:32.608Z",
     "predicciones_vencidas": 0,
     "error_medio_pct": null,
@@ -4411,10 +4411,21 @@
     "motivo": null,
     "evals": [
       {
-        "date": "2026-08-27",
+        "date": "2026-08-28",
         "horizon_days": 10,
         "matured": false,
-        "spot": 571.87,
+        "spot": 571.1,
+        "base": 550.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-08-28",
+        "horizon_days": 20,
+        "matured": false,
+        "spot": 571.1,
         "base": 600.0,
         "actual_close": null,
         "error_pct": null,
@@ -4422,10 +4433,10 @@
         "direction_hit": null
       },
       {
-        "date": "2026-08-27",
-        "horizon_days": 20,
+        "date": "2026-08-28",
+        "horizon_days": 30,
         "matured": false,
-        "spot": 571.87,
+        "spot": 571.1,
         "base": 600.0,
         "actual_close": null,
         "error_pct": null,
@@ -4873,14 +4884,14 @@
     {
       "start_sec": 1787846760,
       "end_sec": 1787848087,
-      "count": 27,
-      "premium": 6080165.0,
+      "count": 26,
+      "premium": 5971675.0,
       "direction": "ask",
       "score": 9.0,
-      "unidirectionality": 0.5179,
+      "unidirectionality": 0.5273,
       "bet": "bajista",
-      "bet_label": "Vendieron CALLS",
-      "call_premium": 5843400.0,
+      "bet_label": "Compraron CALLS",
+      "call_premium": 5734910.0,
       "put_premium": 236765.0,
       "strikes": [
         5.0,
@@ -4941,8 +4952,8 @@
     "exchange": "Nasdaq",
     "sector": "SERVICES-COMPUTER PROGRAMMING, DATA PROCESSING, ETC.",
     "price": 571.1,
-    "change": 1.4,
-    "change_percent": 0.25,
+    "change": 1.15,
+    "change_percent": 0.2,
     "market_cap": 1454880805097.5,
     "day_volume": 0,
     "day_low": 0.0,
@@ -5030,5 +5041,5 @@
   ],
   "fecha": "2026-08-28",
   "agente": "opciones",
-  "guardado_en": "2026-08-28T13:37:22+00:00"
+  "guardado_en": "2026-08-28T13:38:39+00:00"
 }
