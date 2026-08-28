@@ -13289,6 +13289,18 @@ def _wbj_actualizar_indice_memoria(ticker, fecha, profile, raw, fair_value):
                 + "\n".join(otras + ([""] if otras else []) + lineas) + "\n")
 
 
+#: Dónde cae la copia LOCAL de `prediccion.json` — la que lee `wbj track` en
+#: una máquina de verdad, donde el repositorio ya es persistente.
+#:
+#: Es un atributo del módulo y no una ruta calculada dentro de la función por
+#: la misma razón que `DB_PATH`: para que un test pueda apuntarlo a otro sitio.
+#: Sin esto, un caso que llame a `_wbj_write_prediccion` escribe en el
+#: `Reportes/` DE VERDAD y mete una predicción inventada en el track record de
+#: Kevin — pasó, y el fichero llegó a estar commiteado. Es el mismo accidente
+#: que ya obligó a redirigir `_PERFIL_DIR` en `tests_vertex/test_almacen.py`.
+REPORTES_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Reportes")
+
+
 def _nivel_de_invalidacion(nivel: dict) -> dict | None:
     """La condición de invalidación de un nivel, EN NÚMEROS.
 
@@ -13388,7 +13400,7 @@ def _wbj_write_prediccion(ticker, report_id, price, fair_value, profile, raw, ta
                         else None),
         })
     try:
-        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Reportes", ticker.upper(), fecha)
+        base = os.path.join(REPORTES_LOCAL, ticker.upper(), fecha)
         os.makedirs(base, exist_ok=True)
         with open(os.path.join(base, "prediccion.json"), "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)

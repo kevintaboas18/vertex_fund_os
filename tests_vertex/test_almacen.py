@@ -256,6 +256,11 @@ def _aisla(tmp_path, monkeypatch, remoto):
     if real.exists():
         shutil.copy2(real, perfiles / "Kevin.md")
     monkeypatch.setattr(V, "_PERFIL_DIR", str(perfiles))
+    # Y la copia LOCAL de las predicciones. Sin esta línea, un caso que llame a
+    # `_wbj_write_prediccion` escribe en el `Reportes/` DE VERDAD y le mete una
+    # predicción inventada al track record — pasó, y el fichero llegó a estar
+    # commiteado. Mismo accidente que el `_PERFIL_DIR` de arriba.
+    monkeypatch.setattr(V, "REPORTES_LOCAL", str(tmp_path / "Reportes"))
     monkeypatch.setattr(VA, "almacen", VA.Almacen())
 
 
@@ -567,6 +572,31 @@ class TestUnContenedorNuevo:
         assert pred["ticker"] == "AAPL"
         assert pred["price_at_analysis"] == 231.4
         assert pred["targets_12m"] == {"bull": 300.0, "base": 258.0, "bear": 190.0}
+
+    def test_la_bateria_NO_escribe_en_el_Reportes_DE_VERDAD(self):
+        """Este caso existe porque el accidente ya ocurrió.
+
+        `_wbj_write_prediccion` calculaba la ruta local con `__file__`, así que
+        el caso de arriba escribía una predicción inventada de AAPL en el
+        `Reportes/` del repositorio — y llegó a estar commiteada. Una
+        predicción falsa en esa carpeta no es basura inocente: `wbj track` la
+        lee y la cuenta como real, y contamina la calibración con un número
+        que nadie tomó.
+
+        Es el mismo accidente que ya obligó a redirigir `_PERFIL_DIR`.
+        """
+        from pathlib import Path
+
+        import vertex_api as V
+
+        real = Path(V.__file__).parent / "Reportes"
+        antes = {str(p) for p in real.glob("*/*/prediccion.json")} if real.exists() else set()
+        self._sesion_uno()
+        despues = {str(p) for p in real.glob("*/*/prediccion.json")} if real.exists() else set()
+        assert despues == antes, (
+            f"la batería escribió en el archivo de verdad: {despues - antes}")
+        # Y la que sí escribió está donde tiene que estar: en el aislamiento.
+        assert (self.dir / "Reportes" / "AAPL").exists()
 
     def test_y_no_se_cuela_en_la_lista_de_REPORTES(self):
         """Vive en la misma carpeta que `reporte.json` y NO es un reporte:
