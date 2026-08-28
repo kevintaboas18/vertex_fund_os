@@ -294,27 +294,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 4774434,
+          "medio": 4776708,
           "relativo": 0.65,
           "respalda": false
         },
         "1M": {
-          "medio": 6077453,
+          "medio": 6077995,
           "relativo": 0.83,
           "respalda": false
         },
         "3M": {
-          "medio": 7429197,
+          "medio": 7429377,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 8568587,
+          "medio": 8568677,
           "relativo": 1.16,
           "respalda": false
         },
         "1A": {
-          "medio": 10038016,
+          "medio": 10038061,
           "relativo": 1.36,
           "respalda": true
         }
@@ -772,7 +772,7 @@
         "cuadrante": "lagging",
         "fuerza": -4.8128,
         "impulso": -1.7804,
-        "volumen_rel": 0.8733,
+        "volumen_rel": 0.8751,
         "flujo": null,
         "roc_5": -1.7804,
         "roc_20": -0.8272,
@@ -1589,5 +1589,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-28T05:46:45.211597+00:00"
+  "generado": "2026-08-28T06:22:43.870415+00:00"
 }
