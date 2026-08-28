@@ -36,8 +36,15 @@ def memoria(tmp_path, monkeypatch):
         "# Memoria del Agente\n\n## Tesis activas\n\n"
         "*(el agente agrega una línea por ticker analizado)*\n",
         encoding="utf-8")
-    monkeypatch.setattr(vertex_api.os.path, "abspath",
-                        lambda _p: str(tmp_path / "vertex_api.py"))
+    # Se apunta la CONSTANTE, no `os.path.abspath`.
+    #
+    # Este aislamiento parcheaba `abspath`, y funcionaba de rebote: la ruta se
+    # calculaba con `__file__` DENTRO de la función, en cada llamada. Al pasar
+    # a `MEMORIA_LOCAL` —resuelta al importar— el parche dejó de tener efecto
+    # y estos casos empezaron a escribir en la `Memoria/` DE VERDAD, pasando
+    # en verde mientras corregían la tesis de tickers reales. Parchear el dato
+    # en vez del mecanismo que lo calcula es lo que hace que no vuelva a pasar.
+    monkeypatch.setattr(vertex_api, "MEMORIA_LOCAL", str(tmp_path / "Memoria"))
     return tmp_path / "Memoria"
 
 
@@ -128,6 +135,6 @@ def test_the_index_never_loses_its_own_header(memoria):
 def test_a_broken_memory_folder_never_breaks_the_analysis(tmp_path, monkeypatch):
     """La memoria es best-effort: el análisis ya se hizo. Un fallo al
     escribirla no puede tumbar la respuesta al usuario."""
-    monkeypatch.setattr(vertex_api.os.path, "abspath",
-                        lambda _p: str(tmp_path / "no" / "existe" / "vertex_api.py"))
+    monkeypatch.setattr(vertex_api, "MEMORIA_LOCAL",
+                        str(tmp_path / "no" / "existe" / "Memoria"))
     _escribir()          # no debe lanzar

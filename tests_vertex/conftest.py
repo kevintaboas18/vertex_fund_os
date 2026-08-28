@@ -26,8 +26,10 @@ garantizado. Los tests que quieran probar la autenticación pueden fijar
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -169,3 +171,71 @@ def pytest_sessionstart(session):               # noqa: ARG001
             "  " + alarma.replace("\n", "\n  ") + "\n"
             + "=" * 72 + "\n\n")
         sys.stderr.flush()
+
+
+# ── LA SUITE NO PUEDE TOCAR EL ARCHIVO DE VERDAD ────────────────────────────
+#
+# Pasó tres veces, y las tres en silencio:
+#
+#   · `_PERFIL_DIR` — cada corrida dejaba un perfil de usuario sin versionar.
+#   · `REPORTES_LOCAL` — un caso metió una predicción INVENTADA de AAPL en
+#     `Reportes/`, y llegó a estar commiteada. `wbj track` la habría contado
+#     como real y habría ensuciado la calibración con un número que nadie tomó.
+#   · `MEMORIA_LOCAL` — el aislamiento de `test_memoria_protocolo.py` parcheaba
+#     `os.path.abspath` y funcionaba de rebote, porque la ruta se calculaba
+#     dentro de la función. Al convertirla en constante de módulo el parche
+#     dejó de tener efecto y la suite empezó a corregirle la tesis a NVDA,
+#     AAPL, KO y PLTR — en verde.
+#
+# El patrón es siempre el mismo: el aislamiento se rompe, los tests siguen
+# pasando, y el daño sólo se ve en `git status`. Así que el aislamiento deja de
+# depender de que cada test se acuerde: esto lo comprueba por todos, una vez,
+# al terminar la corrida.
+_VIGILADAS = ("Memoria", "Reportes", "Proyecciones", "Perfil Inversionista")
+
+
+def _huella_del_archivo():
+    """Qué hay ahora mismo en las carpetas del archivo: ruta -> hash.
+
+    Por CONTENIDO y no por fecha de modificación. Con el `mtime` la primera
+    corrida completa salió en rojo por un fichero reescrito con exactamente el
+    mismo texto: `git status` no lo ve, no hay dato dañado, y poner la suite en
+    rojo por eso enseña a ignorar al guardián — que es como muere un guardián.
+    Lo que se vigila es lo que cambia, no lo que se toca.
+    """
+    raiz = Path(__file__).resolve().parent.parent
+    huella = {}
+    for carpeta in _VIGILADAS:
+        base = raiz / carpeta
+        if not base.exists():
+            continue
+        for p in base.rglob("*"):
+            if p.is_file():
+                try:
+                    huella[str(p.relative_to(raiz))] = hashlib.sha256(
+                        p.read_bytes()).hexdigest()
+                except OSError:
+                    pass
+    return huella
+
+
+@pytest.fixture(scope="session", autouse=True)
+def el_archivo_de_verdad_no_se_toca():
+    """Falla la corrida si la suite escribió en el archivo del repositorio.
+
+    No aísla —eso es trabajo de cada test— pero **delata**. Un test que se
+    escapa deja de ser invisible: la corrida entera se pone en rojo y dice qué
+    ficheros tocó.
+    """
+    antes = _huella_del_archivo()
+    yield
+    despues = _huella_del_archivo()
+    tocados = sorted(
+        set(despues) - set(antes)                          # creados
+        | {k for k in set(antes) & set(despues) if antes[k] != despues[k]}   # cambiados
+        | (set(antes) - set(despues)))                     # borrados
+    assert not tocados, (
+        "la suite escribió en el archivo DE VERDAD del repositorio:\n  "
+        + "\n  ".join(tocados[:20])
+        + "\nUn test tiene que apuntar vertex_api.MEMORIA_LOCAL / REPORTES_LOCAL"
+          " / _PERFIL_DIR a su tmp_path antes de escribir.")

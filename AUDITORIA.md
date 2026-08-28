@@ -10323,10 +10323,33 @@ Dos cosas que lo hacen fiable:
 La regla técnica **no se pierde**: es la que se audita y la que evalúa el
 vigilante. Lo único que cambia es cuál se lee primero.
 
-#### Y un accidente, otra vez el mismo
+#### Y un accidente, otra vez el mismo — hasta que se puso un guardián
 
 Escribiendo esto, un guion de muestra llamó a `_wbj_write_thesis_md` y **le
 corrigió la tesis a NVDA en la memoria de verdad**. Revertido a mano.
+
+**Y al arreglarlo, rompí un aislamiento que funcionaba de rebote.**
+`test_memoria_protocolo.py` se aislaba parcheando `os.path.abspath`, y eso
+funcionaba **porque la ruta se calculaba dentro de la función, en cada
+llamada**. Al pasar a `MEMORIA_LOCAL` —resuelta al importar— el parche dejó de
+tener efecto, y la batería empezó a corregirle la tesis a **NVDA, AAPL, KO y
+PLTR** en el archivo de verdad. En verde. Sólo se vio en `git status`.
+
+Arreglado apuntando la constante en vez del mecanismo que la calcula. Pero el
+arreglo de fondo es otro, porque el patrón ya va por la tercera vez:
+
+> `_PERFIL_DIR` dejaba un perfil sin versionar · `REPORTES_LOCAL` metió una
+> predicción inventada de AAPL que llegó a estar commiteada · `MEMORIA_LOCAL`
+> corrigió cuatro tesis reales. **Las tres en silencio, con la suite en verde.**
+
+`tests_vertex/conftest.py` toma ahora una huella de `Memoria/`, `Reportes/`,
+`Proyecciones/` y `Perfil Inversionista/` al empezar la corrida y la compara al
+terminar. Si algo cambió, **la corrida entera se pone en rojo** y nombra los
+ficheros. No aísla —eso sigue siendo trabajo de cada test— pero delata, que es
+justo lo que faltaba: las tres veces el daño existía y nadie lo veía.
+
+Comprobado con un test sucio a propósito: el caso pasa —como pasaba antes— y
+la corrida falla nombrando `Memoria/tesis/_PRUEBA_GUARDIAN.md`.
 
 La causa es la de siempre: la ruta de `Memoria/` se calculaba con `__file__`
 —en **tres** sitios—, así que no se podía apuntar a otro lado. Es el tercer
