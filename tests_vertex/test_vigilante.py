@@ -296,3 +296,124 @@ class TestLaTuberiaLLEVALoTuyo:
         assert asunto.startswith("📈 Pre-Market Movers")
         assert "TUS TESIS" not in texto
         assert "{tesis_html}" not in htmlb, "quedó un hueco sin rellenar en el HTML"
+
+
+class TestElNumeroEnVezDeLaFormula:
+    """«close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5…» es
+    correcto y no se puede comparar con la pantalla del broker sin sacar la
+    calculadora. La tesis tiene que decir el precio."""
+
+    def _api(self):
+        import importlib
+
+        raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if raiz not in sys.path:
+            sys.path.insert(0, raiz)
+        return importlib.import_module("vertex_api")
+
+    def _nivel(self, lado="soporte", baja=200.0, alta=210.0, precio=220.0, atr=8.0):
+        """Un nivel con las distancias que publica el motor, coherentes."""
+        borde = alta if lado == "soporte" else baja
+        return {"lado": lado, "zona_baja": baja, "zona_alta": alta,
+                "distance_atr": (borde - precio) / atr,
+                "distance_percent": (borde - precio) / precio * 100}
+
+    def test_el_ATR_se_recupera_EXACTO_del_propio_nivel(self):
+        """El motor no publica el ATR, pero publica dos distancias que salen
+        de él. Con el borde y el cierre se despeja — así el número enseñado es
+        el que usó el motor ese día, no una aproximación con barras de hoy."""
+        V = self._api()
+        assert V._atr_del_nivel(self._nivel(atr=8.0), 220.0) == pytest.approx(8.0)
+        assert V._atr_del_nivel(self._nivel(atr=3.25), 220.0) == pytest.approx(3.25)
+
+    def test_el_borde_de_un_SOPORTE_no_es_el_de_una_RESISTENCIA(self):
+        """Para un soporte el borde cercano es su cota ALTA; para una
+        resistencia, la BAJA. Confundirlos da un ATR con la magnitud cambiada
+        y un precio de salida que no existe."""
+        V = self._api()
+        sop = self._nivel("soporte", 200.0, 210.0, precio=220.0, atr=8.0)
+        res = self._nivel("resistencia", 230.0, 240.0, precio=220.0, atr=8.0)
+        assert V._atr_del_nivel(sop, 220.0) == pytest.approx(8.0)
+        assert V._atr_del_nivel(res, 220.0) == pytest.approx(8.0)
+
+    def test_el_precio_sale_de_la_MISMA_regla(self):
+        """soporte: zona_baja − 0,25·ATR · resistencia: zona_alta + 0,25·ATR"""
+        V = self._api()
+        assert V._invalidacion_en_dinero(
+            self._nivel("soporte", 200.0, 210.0, atr=8.0), 220.0) == 198.0
+        assert V._invalidacion_en_dinero(
+            self._nivel("resistencia", 230.0, 240.0, atr=8.0), 220.0) == 242.0
+
+    def test_la_frase_lleva_el_PRECIO_y_no_la_formula(self):
+        V = self._api()
+        f = V._invalidacion_en_palabras(self._nivel(atr=8.0), 220.0)
+        assert "$198.00" in f
+        for jerga in ("zone_low", "zone_high", "ATR14", "median(50d)", "Broken by"):
+            assert jerga not in f, f"quedó jerga en la frase: {jerga}"
+        assert "volumen alto" in f
+
+    @pytest.mark.parametrize("roto", [
+        {"distance_atr": None},                  # sin la distancia no se despeja
+        {"distance_atr": 0},                     # división por cero
+        {"distance_atr": True},                  # un bool no es un número
+        {"distance_percent": 99.0},              # las dos distancias no cuadran
+    ])
+    def test_si_algo_NO_CUADRA_no_se_inventa_un_precio(self, roto):
+        """Un ATR inventado se convierte en un precio de invalidación
+        inventado, y eso es PEOR que la fórmula en crudo: la fórmula al menos
+        se nota que no se entiende."""
+        V = self._api()
+        n = {**self._nivel(atr=8.0), **roto}
+        assert V._atr_del_nivel(n, 220.0) is None
+        assert V._invalidacion_en_dinero(n, 220.0) is None
+        assert V._invalidacion_en_palabras(n, 220.0) is None
+
+    def test_sin_precio_del_analisis_tampoco(self):
+        V = self._api()
+        for p in (None, 0, -5, True, "220"):
+            assert V._atr_del_nivel(self._nivel(atr=8.0), p) is None
+
+    def test_escribir_una_tesis_no_toca_la_MEMORIA_de_verdad(self, tmp_path, monkeypatch):
+        """La ruta de `Memoria/` se calculaba con `__file__` en tres sitios, así
+        que cualquier llamada desde un guion escribía en la memoria REAL y le
+        corregía la tesis a un ticker de verdad. Pasó escribiendo esto: un
+        guion de muestra tocó `Memoria/tesis/NVDA.md` y hubo que revertirlo a
+        mano. Es el mismo accidente que `REPORTES_LOCAL` y `_PERFIL_DIR`.
+        """
+        from pathlib import Path
+
+        V = self._api()
+        real = Path(V.__file__).parent / "Memoria" / "tesis"
+        antes = {p.name: p.read_text(encoding="utf-8") for p in real.glob("*.md")}
+
+        monkeypatch.setattr(V, "MEMORIA_LOCAL", str(tmp_path / "Memoria"))
+        V._wbj_write_thesis_md(
+            "NVDA", 220.0, "Speculative", 51.9, 296.72,
+            {"12m": {"bull": 341.22, "base": 296.72, "bear": 209.82}},
+            "Tesis de prueba.",
+            V._invalidacion_en_palabras(self._nivel(atr=8.0), 220.0),
+            regla_tecnica="Broken by a confirmed close < zone_low - 0.25*ATR14")
+
+        despues = {p.name: p.read_text(encoding="utf-8") for p in real.glob("*.md")}
+        assert despues == antes, "le escribió encima a una tesis de verdad"
+        escrita = (tmp_path / "Memoria" / "tesis" / "NVDA.md").read_text(encoding="utf-8")
+        # Y lo que escribió lleva el PRECIO arriba y la fórmula debajo.
+        assert "$198.00" in escrita
+        assert "Regla del motor:" in escrita and "zone_low" in escrita
+        assert escrita.index("$198.00") < escrita.index("Regla del motor:")
+
+    def test_la_REGLA_del_motor_no_se_pierde(self, tmp_path, monkeypatch):
+        """Va debajo y en letra pequeña, no fuera: es la que se audita y la que
+        evalúa el vigilante. Lo que cambia es cuál se lee primero."""
+        V = self._api()
+        monkeypatch.setattr(V, "_MEMORIA_DIR", str(tmp_path), raising=False)
+        regla = "Broken by a confirmed close < zone_low - 0.25*ATR14"
+        llano = V._invalidacion_en_palabras(self._nivel(atr=8.0), 220.0)
+        # La firma acepta las dos y las escribe en ese orden.
+        import inspect
+
+        firma = inspect.signature(V._wbj_write_thesis_md)
+        assert "regla_tecnica" in firma.parameters
+        assert firma.parameters["regla_tecnica"].default is None, (
+            "tiene que ser opcional: sin ella la tesis se escribe igual")
+        assert llano and regla not in llano

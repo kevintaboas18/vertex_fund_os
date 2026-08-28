@@ -10280,6 +10280,60 @@ que FMP publicara ese dato—, que todo rótulo colapsado esté también en la t
 que la preferencia de corte se escriba con nombres ya canónicos, porque puesta
 con un rótulo dejaría de consultarse en silencio.
 
+### El número en vez de la fórmula
+
+> «vamos hacer solo la 3.» — Kevin, 28/08/2026.
+
+La tesis decía esto, y sigue siendo verdad:
+
+    Broken by a confirmed close < zone_low - 0.25*ATR14 with
+    volume/median(50d) >= 1.5 and follow-through…
+
+El problema no es que esté mal: es que **no se puede comparar con la pantalla
+del broker** sin sacar la calculadora. Ahora la tesis dice el precio, y la
+regla del motor queda debajo:
+
+    - Invalidación: La tesis se rompe si cierra por debajo de $198.00 con
+      volumen alto (1,5x lo normal) y lo confirma: dos cierres seguidos fuera,
+      o uno y tres sesiones sin volver a entrar en la zona $200.00-$210.00.
+      <sub>Regla del motor: Broken by a confirmed close < zone_low - …</sub>
+
+**El número sale de la MISMA regla, no de una aproximación.** El motor no
+publica el ATR, pero publica dos distancias que salen de él:
+
+    distance_percent = (borde - cierre) / cierre * 100
+    distance_atr     = (borde - cierre) / ATR14
+
+Con el borde —las cotas de la zona, que ya se guardaban— y el cierre, la
+segunda se despeja. Así el ATR es exactamente el que usó el motor ese día, sin
+bajar barras ni recalcular nada.
+
+Dos cosas que lo hacen fiable:
+
+- **El borde cercano no es el mismo lado en los dos casos.** Para un SOPORTE es
+  su cota ALTA; para una RESISTENCIA, la BAJA (`levels_engine`, FORMULAS.md:
+  «use nearest zone boundary»). Confundirlos daría un ATR con la magnitud
+  cambiada y un precio de salida que no existe.
+- **Si algo no cuadra, no se publica número.** Las dos distancias salen del
+  mismo numerador, así que se contrastan: si no cuentan la misma historia, se
+  deja la regla en crudo. Un ATR inventado se convierte en un precio de
+  invalidación inventado, y eso es **peor** que la fórmula — la fórmula al
+  menos se nota que no se entiende.
+
+La regla técnica **no se pierde**: es la que se audita y la que evalúa el
+vigilante. Lo único que cambia es cuál se lee primero.
+
+#### Y un accidente, otra vez el mismo
+
+Escribiendo esto, un guion de muestra llamó a `_wbj_write_thesis_md` y **le
+corrigió la tesis a NVDA en la memoria de verdad**. Revertido a mano.
+
+La causa es la de siempre: la ruta de `Memoria/` se calculaba con `__file__`
+—en **tres** sitios—, así que no se podía apuntar a otro lado. Es el tercer
+directorio con el mismo fallo: `_PERFIL_DIR` lo tuvo, `REPORTES_LOCAL` lo tuvo
+ayer, y `Memoria/` lo tenía hoy. Unificado en `MEMORIA_LOCAL`, con un caso que
+compara las tesis reales antes y después de escribir una.
+
 ### El bucle que no se cerraba: la predicción, el track record y el vigilante
 
 > «vamos hacer esto: solucionalo y arreglalo.» — Kevin, 28/08/2026, sobre los

@@ -13161,7 +13161,7 @@ def _wbj_levels_ctx(victor_levels):
 
 def _wbj_read_thesis_md(ticker):
     """Lee Memoria/tesis/<TICKER>.md (tesis previa) para el prompt. '' si no hay."""
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "tesis", f"{ticker.upper()}.md")
+    p = os.path.join(MEMORIA_LOCAL, "tesis", f"{ticker.upper()}.md")
     if os.path.exists(p):
         try:
             with open(p, "r", encoding="utf-8") as f:
@@ -13191,7 +13191,18 @@ def _wbj_firma_tesis(profile, raw, fair_value, t12):
             f"{t12.get('bull')}|{t12.get('base')}|{t12.get('bear')}")
 
 
-def _wbj_write_thesis_md(ticker, price, profile, raw, fair_value, targets, thesis, invalidation):
+#: Dónde vive `Memoria/` en disco — las tesis y su índice.
+#:
+#: Atributo del módulo por lo mismo que `REPORTES_LOCAL` y `_PERFIL_DIR`: para
+#: que se pueda apuntar a otro sitio. Calculada con `__file__` dentro de la
+#: función, cualquier llamada desde un test escribe en la memoria DE VERDAD y
+#: le corrige la tesis a un ticker real. Me pasó escribiendo esto: un guion de
+#: muestra tocó `Memoria/tesis/NVDA.md` y hubo que revertirlo a mano.
+MEMORIA_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria")
+
+
+def _wbj_write_thesis_md(ticker, price, profile, raw, fair_value, targets, thesis,
+                         invalidation, regla_tecnica=None):
     """Escribe/actualiza Memoria/tesis/<TICKER>.md (protocolo de memoria del CLAUDE.md).
 
     Corrige encima; nunca borra una tesis vieja: el historial es la señal de
@@ -13206,7 +13217,7 @@ def _wbj_write_thesis_md(ticker, price, profile, raw, fair_value, targets, thesi
     Best-effort: fallar aquí nunca puede tumbar el análisis.
     """
     try:
-        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "tesis")
+        base = os.path.join(MEMORIA_LOCAL, "tesis")
         os.makedirs(base, exist_ok=True)
         p = os.path.join(base, f"{ticker.upper()}.md")
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -13236,7 +13247,14 @@ def _wbj_write_thesis_md(ticker, price, profile, raw, fair_value, targets, thesi
                      f"- Precio al análisis: ${price} · Fair value (base): ${fair_value}\n"
                      f"- Targets 12M: Bull ${t12.get('bull')} / Base ${t12.get('base')} / Bear ${t12.get('bear')}\n"
                      f"- Tesis: {(thesis or '').strip()[:600]}\n"
-                     f"- Invalidación: {invalidation}\n")
+                     f"- Invalidación: {invalidation}\n"
+                     # La regla del motor va DEBAJO, no fuera: es la que se
+                     # audita y la que evalúa el vigilante. Lo que cambia es
+                     # cuál se lee primero — arriba el precio que se compara
+                     # con la pantalla del broker, abajo la fórmula que lo
+                     # justifica.
+                     + (f"  <sub>Regla del motor: {regla_tecnica}</sub>\n"
+                        if regla_tecnica else ""))
             bloques.insert(0, entry)
 
         with open(p, "w", encoding="utf-8") as f:
@@ -13264,7 +13282,7 @@ def _wbj_actualizar_indice_memoria(ticker, fecha, profile, raw, fair_value):
     La línea se REEMPLAZA y el listado queda ordenado. El historial no se
     pierde: vive en `tesis/<TICKER>.md`, que es su sitio.
     """
-    idx = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "MEMORIA.md")
+    idx = os.path.join(MEMORIA_LOCAL, "MEMORIA.md")
     linea = f"- [{ticker.upper()}](tesis/{ticker.upper()}.md) · {fecha} · {profile} · raw {raw}/100 · FV ${fair_value}"
     try:
         with open(idx, "r", encoding="utf-8") as f:
@@ -13332,6 +13350,81 @@ def _nivel_de_invalidacion(nivel: dict) -> dict | None:
         return None                              # sin lado no hay qué medir
     return {"lado": lado, "zona_baja": float(bajo), "zona_alta": float(alto),
             "etiqueta": nivel.get("label"), "regla": regla or None}
+
+
+def _atr_del_nivel(nivel: dict, precio) -> float | None:
+    """El ATR14 del día del análisis, recuperado del PROPIO nivel.
+
+    El motor no publica el ATR, pero publica dos distancias que salen de él:
+
+        distance_percent = (borde - cierre) / cierre * 100
+        distance_atr     = (borde - cierre) / ATR14
+
+    Con el borde —que son las cotas de la zona, que ya tenemos— y el cierre, la
+    segunda se despeja. No hace falta bajar barras ni recalcular nada: el
+    número que se enseña es exactamente el que usó el motor ese día.
+
+    El «borde cercano» no es siempre el mismo lado: para un SOPORTE es su cota
+    ALTA y para una RESISTENCIA la BAJA (`levels_engine`, FORMULAS.md: «use
+    nearest zone boundary for approach status»). Confundirlos daría un ATR con
+    el signo o la magnitud cambiados, y un precio de salida que no existe.
+
+    Devuelve `None` en cuanto algo no cuadre. Un ATR inventado se convierte en
+    un precio de invalidación inventado, y eso es PEOR que la fórmula en crudo:
+    la fórmula al menos se nota que no se entiende.
+    """
+    d_atr = nivel.get("distance_atr")
+    if not isinstance(d_atr, (int, float)) or isinstance(d_atr, bool) or not d_atr:
+        return None                              # sin ella no se puede despejar
+    if not isinstance(precio, (int, float)) or isinstance(precio, bool) or precio <= 0:
+        return None
+    borde = (nivel["zona_alta"] if nivel["lado"] == "soporte" else nivel["zona_baja"])
+    atr = (borde - precio) / d_atr
+    if atr != atr or atr in (float("inf"), float("-inf")) or not atr > 0:
+        return None                              # un ATR no puede ser <= 0
+    # Contraste con la OTRA distancia, que sale del mismo numerador. Si las dos
+    # no cuentan la misma historia, algo no es lo que parece: se prefiere
+    # quedarse sin número a publicar uno que no es.
+    d_pct = nivel.get("distance_percent")
+    if isinstance(d_pct, (int, float)) and not isinstance(d_pct, bool):
+        esperado = d_pct / 100.0 * precio
+        if abs(esperado - (borde - precio)) > max(0.01, abs(esperado) * 0.01):
+            return None
+    return atr
+
+
+def _invalidacion_en_dinero(nivel: dict, precio) -> float | None:
+    """El precio al que la tesis se rompe. En dólares, no en fórmula.
+
+    La regla del motor dice «close < zone_low - 0.25*ATR14» (soporte) o
+    «close > zone_high + 0.25*ATR14» (resistencia). Es correcta y **no se puede
+    comparar con la pantalla del broker** sin sacar la calculadora. Esto la
+    resuelve con el ATR del propio nivel, así que el número sale de esa MISMA
+    regla y no de otra aproximación.
+    """
+    atr = _atr_del_nivel(nivel, precio)
+    if atr is None:
+        return None
+    return round(nivel["zona_baja"] - 0.25 * atr if nivel["lado"] == "soporte"
+                 else nivel["zona_alta"] + 0.25 * atr, 2)
+
+
+def _invalidacion_en_palabras(nivel: dict, precio) -> str | None:
+    """La condición de invalidación en español y con el precio delante.
+
+    Devuelve `None` si no se pudo resolver el número: entonces se deja la regla
+    del motor tal cual, que es fea pero cierta. Traducirla «a medias» —sin el
+    precio— sería perder la precisión sin ganar claridad.
+    """
+    p = _invalidacion_en_dinero(nivel, precio)
+    if p is None:
+        return None
+    lado = ("cierra por debajo de" if nivel["lado"] == "soporte"
+            else "cierra por encima de")
+    return (f"La tesis se rompe si {lado} ${p:,.2f} con volumen alto "
+            f"(1,5x lo normal) y lo confirma: dos cierres seguidos fuera, o uno "
+            f"y tres sesiones sin volver a entrar en la zona "
+            f"${nivel['zona_baja']:,.2f}-${nivel['zona_alta']:,.2f}.")
 
 
 def _wbj_write_prediccion(ticker, report_id, price, fair_value, profile, raw, targets,
@@ -16160,7 +16253,26 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
                         break
                 if _inval_m is None:
                     _inval_m = analisis_json.get("target_bear_12m")
-                _wbj_write_thesis_md(ticker, precio_actual, _prof_m, _raw_m, _fv_m, targets, _thesis_m, _inval_m)
+                # El PRECIO delante, la fórmula debajo.
+                #
+                # «Broken by a confirmed close < zone_low - 0.25*ATR14 with
+                # volume/median(50d) >= 1.5…» es correcto y no se puede
+                # comparar con la pantalla del broker sin calculadora. El
+                # número sale del ATR del propio nivel, así que es el de esta
+                # misma regla y no otra aproximación.
+                #
+                # Si no se puede resolver, se deja la regla en crudo: fea pero
+                # cierta. Traducirla sin el precio sería perder la precisión
+                # sin ganar claridad.
+                _regla_m = None
+                if _nivel_m:
+                    _llano = _invalidacion_en_palabras(_nivel_m, precio_actual)
+                    if _llano:
+                        _regla_m, _inval_m = _inval_m, _llano
+                        _nivel_m = {**_nivel_m, "precio":
+                                    _invalidacion_en_dinero(_nivel_m, precio_actual)}
+                _wbj_write_thesis_md(ticker, precio_actual, _prof_m, _raw_m, _fv_m, targets,
+                                     _thesis_m, _inval_m, regla_tecnica=_regla_m)
                 _wbj_write_prediccion(ticker, report_id, precio_actual, _fv_m, _prof_m, _raw_m,
                                       targets, _gates.get("recommendation"),
                                       invalidacion=_nivel_m)

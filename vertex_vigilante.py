@@ -94,7 +94,12 @@ def revisa(pred: dict, barras) -> dict[str, Any] | None:
     ticker = str(pred.get("ticker") or "").upper()
     base = {"ticker": ticker, "fecha_tesis": pred.get("date") or pred.get("fecha"),
             "lado": inv["lado"], "zona_baja": inv["zona_baja"],
-            "zona_alta": inv["zona_alta"], "etiqueta": inv.get("etiqueta")}
+            "zona_alta": inv["zona_alta"], "etiqueta": inv.get("etiqueta"),
+            # El nivel que se publicó EL DÍA DEL ANÁLISIS, si se guardó. El de
+            # hoy (`nivel`) se recalcula con el ATR de hoy y puede haberse
+            # movido; enseñar los dos deja ver cuánto. Uno solo obligaría a
+            # elegir entre «el que te dije» y «el que vale ahora».
+            "nivel_del_analisis": inv.get("precio")}
 
     if barras is None or len(barras) < MINIMO_SESIONES:
         return {**base, "estado": "sin_datos", "roto": None,
