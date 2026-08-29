@@ -157,3 +157,52 @@ class TestSinMotorNoHayNumeros:
         nada, y lo que hace falta es que se VEA que no hay número."""
         r = V.compute_memory_comparison(None, 100.0, None, None, None)
         assert isinstance(r, dict) and r.get("has_prior") is False
+
+
+class TestElSpreadSeRestaDelResultado:
+    """El motor ya MEDÍA el spread —`spread_pct_of` en `wheel.py`— pero sólo
+    para puntuar la calidad del contrato. Nadie lo restaba del resultado.
+
+    En Robinhood la comisión de opciones es ~$0: lo que cuesta dinero es la
+    horquilla. Se entra al ask y se sale al bid, así que el viaje completo
+    cuesta aproximadamente el spread entero medido sobre el mid.
+    """
+
+    def test_el_spread_se_come_el_rendimiento(self):
+        """Con $1.000 esto no es un detalle."""
+        assert V._neto_de_spread(15.0, 8.0) == 7.0
+
+    def test_un_rendimiento_pequeno_con_spread_ancho_es_CERO(self):
+        """Un «+6%» con 6% de spread no es un +6% pequeño: es nada."""
+        assert V._neto_de_spread(6.0, 6.0) == 0.0
+
+    def test_y_puede_salir_NEGATIVO_sin_maquillarlo(self):
+        """Acotarlo a cero escondería justo el caso que hay que ver."""
+        assert V._neto_de_spread(3.0, 8.0) == -5.0
+
+    @pytest.mark.parametrize("bruto,spread", [
+        (15.0, None), (None, 8.0), (None, None), (15.0, "8"), (15.0, -1),
+        (float("nan"), 8.0), (15.0, float("inf")), (15.0, True),
+    ])
+    def test_sin_los_DOS_datos_no_se_publica_neto(self, bruto, spread):
+        """Un neto calculado sin saber el spread sería el bruto disfrazado —
+        peor que no darlo, porque parece que ya lleva el coste dentro."""
+        assert V._neto_de_spread(bruto, spread) is None
+
+    def test_el_BRUTO_de_Victor_no_se_toca(self):
+        """`engine/wbj/tito/wheel.py` es port literal y `diff_wheel.sh` lo
+        compara número a número contra su código. El neto se añade AL LADO."""
+        import subprocess
+        import sys as _s
+
+        r = subprocess.run(
+            [_s.executable, "-c",
+             "import sys; sys.path.insert(0,'engine');"
+             "from wbj.tito.wheel import wheel_metrics;"
+             "m = wheel_metrics(100.0, 2.0, 105.0, 30, 0.35);"
+             "print(round(m.return_pct, 4))"],
+            cwd=RAIZ, capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, r.stderr[-300:]
+        # 2.00 de prima sobre 100 de strike = 2% del colateral. Es la fórmula
+        # de Víctor sin el spread dentro, y así se queda.
+        assert float(r.stdout.strip()) == 2.0

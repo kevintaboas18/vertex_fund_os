@@ -190,10 +190,61 @@ def bloque_tesis(avisos: dict | None) -> tuple[str, str, str]:
     return texto, htmlb, subject
 
 
+def bloque_salud(salud: dict | None) -> tuple[str, str]:
+    """Qué fuentes están vivas. Una línea si todo va, y la lista si no.
+
+    Existe por la cookie de MarketSnack: es una cookie de SESIÓN y caduca
+    sola. Cuando caduca, cinco de los seis sub-agentes se quedan sin dato y
+    sólo sobrevive Estructura — y hasta ahora sólo te enterabas si abrías el
+    panel. El agente con el que se opera podía llevar días a uno de seis.
+
+    Se dice también cuando NO se pudo comprobar. «No sé si está sano» y «está
+    sano» son cosas distintas, y la segunda es la que no hay que fingir.
+    """
+    # `None` (no me pasaron nada) y `{"ok": None}` (lo intenté y no pude) NO
+    # son lo mismo. El primero es el correo de siempre, sin bloque; el segundo
+    # es una advertencia. Fundirlos hacía que un correo antiguo dijera que no
+    # se pudo comprobar la salud, que es una alarma inventada.
+    if salud is None:
+        return "", ""
+    s = salud
+    if s.get("ok") is None:
+        txt = "SALUD: no se pudo comprobar el estado de las fuentes."
+        return (txt + "\n",
+                '<p style="font-size:12px;color:#888;margin:0 0 14px;">'
+                + html.escape(txt) + "</p>")
+    rotos = s.get("rotos") or []
+    if not rotos:
+        txt = f"SALUD: las {s.get('total', 0)} fuentes responden."
+        return (txt + "\n",
+                '<p style="font-size:12px;color:#00b894;margin:0 0 14px;">✅ '
+                + html.escape(txt) + "</p>")
+
+    def _linea(c):
+        base = f"{c.get('check')}: {c.get('detalle')}"
+        if c.get("impacto"):
+            base += f" — {c['impacto']}"
+        if c.get("arreglo"):
+            base += f" [{c['arreglo']}]"
+        return base
+
+    cuerpo = "\n".join(f"- {_linea(c)}" for c in rotos)
+    txt = (f"⚠️ SALUD: {len(rotos)} de {s.get('total', 0)} fuentes con problema\n"
+           f"{cuerpo}\n")
+    filas = "".join(f'<li style="margin:4px 0;">{html.escape(_linea(c))}</li>'
+                    for c in rotos)
+    htmlb = (f'<h2 style="font-size:15px;margin:0 0 8px;color:#d63031;">⚠️ '
+             f'{len(rotos)} de {s.get("total", 0)} fuentes con problema</h2>'
+             f'<ul style="margin:0 0 14px;padding-left:20px;font-size:13px;">{filas}</ul>')
+    return txt, htmlb
+
+
 def build_email(now: datetime, gainers: list[dict], losers: list[dict],
-                avisos: dict | None = None) -> tuple[str, str, str]:
+                avisos: dict | None = None,
+                salud: dict | None = None) -> tuple[str, str, str]:
     fecha = f"{DIAS[now.weekday()]} {now.day} {MESES[now.month]} {now.year}"
     tesis_txt, tesis_html, tesis_asunto = bloque_tesis(avisos)
+    salud_txt, salud_html = bloque_salud(salud)
     subject = f"{tesis_asunto}📈 Pre-Market Movers — {fecha}"
 
     big = sorted([r for r in gainers + losers if r["mcap"] >= LARGE_CAP_MIN],
@@ -208,6 +259,7 @@ def build_email(now: datetime, gainers: list[dict], losers: list[dict],
     text = f"""PRE-MARKET MOVERS — {fecha}
 (Pre-market en vivo, {now.strftime('%H:%M')} ET — FMP)
 
+{salud_txt}
 {tesis_txt}
 LO MÁS IMPORTANTE (large caps, $10B+):
 {txt_rows(big) or '- (ninguna large cap con movimiento fuerte hoy)'}
@@ -234,6 +286,7 @@ Warren Buffett Jr 🎩📈
     <div style="font-size:13px;opacity:.85;margin-top:4px;">Pre-market en vivo · {now.strftime('%H:%M')} ET · FMP</div>
   </div>
   <div style="border:1px solid #e5e5f0;border-top:none;padding:20px 24px;border-radius:0 0 12px 12px;">
+    {salud_html}
     {tesis_html}
     <h2 style="font-size:15px;margin:0 0 10px;color:#6c5ce7;">🔥 Lo más importante — large caps ($10B+)</h2>
     {big_html}

@@ -10280,6 +10280,85 @@ que FMP publicara ese dato—, que todo rótulo colapsado esté también en la t
 que la preferencia de corte se escriba con nombres ya canónicos, porque puesta
 con un rótulo dejaría de consultarse en silencio.
 
+### Los números nunca salen de un modelo — y dos que sí salían
+
+> «los números ni los cálculos ni nada jamás ni nunca vendrán de un LLM.»
+> — Kevin, 29/08/2026.
+
+`CLAUDE.md` lo dice desde el primer día. Había **dos agujeros**, los dos
+silenciosos, y el primero es el hallazgo más serio de la sesión.
+
+#### 1. Una probabilidad inventada dimensionaba el dinero
+
+`p_positive_12m` la escribe el modelo en su esquema y alimentaba el Kelly, o
+sea el tamaño de posición sugerido. Había un anclaje al base-rate medido, pero
+pesado por muestra, y el propio comentario del código lo decía:
+
+    _wb = _brn / (_brn + _Kp)   # n alto → confía en el base-rate; n bajo → en el LLM
+
+Con el track record vacío —que es donde está hoy: 28 predicciones y ninguna
+vencida— ese peso es **cero**, y la probabilidad del modelo pasaba **entera**
+al cálculo de cuánto dinero arriesgar.
+
+Ahora el complemento de la mezcla es **50%, la moneda al aire**: el único
+prior que no opina. Y **sin ninguna muestra medida no hay probabilidad**: sin
+`p` no hay Kelly —es `f* = p - q/b`— y no hay tamaño sugerido, con el motivo
+escrito. Lo que dijo el modelo se **guarda** para poder medirlo algún día,
+pero no entra en ningún cálculo.
+
+Las otras tres probabilidades —`p_touch_bull_12m`, `p_touch_bear_12m`,
+`p_up_10pct_3m`— dejan de publicarse. Nadie las pintaba, pero quedaban
+archivadas en cada reporte con la misma pinta que un cálculo.
+
+**Consecuencia visible, y hay que decirla:** hasta que haya una predicción
+vencida, el panel dice «Sin dimensionar» en vez de un porcentaje. El
+reward/risk sí se sigue publicando: ése sale de los targets del motor.
+
+#### 2. Sin motor, los números eran del modelo
+
+`conviccion_score` y `recommendation` sólo se sobrescriben con los de Victor
+**dentro** de la rama del motor. Si el motor no cargaba —una dependencia que
+falta en Render, un import que revienta— quedaba lo que el modelo hubiera
+puesto, y en pantalla se veía **exactamente igual** que un análisis bueno.
+
+Ahora se borran los seis campos, se marca `motor_ausente` para que el archivo
+también lo sepa, y se dice por qué. El texto en palabras se conserva: explicar
+sí es trabajo del modelo; poner números, no.
+
+#### Y se mide por COMPORTAMIENTO
+
+La decisión vive en tres funciones puras —`_ancla_probabilidad`,
+`_dimensiona` y `_sin_motor_no_hay_numeros`— justo para poder medirla
+llamándolas. Un caso que compare el texto del código se pone rojo por mover
+una línea y verde si la fabricación vuelve por otro sitio. **15 de 16 en rojo
+antes.**
+
+Un fallo del refactor, cazado por su propio caso: el bloque publicaba los
+porcentajes multiplicados **dos veces** por 100 — una asignación sugerida del
+2.330%.
+
+### La línea de salud, y el spread que se medía y no se restaba
+
+**Salud.** La cookie de MarketSnack es de SESIÓN y caduca sola; cuando caduca,
+**cinco de los seis sub-agentes** se quedan sin dato y sólo sobrevive
+Estructura. El sistema lo detectaba bien y hasta decía cómo re-pegarla — pero
+sólo si abrías el panel. El correo pre-market ya existía: ahora lleva una
+línea con qué fuentes responden, con el arreglo y el impacto de cada una que
+falle. Y `None` (no me pasaron el dato) no es `{"ok": None}` (lo intenté y no
+pude): fundirlos hacía que un correo antiguo inventara una alarma.
+
+**Spread.** El motor ya lo MEDÍA (`spread_pct_of` en `wheel.py`) para puntuar
+la calidad del contrato, y nadie lo restaba del resultado. En Robinhood la
+comisión de opciones es ~$0: lo que cuesta dinero es la horquilla — se entra
+al ask y se sale al bid, así que el viaje completo cuesta el spread entero
+sobre el mid. Con $1.000, un 8% de spread convierte un «+15%» en «+7%» y un
+«+6%» en **cero**.
+
+Va en el borde y **no** en `engine/wbj/tito/`: aquél es port literal de Víctor
+y `diff_wheel.sh` lo compara número a número. El bruto se sigue publicando tal
+cual y el neto se añade al lado, con el spread usado declarado. Comprobado:
+`diff_wheel.sh` sigue en cero divergencias.
+
 ### El número en vez de la fórmula
 
 > «vamos hacer solo la 3.» — Kevin, 28/08/2026.
@@ -10784,12 +10863,25 @@ Verificado en rojo antes que en verde: **31 casos** de la primera ronda y
 
 ### Estado
 
-**3.491 tests del motor · 1.523 de la capa web · 342 checks de auditoría CON
+**3.493 tests del motor · 1.570 de la capa web · 342 checks de auditoría CON
 su repo real (0 avisos · 0 fallos, contra `/tmp/tito` en `53d5a20`) · los 17
 diferenciales en verde. 0 fallos.**
 
-Los de navegador van dentro de los 1.523 (`tests_vertex/test_navegador.py`); la
-corrida completa de la capa web tardó 44 min 34 s. Los últimos 30 son del bucle
+Los de navegador van dentro de los 1.570 (`tests_vertex/test_navegador.py`); la
+corrida completa de la capa web tardó 45 min 09 s.
+
+Dos cosas que la corrida anterior cazó y hay que dejar escritas:
+
+- **El guardián de cableado tenía razón.** `test_wheel_no_sirve_nada_que_el_panel_tire`
+  saltó porque los tres campos del spread —`return_neto_pct`,
+  `annualized_neto_pct`, `spread_pct_usado`— se servían y nadie los pintaba.
+  Su mensaje decía «o se cablean, o se declaran con su motivo»: se cablearon,
+  que es el sentido de la función. El neto sale bajo el anualizado, más
+  pequeño, en rojo si el spread se lo come entero.
+- **Y el intermitente del almacén salió una vez y no volvió.** Su propio caso
+  documenta que lo dispara una contención transitoria. Se midió porque este
+  cambio añade un `sincroniza` por predicción y podía haber subido la presión:
+  la corrida siguiente, con el mismo árbol, dio **1.570 en verde**. Los últimos 30 son del bucle
 de aprendizaje: 23 del vigilante, 5 del track record y 2 del almacén.
 
 #### El intermitente del almacén, medido en vez de declarado

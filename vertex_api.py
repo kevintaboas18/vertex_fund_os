@@ -3368,6 +3368,32 @@ def get_explore(limit: int = 15):
     }
 
 
+def _salud_para_el_correo() -> dict:
+    """Qué fuentes están vivas hoy. Best-effort: nunca lanza.
+
+    Reusa `tito_health`, que ya toca cada fuente una por una y dice qué hacer
+    con la que falle. Aquí sólo se resume a una línea.
+
+    Existe por un fallo operativo, no analítico: **la cookie de MarketSnack es
+    una cookie de sesión y caduca sola**. Cuando caduca, cinco de los seis
+    sub-agentes se quedan sin dato y sólo sobrevive Estructura. El sistema lo
+    detecta bien y hasta explica cómo re-pegarla desde DevTools — pero sólo si
+    abres el panel y vas a mirar. Mientras tanto el agente de opciones, que es
+    con el que se opera, corre a uno de seis y nadie avisa.
+
+    La tubería del correo ya existía y llevaba movers genéricos del mercado.
+    Esto es colgarle lo que de verdad importa saber por la mañana.
+    """
+    try:
+        h = tito_health()
+        checks = h.get("checks") or []
+        rotos = [c for c in checks if not c.get("ok")]
+        return {"ok": not rotos, "total": len(checks), "rotos": rotos}
+    except Exception as e:                       # noqa: BLE001
+        logging.getLogger(__name__).warning("salud omitida: %s", e)
+        return {"ok": None, "total": 0, "rotos": []}
+
+
 def _barras_para_el_vigilante(ticker: str):
     """Las barras diarias de un ticker, en la forma que come el motor.
 
@@ -3482,7 +3508,9 @@ def premarket_enviar(request: Request, forzar: bool = False, seco: bool = False)
     # Las tesis que se rompieron por su propio criterio. Va ARRIBA del correo:
     # los movers del día son contexto, y esto es lo tuyo.
     avisos = _avisos_del_vigilante()
-    asunto, texto, html = _pm.build_email(ahora, gainers, losers, avisos=avisos)
+    salud = _salud_para_el_correo()
+    asunto, texto, html = _pm.build_email(ahora, gainers, losers, avisos=avisos,
+                                          salud=salud)
     if seco:
         return {"ok": True, "seco": True, "para": correos, "fuente": fuente,
                 "asunto": asunto}
@@ -7094,7 +7122,16 @@ def tito_wheel(request: Request, preset: str = "balanceado"):
                 "credit": _r(m.credit), "collateral": _r(m.collateral),
                 "return_pct": _r(m.return_pct, 2), "annualized_pct": _r(m.annualized_pct, 1),
                 "breakeven": _r(m.breakeven), "cushion_pct": _r(m.cushion_pct, 1),
-                "prob_expire_worthless": _r(m.prob_expire_worthless, 1)},
+                "prob_expire_worthless": _r(m.prob_expire_worthless, 1),
+                # Lo mismo, después de pagar el spread de ida y vuelta. El
+                # bruto de arriba es el de Víctor y no se toca —`diff_wheel.sh`
+                # lo compara número a número—; esto se añade al lado.
+                "return_neto_pct": _neto_de_spread(_r(m.return_pct, 2), c.spread_pct),
+                "annualized_neto_pct": _neto_de_spread(
+                    _r(m.annualized_pct, 1),
+                    None if c.spread_pct is None
+                    else c.spread_pct * (365 / max(c.dte or 1, 1))),
+                "spread_pct_usado": _r(c.spread_pct, 1)},
             "score": None if sc_ is None else {
                 "total": sc_.total, "annualized": _parte(sc_.annualized),
                 "iv_rank": _parte(sc_.iv_rank), "cushion": _parte(sc_.cushion),
@@ -13350,6 +13387,39 @@ _K_SHRINKAGE = 10.0
 #: exactamente igual que un análisis bueno.
 _NUMEROS_QUE_SOLO_DA_EL_MOTOR = ("conviccion_score", "recommendation", "fair_value",
                                  "upside_pct", "confidence", "p_bull_correct")
+
+
+def _neto_de_spread(bruto_pct, spread_pct):
+    """El mismo rendimiento, después de pagar el spread de ida y vuelta.
+
+    En Robinhood la comisión de opciones es ~$0. Lo que cuesta dinero es el
+    **spread**: se entra al ask y se sale al bid, así que el viaje completo
+    cuesta aproximadamente el spread entero medido sobre el mid — media
+    horquilla al entrar y media al salir.
+
+    Con $1.000 eso no es un detalle. Un contrato con un 8% de spread convierte
+    un «+15%» en un «+7%», y un «+6%» en cero. Es la diferencia entre un
+    cálculo que gana y una cuenta que pierde.
+
+    El motor ya MEDÍA el spread (`spread_pct_of` en `wheel.py`), pero sólo
+    para puntuar la calidad del contrato. Nadie lo restaba del resultado.
+
+    Esto vive en el borde y NO en `engine/wbj/tito/`: aquel es port literal de
+    Víctor y `diff_wheel.sh` lo compara número a número contra su código. El
+    bruto se sigue publicando tal cual — lo neto se añade al lado, para que la
+    divergencia sea cero y se pueda ver de dónde sale cada cifra.
+
+    Devuelve `None` si falta cualquiera de los dos: un neto calculado sin
+    saber el spread sería el bruto disfrazado, que es peor que no darlo.
+    """
+    def _num(v):
+        return (v if isinstance(v, (int, float)) and not isinstance(v, bool)
+                and v == v and v not in (float("inf"), float("-inf")) else None)
+
+    b, sp = _num(bruto_pct), _num(spread_pct)
+    if b is None or sp is None or sp < 0:
+        return None
+    return round(b - sp, 2)
 
 
 def _sin_motor_no_hay_numeros(analisis_json: dict) -> dict:

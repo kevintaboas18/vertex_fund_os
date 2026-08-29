@@ -5481,7 +5481,14 @@ function renderProjWheel(d) {
             <td class="py-2 pr-3 text-right font-bold ${c.premium.source === 'bid' ? 'text-gray-200' : 'text-amber-300'}" title="Prima por acci&oacute;n, ya recortada seg&uacute;n su fuente. Fuente: ${_vcEsc(c.premium.source)} (bruto $${Number(c.premium.raw).toFixed(2)}, recorte ${c.premium.source === 'bid' ? '0%' : (c.premium.source === 'ultimo' ? '10%' : '15%')}). Vendes al BID: cualquier otra fuente es una estimaci&oacute;n.">$${Number(c.premium.price).toFixed(2)}${c.premium.source !== 'bid' ? '<span class="text-[8px] font-normal">*</span>' : ''}</td>
             <td class="py-2 pr-3 text-right text-emerald-400 font-bold">${fmtAbbr(m.credit)}</td>
             <td class="py-2 pr-3 text-right text-gray-300" title="efectivo que queda inmovilizado hasta el vencimiento">${fmtAbbr(m.collateral)}</td>
-            <td class="py-2 pr-3 text-right ${m.annualized_pct > 60 ? 'text-amber-400' : 'text-gray-200'}" title="${m.annualized_pct > 60 ? 'Prima sospechosamente alta: el mercado descuenta una caída fuerte.' : ''}">${Number(m.annualized_pct).toFixed(1)}%</td>
+            <td class="py-2 pr-3 text-right ${m.annualized_pct > 60 ? 'text-amber-400' : 'text-gray-200'}" title="${m.annualized_pct > 60 ? 'Prima sospechosamente alta: el mercado descuenta una caída fuerte.' : ''}">${Number(m.annualized_pct).toFixed(1)}%${
+              // El MISMO retorno despu&eacute;s de pagar la horquilla. En Robinhood
+              // la comisi&oacute;n de opciones es ~$0: lo que cuesta dinero es el
+              // spread, y el motor lo med&iacute;a sin restarlo nunca. Va debajo y
+              // m&aacute;s peque&ntilde;o: el bruto sigue siendo el de V&iacute;ctor.
+              m.annualized_neto_pct == null ? '' :
+              `<div class="text-[9px] font-normal ${m.annualized_neto_pct >= 0 ? 'text-gray-500' : 'text-red-400'}" title="Neto tras el spread de ida y vuelta (${Number(m.spread_pct_usado).toFixed(1)}% sobre el mid). Periodo: ${m.return_neto_pct == null ? '&mdash;' : Number(m.return_neto_pct).toFixed(2) + '%'}.">neto ${Number(m.annualized_neto_pct).toFixed(1)}%</div>`
+            }</td>
             <td class="py-2 pr-3 text-right text-gray-300" title="cu&aacute;nto puede caer el precio antes de que empieces a perder">${m.cushion_pct != null ? Number(m.cushion_pct).toFixed(1) + '%' : '&mdash;'}</td>
             <td class="py-2 pr-3 text-right text-gray-400" title="probabilidad de que expire sin valor y te quedes la prima">${Math.round(m.prob_expire_worthless)}%</td>
             <td class="py-2 pr-3 text-right font-bold ${col}" title="${_vcEsc(porque)}">${sc.total}/100</td>

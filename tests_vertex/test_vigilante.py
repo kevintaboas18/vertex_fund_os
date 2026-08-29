@@ -417,3 +417,88 @@ class TestElNumeroEnVezDeLaFormula:
         assert firma.parameters["regla_tecnica"].default is None, (
             "tiene que ser opcional: sin ella la tesis se escribe igual")
         assert llano and regla not in llano
+
+
+class TestLaLineaDeSaludEnElCorreo:
+    """La cookie de MarketSnack es de SESIÓN y caduca sola. Cuando caduca,
+    cinco de los seis sub-agentes se quedan sin dato y sólo sobrevive
+    Estructura — y hasta ahora sólo te enterabas si abrías el panel. El agente
+    con el que se opera podía llevar días corriendo a uno de seis."""
+
+    def _pm(self):
+        import importlib
+
+        ruta = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "scripts")
+        if ruta not in sys.path:
+            sys.path.insert(0, ruta)
+        return importlib.import_module("premarket_email")
+
+    def _movers(self):
+        return [{"ticker": "AAA", "name": "A Corp", "pct": 5.1,
+                 "price": 10.0, "mcap": 2e10}]
+
+    def test_una_fuente_CAIDA_sale_con_su_arreglo_y_su_impacto(self):
+        """No basta decir que algo falla: hay que decir qué se pierde y qué
+        hacer. «marketsnack.tape: error» manda a leer logs; esto no."""
+        from datetime import datetime
+
+        pm = self._pm()
+        salud = {"ok": False, "total": 8, "rotos": [
+            {"check": "marketsnack.tape", "detalle": "cookie expirada",
+             "arreglo": "sácala otra vez de DevTools y actualízala en Render",
+             "impacto": "5 de 6 sub-agentes sin dato"}]}
+        _, texto, htmlb = pm.build_email(
+            datetime(2026, 8, 29, 7, 0), self._movers(), self._movers(),
+            salud=salud)
+        assert "1 de 8 fuentes con problema" in texto
+        assert "5 de 6 sub-agentes sin dato" in texto
+        assert "DevTools" in texto
+        assert "marketsnack.tape" in htmlb
+
+    def test_con_todo_sano_lo_dice_en_UNA_linea(self):
+        from datetime import datetime
+
+        pm = self._pm()
+        _, texto, _ = pm.build_email(
+            datetime(2026, 8, 29, 7, 0), self._movers(), self._movers(),
+            salud={"ok": True, "total": 8, "rotos": []})
+        assert "las 8 fuentes responden" in texto
+        assert "⚠️" not in texto.split("LO MÁS")[0]
+
+    def test_y_NO_PODER_comprobarlo_no_es_lo_mismo_que_estar_sano(self):
+        """`ok=None` es «no sé». Pintarlo de verde sería la mentira más cara
+        de las tres."""
+        from datetime import datetime
+
+        pm = self._pm()
+        _, texto, _ = pm.build_email(
+            datetime(2026, 8, 29, 7, 0), self._movers(), self._movers(),
+            salud={"ok": None, "total": 0, "rotos": []})
+        assert "no se pudo comprobar" in texto
+        assert "responden" not in texto.split("LO MÁS")[0]
+
+    def test_SIN_salud_el_correo_sale_como_siempre(self):
+        """El parámetro es opcional: el correo de los movers no puede depender
+        de que el diagnóstico funcione."""
+        from datetime import datetime
+
+        pm = self._pm()
+        asunto, texto, htmlb = pm.build_email(
+            datetime(2026, 8, 29, 7, 0), self._movers(), self._movers())
+        assert asunto.startswith("📈 Pre-Market Movers")
+        assert "SALUD" not in texto
+        assert "{salud_html}" not in htmlb, "quedó un hueco sin rellenar"
+
+    def test_el_resumen_del_servidor_NUNCA_lanza(self):
+        """Un diagnóstico que tumba el correo del que cuelga es peor que no
+        tener diagnóstico."""
+        import vertex_api as V
+
+        original = V.tito_health
+        try:
+            V.tito_health = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+            s = V._salud_para_el_correo()
+        finally:
+            V.tito_health = original
+        assert s["ok"] is None and s["rotos"] == []
