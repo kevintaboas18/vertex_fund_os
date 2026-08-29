@@ -13330,6 +13330,119 @@ def _wbj_actualizar_indice_memoria(ticker, fecha, profile, raw, fair_value):
 REPORTES_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Reportes")
 
 
+#: El único prior que no opina: la moneda al aire.
+#:
+#: Sustituye a la probabilidad del modelo dentro de la mezcla con el base-rate.
+#: No es «mejor estimación»: es la ausencia de estimación, que es justo lo que
+#: hay cuando nadie ha medido nada todavía.
+_P_SIN_OPINION = 50.0
+
+#: Cuánta muestra hace falta para que el base-rate medido pese la mitad.
+#: `peso = n / (n + K)`: con n=10 el base-rate ya manda al 50%.
+_K_SHRINKAGE = 10.0
+
+
+#: Lo que se borra cuando el motor determinista no calculó.
+#:
+#: Son los campos que el esquema del modelo también puede rellenar. Fuera de
+#: la rama del motor nadie los sobrescribe, así que sin este borrado se
+#: publicaba lo que el modelo hubiera puesto — y en pantalla se veía
+#: exactamente igual que un análisis bueno.
+_NUMEROS_QUE_SOLO_DA_EL_MOTOR = ("conviccion_score", "recommendation", "fair_value",
+                                 "upside_pct", "confidence", "p_bull_correct")
+
+
+def _sin_motor_no_hay_numeros(analisis_json: dict) -> dict:
+    """Sin motor no hay puntaje, ni recomendación, ni valor justo.
+
+    > «los números ni los cálculos ni nada jamás ni nunca vendrán de un LLM.»
+    > — Kevin, 29/08/2026.
+
+    La respuesta sigue saliendo, con su contexto en palabras: un panel caído no
+    informa de nada, y lo que hace falta es que se VEA que no hay número, no
+    que se vea una pantalla rota.
+    """
+    analisis_json["scores_source"] = "SIN MOTOR — no se publican números"
+    analisis_json["motor_ausente"] = True
+    for campo in _NUMEROS_QUE_SOLO_DA_EL_MOTOR:
+        analisis_json[campo] = None
+    analisis_json["wbj"] = None
+    analisis_json["aviso_sin_motor"] = (
+        "El motor determinista no pudo calcular este análisis, así que NO hay "
+        "puntaje, ni recomendación, ni valor justo. Lo que se muestra es "
+        "contexto en palabras. Revisa el servidor antes de usar esto para "
+        "decidir nada.")
+    return analisis_json
+
+
+def _ancla_probabilidad(candidatos, overall=None):
+    """La probabilidad que dimensiona dinero, SÓLO desde muestra medida.
+
+    > «los números ni los cálculos ni nada jamás ni nunca vendrán de un LLM.»
+    > — Kevin, 29/08/2026.
+
+    `candidatos` son tuplas `(ámbito, hit_rate, n)` de más específico a menos
+    —ticker, tipo de setup, recomendación— y `overall` el global. Se coge el
+    primero con `n >= 5`; si ninguno llega, el más específico que tenga algo.
+
+    Devuelve `(p, detalle)` con `p = None` cuando **no hay ninguna muestra**.
+    Antes, ese caso mezclaba `peso_base * base_rate + (1 - peso_base) * p_del_modelo`
+    con `peso_base = 0`, o sea: la probabilidad del modelo entera, alimentando
+    el Kelly de abajo. Un número inventado decidiendo cuánto dinero poner.
+
+    Ahora el complemento es la moneda al aire, y sin muestra no hay número.
+    """
+    elegido = None
+    for c in candidatos or []:
+        if c and c[2] and c[2] >= 5:
+            elegido = c
+            break
+    if elegido is None and candidatos:
+        elegido = next((c for c in candidatos if c and c[2]), None)
+    if elegido is None and overall and overall[1] is not None and overall[2]:
+        elegido = ("global", float(overall[1]), int(overall[2]))
+    if elegido is None or not elegido[2]:
+        return None, None
+    ambito, tasa, n = elegido[0], float(elegido[1]), int(elegido[2])
+    peso = n / (n + _K_SHRINKAGE)
+    p = peso * tasa + (1 - peso) * _P_SIN_OPINION
+    return int(round(max(1, min(99, p)))), {
+        "base_rate": round(tasa, 1), "n": n, "weight_base": round(peso, 2),
+        "p_used": round(p, 1), "scope": ambito,
+        "prior_sin_opinion": _P_SIN_OPINION}
+
+
+def _dimensiona(p_pos, reward, risk_dn, held_w=0.0, tope_pct=25.0):
+    """Kelly a la mitad, acotado por el tope de concentración.
+
+    `p_pos = None` significa que nadie ha medido la probabilidad. Kelly es
+    `f* = p - q/b`: **sin `p` no hay fórmula**, y rellenarla daría un tamaño de
+    posición con pinta de cálculo y nada detrás. Se devuelve todo en `None` con
+    el motivo escrito — «sin evidencia no hay número», la regla de la casa
+    aplicada a sí misma.
+    """
+    rr = (reward / risk_dn) if risk_dn > 0 else 0.0
+    room = max(0.0, tope_pct - (held_w or 0.0))
+    if p_pos is None:
+        return {"reward_risk": round(rr, 2), "kelly_full_pct": None,
+                "kelly_half_pct": None, "suggested_pct": None,
+                "cap_reason": ("Sin dimensionar: hace falta al menos una predicción "
+                               "VENCIDA para medir la probabilidad. La del modelo no "
+                               "se usa — sin evidencia no hay número.")}
+    p = p_pos / 100.0
+    full = max(0.0, (rr * p - (1.0 - p)) / rr) if rr > 0 else 0.0
+    half = full * 0.5
+    sugerido = max(0.0, min(half * 100.0, room))
+    motivo = ""
+    if half * 100.0 > room:
+        motivo = (f"Limitado por tope de concentración {tope_pct:.0f}% "
+                  f"(ya tienes {held_w:.1f}%)." if held_w else
+                  f"Limitado por tope de concentración {tope_pct:.0f}%.")
+    return {"reward_risk": round(rr, 2), "kelly_full_pct": round(full * 100, 1),
+            "kelly_half_pct": round(half * 100, 1),
+            "suggested_pct": round(sugerido, 1), "cap_reason": motivo}
+
+
 def _nivel_de_invalidacion(nivel: dict) -> dict | None:
     """La condición de invalidación de un nivel, EN NÚMEROS.
 
@@ -15869,35 +15982,35 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
             _br = _cand[0]
         if _br is None and calib_stats and calib_stats.get("overall_hit_rate") is not None and calib_stats.get("n"):
             _br = ("global", float(calib_stats["overall_hit_rate"]), int(calib_stats["n"]))
-        prob_anchor = None
-        if _br is not None and _br[2] > 0:
-            _scope, _brp, _brn = _br
-            _Kp = 10.0
-            _wb = _brn / (_brn + _Kp)                       # n alto → confía en el base-rate; n bajo → en el LLM
-            _p_used = _wb * _brp + (1 - _wb) * p_pos
-            prob_anchor = {"llm_p": p_pos, "base_rate": round(_brp, 1), "n": _brn,
-                           "weight_base": round(_wb, 2), "p_used": round(_p_used, 1), "scope": _scope}
-            p_pos = int(round(max(1, min(99, _p_used))))
+        # La probabilidad que dimensiona dinero sale de la MUESTRA, no del
+        # modelo. La matemática vive en `_ancla_probabilidad`, que se puede
+        # medir sola; aquí sólo se le pasan los candidatos ya recogidos.
+        _p_modelo = p_pos
+        _overall = ((calib_stats or {}).get("overall_hit_rate"),
+                    (calib_stats or {}).get("n"))
+        p_pos, prob_anchor = _ancla_probabilidad(
+            _cand, ("global", _overall[0], _overall[1]) if _overall[0] is not None else None)
+        if prob_anchor is not None:
+            # Lo que dijo el modelo se GUARDA para poder medir algún día si
+            # acierta, pero no entra en ningún cálculo.
+            prob_anchor["p_del_modelo_no_usada"] = _p_modelo
         analisis_json["prob_anchoring"] = prob_anchor
         bull12 = float(targets['12m']['bull']); bear12 = float(targets['12m']['bear'])
         reward = max(0.0, (bull12 - precio_actual) / precio_actual)
         risk_dn = max(1e-6, (precio_actual - bear12) / precio_actual)
         rr = reward / risk_dn if risk_dn > 0 else 0.0
-        p = p_pos / 100.0; q = 1.0 - p
-        kelly_full = max(0.0, (rr * p - q) / rr) if rr > 0 else 0.0   # f* = p - q/b
-        kelly_half = kelly_full * 0.5                                  # half-Kelly por seguridad
         held_w = 0.0
         if portfolio_fit and portfolio_fit.get("already_held"):
             try:
                 held_w = float(portfolio_fit.get("current_weight_pct", 0) or 0)
             except (TypeError, ValueError):
                 held_w = 0.0
-        room = max(0.0, 25.0 - held_w)                                # tope de concentración 25%
-        suggested = max(0.0, min(kelly_half * 100.0, room))
-        cap_reason = ""
-        if kelly_half * 100.0 > room:
-            cap_reason = (f"Limitado por tope de concentración 25% (ya tienes {held_w:.1f}% en {ticker})."
-                          if held_w > 0 else "Limitado por tope de concentración 25%.")
+        _dim = _dimensiona(p_pos, reward, risk_dn, held_w)
+        rr = _dim["reward_risk"]
+        kelly_full = _dim["kelly_full_pct"]
+        kelly_half = _dim["kelly_half_pct"]
+        suggested = _dim["suggested_pct"]
+        cap_reason = _dim["cap_reason"]
 
         # #2 — haircut por concentración de factor: si la idea apila sobre el factor ya
         # dominante del book (o es muy redundante), recorta el tamaño sugerido 30%.
@@ -15948,14 +16061,25 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
         # intacto donde sí manda, que es el prompt de Full Research.
 
         analisis_json["trade_plan"] = {
+            # Sólo la probabilidad ANCLADA a muestra medida se publica como
+            # número. Las otras tres las inventaba el modelo y salían aquí con
+            # la misma pinta que un cálculo: se van. El razonamiento en
+            # palabras se queda — eso sí es trabajo del modelo.
             "probabilities": {
-                "p_positive_12m": p_pos, "p_touch_bull_12m": _pi("p_touch_bull_12m"),
-                "p_touch_bear_12m": _pi("p_touch_bear_12m"), "p_up_10pct_3m": _pi("p_up_10pct_3m"),
-                "rationale": probs.get("rationale", "")},
+                "p_positive_12m": p_pos,
+                "rationale": probs.get("rationale", ""),
+                "fuente": ("base-rate medido (" + str((prob_anchor or {}).get("scope")) + ")"
+                           if p_pos is not None else
+                           "sin muestra medida: no se publica probabilidad")},
             "reward_pct": round(reward * 100, 1), "risk_pct": round(risk_dn * 100, 1),
             "reward_risk": round(rr, 2),
-            "kelly_full_pct": round(kelly_full * 100, 1), "kelly_half_pct": round(kelly_half * 100, 1),
-            "suggested_pct": round(suggested, 1), "cap_reason": cap_reason,
+            # `_dimensiona` YA devuelve porcentajes redondeados: aquí sólo se
+            # copian. Volver a multiplicar por 100 daba 4.670% de asignación.
+            #
+            # Y `None` no es `0`: «no se puede dimensionar» y «no pongas nada»
+            # llevan a decisiones opuestas.
+            "kelly_full_pct": kelly_full, "kelly_half_pct": kelly_half,
+            "suggested_pct": suggested, "cap_reason": cap_reason,
             "factor_haircut_pct": round((1 - factor_haircut) * 100, 0),
             "already_held_pct": round(held_w, 1),
             "risk_plan": {
@@ -16290,6 +16414,8 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
             except Exception as _wme:
                 print(f"[analyze] memoria (tesis/predicción) omitida: {str(_wme)[:120]}")
             analisis_json["scores_source"] = "victor"
+        else:
+            _sin_motor_no_hay_numeros(analisis_json)
 
         # ── MEMORY: compare with prior report + persist this one ─────────────
         memory_comparison = compute_memory_comparison(
