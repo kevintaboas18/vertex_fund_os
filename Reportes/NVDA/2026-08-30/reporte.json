@@ -1,0 +1,5231 @@
+{
+  "report_id": "20260830_235317_NVDA",
+  "ticker": "NVDA",
+  "nombre_completo": "NVIDIA Corporation",
+  "precio_actual": 217.55,
+  "precio_fuente": "yfinance",
+  "precio_as_of": "08/30/2026, 11:54:19 PM",
+  "pe_ratio": 27.36477987421383,
+  "logo_url": "https://logo.clearbit.com/nvidia.com",
+  "fecha_analisis": "08/30/2026, 11:53:17 PM",
+  "historial_precios": [
+    195.04,
+    200.75,
+    206.64,
+    211.94,
+    219.22,
+    218.99,
+    223.96,
+    217.55,
+    217.5,
+    224.09,
+    225.3,
+    225.16,
+    225.01,
+    219.74,
+    217.56,
+    216.85,
+    214.72,
+    208.48,
+    213.05,
+    209.66,
+    227.98,
+    217.55
+  ],
+  "historial_fechas": [
+    "Jul 30",
+    "Jul 31",
+    "Aug 03",
+    "Aug 04",
+    "Aug 05",
+    "Aug 06",
+    "Aug 07",
+    "Aug 10",
+    "Aug 11",
+    "Aug 12",
+    "Aug 13",
+    "Aug 14",
+    "Aug 17",
+    "Aug 18",
+    "Aug 19",
+    "Aug 20",
+    "Aug 21",
+    "Aug 24",
+    "Aug 25",
+    "Aug 26",
+    "Aug 27",
+    "Aug 28"
+  ],
+  "historial_ohlc": [
+    {
+      "time": "2026-07-30",
+      "open": 193.45,
+      "high": 197.25,
+      "low": 191.52,
+      "close": 195.04
+    },
+    {
+      "time": "2026-07-31",
+      "open": 198.44,
+      "high": 202.0,
+      "low": 194.95,
+      "close": 200.75
+    },
+    {
+      "time": "2026-08-03",
+      "open": 197.69,
+      "high": 208.74,
+      "low": 196.85,
+      "close": 206.64
+    },
+    {
+      "time": "2026-08-04",
+      "open": 211.3,
+      "high": 213.06,
+      "low": 209.05,
+      "close": 211.94
+    },
+    {
+      "time": "2026-08-05",
+      "open": 216.86,
+      "high": 222.22,
+      "low": 216.4,
+      "close": 219.22
+    },
+    {
+      "time": "2026-08-06",
+      "open": 221.53,
+      "high": 223.63,
+      "low": 217.0,
+      "close": 218.99
+    },
+    {
+      "time": "2026-08-07",
+      "open": 221.54,
+      "high": 224.76,
+      "low": 220.66,
+      "close": 223.96
+    },
+    {
+      "time": "2026-08-10",
+      "open": 223.4,
+      "high": 224.14,
+      "low": 216.77,
+      "close": 217.55
+    },
+    {
+      "time": "2026-08-11",
+      "open": 222.17,
+      "high": 222.2,
+      "low": 216.2,
+      "close": 217.5
+    },
+    {
+      "time": "2026-08-12",
+      "open": 221.04,
+      "high": 225.1,
+      "low": 220.2,
+      "close": 224.09
+    },
+    {
+      "time": "2026-08-13",
+      "open": 225.06,
+      "high": 227.23,
+      "low": 223.71,
+      "close": 225.3
+    },
+    {
+      "time": "2026-08-14",
+      "open": 226.77,
+      "high": 227.49,
+      "low": 224.5,
+      "close": 225.16
+    },
+    {
+      "time": "2026-08-17",
+      "open": 225.98,
+      "high": 227.92,
+      "low": 224.86,
+      "close": 225.01
+    },
+    {
+      "time": "2026-08-18",
+      "open": 220.45,
+      "high": 221.64,
+      "low": 218.69,
+      "close": 219.74
+    },
+    {
+      "time": "2026-08-19",
+      "open": 221.67,
+      "high": 222.87,
+      "low": 216.76,
+      "close": 217.56
+    },
+    {
+      "time": "2026-08-20",
+      "open": 218.36,
+      "high": 219.86,
+      "low": 215.66,
+      "close": 216.85
+    },
+    {
+      "time": "2026-08-21",
+      "open": 218.42,
+      "high": 218.74,
+      "low": 214.5,
+      "close": 214.72
+    },
+    {
+      "time": "2026-08-24",
+      "open": 215.53,
+      "high": 215.59,
+      "low": 207.25,
+      "close": 208.48
+    },
+    {
+      "time": "2026-08-25",
+      "open": 211.03,
+      "high": 214.73,
+      "low": 210.11,
+      "close": 213.05
+    },
+    {
+      "time": "2026-08-26",
+      "open": 212.64,
+      "high": 213.6,
+      "low": 209.23,
+      "close": 209.66
+    },
+    {
+      "time": "2026-08-27",
+      "open": 222.86,
+      "high": 230.47,
+      "low": 220.9,
+      "close": 227.98
+    },
+    {
+      "time": "2026-08-28",
+      "open": 227.36,
+      "high": 229.26,
+      "low": 216.81,
+      "close": 217.55
+    }
+  ],
+  "chart_history": [
+    {
+      "time": "2025-08-29",
+      "value": 174.18
+    },
+    {
+      "time": "2025-09-02",
+      "value": 170.78
+    },
+    {
+      "time": "2025-09-03",
+      "value": 170.62
+    },
+    {
+      "time": "2025-09-04",
+      "value": 171.66
+    },
+    {
+      "time": "2025-09-05",
+      "value": 167.02
+    },
+    {
+      "time": "2025-09-08",
+      "value": 168.31
+    },
+    {
+      "time": "2025-09-09",
+      "value": 170.76
+    },
+    {
+      "time": "2025-09-10",
+      "value": 177.33
+    },
+    {
+      "time": "2025-09-11",
+      "value": 177.17
+    },
+    {
+      "time": "2025-09-12",
+      "value": 177.82
+    },
+    {
+      "time": "2025-09-15",
+      "value": 177.75
+    },
+    {
+      "time": "2025-09-16",
+      "value": 174.88
+    },
+    {
+      "time": "2025-09-17",
+      "value": 170.29
+    },
+    {
+      "time": "2025-09-18",
+      "value": 176.24
+    },
+    {
+      "time": "2025-09-19",
+      "value": 176.67
+    },
+    {
+      "time": "2025-09-22",
+      "value": 183.61
+    },
+    {
+      "time": "2025-09-23",
+      "value": 178.43
+    },
+    {
+      "time": "2025-09-24",
+      "value": 176.97
+    },
+    {
+      "time": "2025-09-25",
+      "value": 177.69
+    },
+    {
+      "time": "2025-09-26",
+      "value": 178.19
+    },
+    {
+      "time": "2025-09-29",
+      "value": 181.85
+    },
+    {
+      "time": "2025-09-30",
+      "value": 186.58
+    },
+    {
+      "time": "2025-10-01",
+      "value": 187.24
+    },
+    {
+      "time": "2025-10-02",
+      "value": 188.89
+    },
+    {
+      "time": "2025-10-03",
+      "value": 187.62
+    },
+    {
+      "time": "2025-10-06",
+      "value": 185.54
+    },
+    {
+      "time": "2025-10-07",
+      "value": 185.04
+    },
+    {
+      "time": "2025-10-08",
+      "value": 189.11
+    },
+    {
+      "time": "2025-10-09",
+      "value": 192.57
+    },
+    {
+      "time": "2025-10-10",
+      "value": 183.16
+    },
+    {
+      "time": "2025-10-13",
+      "value": 188.32
+    },
+    {
+      "time": "2025-10-14",
+      "value": 180.03
+    },
+    {
+      "time": "2025-10-15",
+      "value": 179.83
+    },
+    {
+      "time": "2025-10-16",
+      "value": 181.81
+    },
+    {
+      "time": "2025-10-17",
+      "value": 183.22
+    },
+    {
+      "time": "2025-10-20",
+      "value": 182.64
+    },
+    {
+      "time": "2025-10-21",
+      "value": 181.16
+    },
+    {
+      "time": "2025-10-22",
+      "value": 180.28
+    },
+    {
+      "time": "2025-10-23",
+      "value": 182.16
+    },
+    {
+      "time": "2025-10-24",
+      "value": 186.26
+    },
+    {
+      "time": "2025-10-27",
+      "value": 191.49
+    },
+    {
+      "time": "2025-10-28",
+      "value": 201.03
+    },
+    {
+      "time": "2025-10-29",
+      "value": 207.04
+    },
+    {
+      "time": "2025-10-30",
+      "value": 202.89
+    },
+    {
+      "time": "2025-10-31",
+      "value": 202.49
+    },
+    {
+      "time": "2025-11-03",
+      "value": 206.88
+    },
+    {
+      "time": "2025-11-04",
+      "value": 198.69
+    },
+    {
+      "time": "2025-11-05",
+      "value": 195.21
+    },
+    {
+      "time": "2025-11-06",
+      "value": 188.08
+    },
+    {
+      "time": "2025-11-07",
+      "value": 188.15
+    },
+    {
+      "time": "2025-11-10",
+      "value": 199.05
+    },
+    {
+      "time": "2025-11-11",
+      "value": 193.16
+    },
+    {
+      "time": "2025-11-12",
+      "value": 193.8
+    },
+    {
+      "time": "2025-11-13",
+      "value": 186.86
+    },
+    {
+      "time": "2025-11-14",
+      "value": 190.17
+    },
+    {
+      "time": "2025-11-17",
+      "value": 186.6
+    },
+    {
+      "time": "2025-11-18",
+      "value": 181.36
+    },
+    {
+      "time": "2025-11-19",
+      "value": 186.52
+    },
+    {
+      "time": "2025-11-20",
+      "value": 180.64
+    },
+    {
+      "time": "2025-11-21",
+      "value": 178.88
+    },
+    {
+      "time": "2025-11-24",
+      "value": 182.55
+    },
+    {
+      "time": "2025-11-25",
+      "value": 177.82
+    },
+    {
+      "time": "2025-11-26",
+      "value": 180.26
+    },
+    {
+      "time": "2025-11-28",
+      "value": 177.0
+    },
+    {
+      "time": "2025-12-01",
+      "value": 179.92
+    },
+    {
+      "time": "2025-12-02",
+      "value": 181.46
+    },
+    {
+      "time": "2025-12-03",
+      "value": 179.59
+    },
+    {
+      "time": "2025-12-04",
+      "value": 183.38
+    },
+    {
+      "time": "2025-12-05",
+      "value": 182.41
+    },
+    {
+      "time": "2025-12-08",
+      "value": 185.55
+    },
+    {
+      "time": "2025-12-09",
+      "value": 184.97
+    },
+    {
+      "time": "2025-12-10",
+      "value": 183.78
+    },
+    {
+      "time": "2025-12-11",
+      "value": 180.93
+    },
+    {
+      "time": "2025-12-12",
+      "value": 175.02
+    },
+    {
+      "time": "2025-12-15",
+      "value": 176.29
+    },
+    {
+      "time": "2025-12-16",
+      "value": 177.72
+    },
+    {
+      "time": "2025-12-17",
+      "value": 170.94
+    },
+    {
+      "time": "2025-12-18",
+      "value": 174.14
+    },
+    {
+      "time": "2025-12-19",
+      "value": 180.99
+    },
+    {
+      "time": "2025-12-22",
+      "value": 183.69
+    },
+    {
+      "time": "2025-12-23",
+      "value": 189.21
+    },
+    {
+      "time": "2025-12-24",
+      "value": 188.61
+    },
+    {
+      "time": "2025-12-26",
+      "value": 190.53
+    },
+    {
+      "time": "2025-12-29",
+      "value": 188.22
+    },
+    {
+      "time": "2025-12-30",
+      "value": 187.54
+    },
+    {
+      "time": "2025-12-31",
+      "value": 186.5
+    },
+    {
+      "time": "2026-01-02",
+      "value": 188.85
+    },
+    {
+      "time": "2026-01-05",
+      "value": 188.12
+    },
+    {
+      "time": "2026-01-06",
+      "value": 187.24
+    },
+    {
+      "time": "2026-01-07",
+      "value": 189.11
+    },
+    {
+      "time": "2026-01-08",
+      "value": 185.04
+    },
+    {
+      "time": "2026-01-09",
+      "value": 184.86
+    },
+    {
+      "time": "2026-01-12",
+      "value": 184.94
+    },
+    {
+      "time": "2026-01-13",
+      "value": 185.81
+    },
+    {
+      "time": "2026-01-14",
+      "value": 183.14
+    },
+    {
+      "time": "2026-01-15",
+      "value": 187.05
+    },
+    {
+      "time": "2026-01-16",
+      "value": 186.23
+    },
+    {
+      "time": "2026-01-20",
+      "value": 178.07
+    },
+    {
+      "time": "2026-01-21",
+      "value": 183.32
+    },
+    {
+      "time": "2026-01-22",
+      "value": 184.84
+    },
+    {
+      "time": "2026-01-23",
+      "value": 187.67
+    },
+    {
+      "time": "2026-01-26",
+      "value": 186.47
+    },
+    {
+      "time": "2026-01-27",
+      "value": 188.52
+    },
+    {
+      "time": "2026-01-28",
+      "value": 191.52
+    },
+    {
+      "time": "2026-01-29",
+      "value": 192.51
+    },
+    {
+      "time": "2026-01-30",
+      "value": 191.13
+    },
+    {
+      "time": "2026-02-02",
+      "value": 185.61
+    },
+    {
+      "time": "2026-02-03",
+      "value": 180.34
+    },
+    {
+      "time": "2026-02-04",
+      "value": 174.19
+    },
+    {
+      "time": "2026-02-05",
+      "value": 171.88
+    },
+    {
+      "time": "2026-02-06",
+      "value": 185.41
+    },
+    {
+      "time": "2026-02-09",
+      "value": 190.04
+    },
+    {
+      "time": "2026-02-10",
+      "value": 188.54
+    },
+    {
+      "time": "2026-02-11",
+      "value": 190.05
+    },
+    {
+      "time": "2026-02-12",
+      "value": 186.94
+    },
+    {
+      "time": "2026-02-13",
+      "value": 182.81
+    },
+    {
+      "time": "2026-02-17",
+      "value": 184.97
+    },
+    {
+      "time": "2026-02-18",
+      "value": 187.98
+    },
+    {
+      "time": "2026-02-19",
+      "value": 187.9
+    },
+    {
+      "time": "2026-02-20",
+      "value": 189.82
+    },
+    {
+      "time": "2026-02-23",
+      "value": 191.55
+    },
+    {
+      "time": "2026-02-24",
+      "value": 192.85
+    },
+    {
+      "time": "2026-02-25",
+      "value": 195.56
+    },
+    {
+      "time": "2026-02-26",
+      "value": 184.89
+    },
+    {
+      "time": "2026-02-27",
+      "value": 177.19
+    },
+    {
+      "time": "2026-03-02",
+      "value": 182.48
+    },
+    {
+      "time": "2026-03-03",
+      "value": 180.05
+    },
+    {
+      "time": "2026-03-04",
+      "value": 183.04
+    },
+    {
+      "time": "2026-03-05",
+      "value": 183.34
+    },
+    {
+      "time": "2026-03-06",
+      "value": 177.82
+    },
+    {
+      "time": "2026-03-09",
+      "value": 182.65
+    },
+    {
+      "time": "2026-03-10",
+      "value": 184.77
+    },
+    {
+      "time": "2026-03-11",
+      "value": 186.03
+    },
+    {
+      "time": "2026-03-12",
+      "value": 183.14
+    },
+    {
+      "time": "2026-03-13",
+      "value": 180.25
+    },
+    {
+      "time": "2026-03-16",
+      "value": 183.22
+    },
+    {
+      "time": "2026-03-17",
+      "value": 181.93
+    },
+    {
+      "time": "2026-03-18",
+      "value": 180.4
+    },
+    {
+      "time": "2026-03-19",
+      "value": 178.56
+    },
+    {
+      "time": "2026-03-20",
+      "value": 172.7
+    },
+    {
+      "time": "2026-03-23",
+      "value": 175.64
+    },
+    {
+      "time": "2026-03-24",
+      "value": 175.2
+    },
+    {
+      "time": "2026-03-25",
+      "value": 178.68
+    },
+    {
+      "time": "2026-03-26",
+      "value": 171.24
+    },
+    {
+      "time": "2026-03-27",
+      "value": 167.52
+    },
+    {
+      "time": "2026-03-30",
+      "value": 165.17
+    },
+    {
+      "time": "2026-03-31",
+      "value": 174.4
+    },
+    {
+      "time": "2026-04-01",
+      "value": 175.75
+    },
+    {
+      "time": "2026-04-02",
+      "value": 177.39
+    },
+    {
+      "time": "2026-04-06",
+      "value": 177.64
+    },
+    {
+      "time": "2026-04-07",
+      "value": 178.1
+    },
+    {
+      "time": "2026-04-08",
+      "value": 182.08
+    },
+    {
+      "time": "2026-04-09",
+      "value": 183.91
+    },
+    {
+      "time": "2026-04-10",
+      "value": 188.63
+    },
+    {
+      "time": "2026-04-13",
+      "value": 189.31
+    },
+    {
+      "time": "2026-04-14",
+      "value": 196.51
+    },
+    {
+      "time": "2026-04-15",
+      "value": 198.87
+    },
+    {
+      "time": "2026-04-16",
+      "value": 198.35
+    },
+    {
+      "time": "2026-04-17",
+      "value": 201.68
+    },
+    {
+      "time": "2026-04-20",
+      "value": 202.06
+    },
+    {
+      "time": "2026-04-21",
+      "value": 199.88
+    },
+    {
+      "time": "2026-04-22",
+      "value": 202.5
+    },
+    {
+      "time": "2026-04-23",
+      "value": 199.64
+    },
+    {
+      "time": "2026-04-24",
+      "value": 208.27
+    },
+    {
+      "time": "2026-04-27",
+      "value": 216.61
+    },
+    {
+      "time": "2026-04-28",
+      "value": 213.17
+    },
+    {
+      "time": "2026-04-29",
+      "value": 209.25
+    },
+    {
+      "time": "2026-04-30",
+      "value": 199.57
+    },
+    {
+      "time": "2026-05-01",
+      "value": 198.45
+    },
+    {
+      "time": "2026-05-04",
+      "value": 198.48
+    },
+    {
+      "time": "2026-05-05",
+      "value": 196.5
+    },
+    {
+      "time": "2026-05-06",
+      "value": 207.83
+    },
+    {
+      "time": "2026-05-07",
+      "value": 211.5
+    },
+    {
+      "time": "2026-05-08",
+      "value": 215.2
+    },
+    {
+      "time": "2026-05-11",
+      "value": 219.44
+    },
+    {
+      "time": "2026-05-12",
+      "value": 220.78
+    },
+    {
+      "time": "2026-05-13",
+      "value": 225.83
+    },
+    {
+      "time": "2026-05-14",
+      "value": 235.74
+    },
+    {
+      "time": "2026-05-15",
+      "value": 225.32
+    },
+    {
+      "time": "2026-05-18",
+      "value": 222.32
+    },
+    {
+      "time": "2026-05-19",
+      "value": 220.61
+    },
+    {
+      "time": "2026-05-20",
+      "value": 223.47
+    },
+    {
+      "time": "2026-05-21",
+      "value": 219.51
+    },
+    {
+      "time": "2026-05-22",
+      "value": 215.33
+    },
+    {
+      "time": "2026-05-26",
+      "value": 214.86
+    },
+    {
+      "time": "2026-05-27",
+      "value": 212.6
+    },
+    {
+      "time": "2026-05-28",
+      "value": 214.25
+    },
+    {
+      "time": "2026-05-29",
+      "value": 211.14
+    },
+    {
+      "time": "2026-06-01",
+      "value": 224.36
+    },
+    {
+      "time": "2026-06-02",
+      "value": 222.82
+    },
+    {
+      "time": "2026-06-03",
+      "value": 214.75
+    },
+    {
+      "time": "2026-06-04",
+      "value": 218.66
+    },
+    {
+      "time": "2026-06-05",
+      "value": 205.1
+    },
+    {
+      "time": "2026-06-08",
+      "value": 208.64
+    },
+    {
+      "time": "2026-06-09",
+      "value": 208.19
+    },
+    {
+      "time": "2026-06-10",
+      "value": 200.42
+    },
+    {
+      "time": "2026-06-11",
+      "value": 204.87
+    },
+    {
+      "time": "2026-06-12",
+      "value": 205.19
+    },
+    {
+      "time": "2026-06-15",
+      "value": 212.45
+    },
+    {
+      "time": "2026-06-16",
+      "value": 207.41
+    },
+    {
+      "time": "2026-06-17",
+      "value": 204.65
+    },
+    {
+      "time": "2026-06-18",
+      "value": 210.69
+    },
+    {
+      "time": "2026-06-22",
+      "value": 208.65
+    },
+    {
+      "time": "2026-06-23",
+      "value": 200.04
+    },
+    {
+      "time": "2026-06-24",
+      "value": 199.0
+    },
+    {
+      "time": "2026-06-25",
+      "value": 195.74
+    },
+    {
+      "time": "2026-06-26",
+      "value": 192.53
+    },
+    {
+      "time": "2026-06-29",
+      "value": 194.97
+    },
+    {
+      "time": "2026-06-30",
+      "value": 200.09
+    },
+    {
+      "time": "2026-07-01",
+      "value": 197.58
+    },
+    {
+      "time": "2026-07-02",
+      "value": 194.83
+    },
+    {
+      "time": "2026-07-06",
+      "value": 195.55
+    },
+    {
+      "time": "2026-07-07",
+      "value": 196.93
+    },
+    {
+      "time": "2026-07-08",
+      "value": 204.12
+    },
+    {
+      "time": "2026-07-09",
+      "value": 202.78
+    },
+    {
+      "time": "2026-07-10",
+      "value": 210.96
+    },
+    {
+      "time": "2026-07-13",
+      "value": 203.53
+    },
+    {
+      "time": "2026-07-14",
+      "value": 211.8
+    },
+    {
+      "time": "2026-07-15",
+      "value": 212.5
+    },
+    {
+      "time": "2026-07-16",
+      "value": 207.4
+    },
+    {
+      "time": "2026-07-17",
+      "value": 202.81
+    },
+    {
+      "time": "2026-07-20",
+      "value": 203.28
+    },
+    {
+      "time": "2026-07-21",
+      "value": 207.29
+    },
+    {
+      "time": "2026-07-22",
+      "value": 212.06
+    },
+    {
+      "time": "2026-07-23",
+      "value": 208.76
+    },
+    {
+      "time": "2026-07-24",
+      "value": 206.84
+    },
+    {
+      "time": "2026-07-27",
+      "value": 196.51
+    },
+    {
+      "time": "2026-07-28",
+      "value": 197.01
+    },
+    {
+      "time": "2026-07-29",
+      "value": 190.01
+    },
+    {
+      "time": "2026-07-30",
+      "value": 195.04
+    },
+    {
+      "time": "2026-07-31",
+      "value": 200.75
+    },
+    {
+      "time": "2026-08-03",
+      "value": 206.64
+    },
+    {
+      "time": "2026-08-04",
+      "value": 211.94
+    },
+    {
+      "time": "2026-08-05",
+      "value": 219.22
+    },
+    {
+      "time": "2026-08-06",
+      "value": 218.99
+    },
+    {
+      "time": "2026-08-07",
+      "value": 223.96
+    },
+    {
+      "time": "2026-08-10",
+      "value": 217.55
+    },
+    {
+      "time": "2026-08-11",
+      "value": 217.5
+    },
+    {
+      "time": "2026-08-12",
+      "value": 224.09
+    },
+    {
+      "time": "2026-08-13",
+      "value": 225.3
+    },
+    {
+      "time": "2026-08-14",
+      "value": 225.16
+    },
+    {
+      "time": "2026-08-17",
+      "value": 225.01
+    },
+    {
+      "time": "2026-08-18",
+      "value": 219.74
+    },
+    {
+      "time": "2026-08-19",
+      "value": 217.56
+    },
+    {
+      "time": "2026-08-20",
+      "value": 216.85
+    },
+    {
+      "time": "2026-08-21",
+      "value": 214.72
+    },
+    {
+      "time": "2026-08-24",
+      "value": 208.48
+    },
+    {
+      "time": "2026-08-25",
+      "value": 213.05
+    },
+    {
+      "time": "2026-08-26",
+      "value": 209.66
+    },
+    {
+      "time": "2026-08-27",
+      "value": 227.98
+    },
+    {
+      "time": "2026-08-28",
+      "value": 217.55
+    }
+  ],
+  "historial_volumen": [
+    {
+      "time": "2026-07-30",
+      "value": 129010200,
+      "up": true
+    },
+    {
+      "time": "2026-07-31",
+      "value": 139961200,
+      "up": true
+    },
+    {
+      "time": "2026-08-03",
+      "value": 128406900,
+      "up": true
+    },
+    {
+      "time": "2026-08-04",
+      "value": 134922000,
+      "up": true
+    },
+    {
+      "time": "2026-08-05",
+      "value": 158187403,
+      "up": true
+    },
+    {
+      "time": "2026-08-06",
+      "value": 113940644,
+      "up": false
+    },
+    {
+      "time": "2026-08-07",
+      "value": 105669440,
+      "up": true
+    },
+    {
+      "time": "2026-08-10",
+      "value": 115846600,
+      "up": false
+    },
+    {
+      "time": "2026-08-11",
+      "value": 101273148,
+      "up": false
+    },
+    {
+      "time": "2026-08-12",
+      "value": 108783636,
+      "up": true
+    },
+    {
+      "time": "2026-08-13",
+      "value": 98867226,
+      "up": true
+    },
+    {
+      "time": "2026-08-14",
+      "value": 75680900,
+      "up": false
+    },
+    {
+      "time": "2026-08-17",
+      "value": 93678700,
+      "up": false
+    },
+    {
+      "time": "2026-08-18",
+      "value": 103128247,
+      "up": false
+    },
+    {
+      "time": "2026-08-19",
+      "value": 96854269,
+      "up": false
+    },
+    {
+      "time": "2026-08-20",
+      "value": 92457037,
+      "up": false
+    },
+    {
+      "time": "2026-08-21",
+      "value": 98869300,
+      "up": false
+    },
+    {
+      "time": "2026-08-24",
+      "value": 135187300,
+      "up": false
+    },
+    {
+      "time": "2026-08-25",
+      "value": 122309019,
+      "up": true
+    },
+    {
+      "time": "2026-08-26",
+      "value": 179900003,
+      "up": false
+    },
+    {
+      "time": "2026-08-27",
+      "value": 298909822,
+      "up": true
+    },
+    {
+      "time": "2026-08-28",
+      "value": 195116417,
+      "up": false
+    }
+  ],
+  "earnings_info": {
+    "next_date": "2026-11-18",
+    "days_until": 80,
+    "eps_estimate": 9.27,
+    "label": "18 de noviembre de 2026"
+  },
+  "insiders_snapshot": {
+    "transactions": [
+      {
+        "insider": "Puri Ajay K",
+        "position": "officer",
+        "transaction": "",
+        "shares": 0,
+        "value": null,
+        "date": "2026-08-24",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "NORA JOHNSON SUZANNE M",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1148,
+        "value": null,
+        "date": "2026-08-10",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "NORA JOHNSON SUZANNE M",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1262,
+        "value": null,
+        "date": "2026-08-10",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "COXE TENCH",
+        "position": "director",
+        "transaction": "G-Gift",
+        "shares": 500000,
+        "value": null,
+        "date": "2026-08-05",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "NORA JOHNSON SUZANNE M",
+        "position": "director",
+        "transaction": "",
+        "shares": 0,
+        "value": null,
+        "date": "2026-07-13",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "COXE TENCH",
+        "position": "director",
+        "transaction": "G-Gift",
+        "shares": 500000,
+        "value": null,
+        "date": "2026-07-01",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "STEVENS MARK A",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1211,
+        "value": null,
+        "date": "2026-06-25",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Shah Aarti S.",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1211,
+        "value": null,
+        "date": "2026-06-25",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "SEAWELL A BROOKE",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1211,
+        "value": null,
+        "date": "2026-06-25",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Neal Stephen C",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1211,
+        "value": null,
+        "date": "2026-06-25",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "LORA MELISSA",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1211,
+        "value": null,
+        "date": "2026-06-25",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "JONES HARVEY C",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1211,
+        "value": null,
+        "date": "2026-06-25",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "HUDSON DAWN E",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1211,
+        "value": null,
+        "date": "2026-06-25",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Dabiri John",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1211,
+        "value": null,
+        "date": "2026-06-25",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "COXE TENCH",
+        "position": "director",
+        "transaction": "A-Award",
+        "shares": 1211,
+        "value": null,
+        "date": "2026-06-25",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "STEVENS MARK A",
+        "position": "director",
+        "transaction": "S-Sale",
+        "shares": 319385,
+        "value": 66973501.45,
+        "date": "2026-06-18",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "STEVENS MARK A",
+        "position": "director",
+        "transaction": "S-Sale",
+        "shares": 565615,
+        "value": 119026436.88,
+        "date": "2026-06-18",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "Teter Timothy S.",
+        "position": "officer: EVP, General Counsel and Sec",
+        "transaction": "F-InKind",
+        "shares": 35742,
+        "value": 7413248.22,
+        "date": "2026-06-17",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Shoquist Debora",
+        "position": "officer: EVP, Operations",
+        "transaction": "F-InKind",
+        "shares": 35012,
+        "value": 7261838.92,
+        "date": "2026-06-17",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Kress Colette",
+        "position": "officer: EVP & Chief Financial Officer",
+        "transaction": "F-InKind",
+        "shares": 40746,
+        "value": 8451127.86,
+        "date": "2026-06-17",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Puri Ajay K",
+        "position": "officer: EVP, Worldwide Field Ops",
+        "transaction": "F-InKind",
+        "shares": 36927,
+        "value": 7659029.07,
+        "date": "2026-06-17",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "HUANG JEN HSUN",
+        "position": "director, officer: President and CEO",
+        "transaction": "F-InKind",
+        "shares": 45723,
+        "value": 9483407.43,
+        "date": "2026-06-17",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "HUANG JEN HSUN",
+        "position": "director, officer: President and CEO",
+        "transaction": "G-Gift",
+        "shares": 400000,
+        "value": null,
+        "date": "2026-06-16",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "GAWEL SCOTT",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "A-Award",
+        "shares": 13866,
+        "value": null,
+        "date": "2026-06-08",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "GAWEL SCOTT",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "A-Award",
+        "shares": 45643,
+        "value": null,
+        "date": "2026-06-08",
+        "is_buy": false,
+        "is_sell": false
+      }
+    ],
+    "summary": {
+      "buys_count": 0,
+      "sells_count": 2,
+      "buys_value": 0.0,
+      "sells_value": 185999938.33,
+      "net_value": -185999938.33,
+      "signal": "BEARISH"
+    },
+    "institutional": [],
+    "major_holders": {},
+    "edgar": {
+      "cik": "0001045810",
+      "form4": [
+        {
+          "date": "2026-08-24",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000134784226000015/xslF345X06/wk-form4_1787607122.xml"
+        },
+        {
+          "date": "2026-08-12",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000131026426000008/xslF345X06/wk-form4_1786569187.xml"
+        },
+        {
+          "date": "2026-08-07",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000119764726000007/xslF345X06/wk-form4_1786135642.xml"
+        },
+        {
+          "date": "2026-07-06",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000119764726000005/xslF345X06/wk-form4_1783371701.xml"
+        },
+        {
+          "date": "2026-06-29",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000119903926000009/xslF345X06/wk-form4_1782767219.xml"
+        },
+        {
+          "date": "2026-06-29",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000172529226000004/xslF345X06/wk-form4_1782767179.xml"
+        },
+        {
+          "date": "2026-06-29",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000119765226000007/xslF345X06/wk-form4_1782767137.xml"
+        },
+        {
+          "date": "2026-06-29",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000176867026000004/xslF345X06/wk-form4_1782767093.xml"
+        }
+      ],
+      "form13f": [],
+      "holders_5pct": [
+        {
+          "name": "BlackRock, Inc.",
+          "shares": 1928629174.0,
+          "value": 336352928002.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0002012383-26-001841 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "VANGUARD CAPITAL MANAGEMENT LLC",
+          "shares": 1538550382.0,
+          "value": 268519177197.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0002100119-26-001306 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "STATE STREET CORP",
+          "shares": 993885601.0,
+          "value": 173343323230.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000093751-26-000315 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "FMR LLC",
+          "shares": 993852968.0,
+          "value": 173327957590.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000315066-26-001390 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "GEODE CAPITAL MANAGEMENT, LLC",
+          "shares": 601327167.0,
+          "value": 104562529968.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0001214717-26-000006 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "VANGUARD PORTFOLIO MANAGEMENT LLC",
+          "shares": 510126721.0,
+          "value": 88966100143.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0002100121-26-000861 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "JPMORGAN CHASE & CO",
+          "shares": 447798884.0,
+          "value": 73962942086.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000019617-26-000225 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "MORGAN STANLEY",
+          "shares": 323733984.0,
+          "value": 60376388548.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000895421-26-000187 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        }
+      ],
+      "holders_source": "SEC Form 13F structured data set (01mar2026-31may2026_form13f.zip): 10 mayores tenedores institucionales de CUSIP 67066G104, ORDENADOS POR VALOR DE POSICION reportado, con acciones y dolares. Es el conjunto completo de 13F del trimestre, no una muestra del indice de texto completo."
+    }
+  },
+  "memory_comparison": {
+    "has_prior": true,
+    "prior_date": "2026-08-17 16:01:22",
+    "days_ago": 13,
+    "prior_price": 227.5,
+    "prior_fair_value": 315.22,
+    "prior_recommendation": "ESPECULATIVO",
+    "prior_conviction": 57,
+    "current_price": 217.55,
+    "current_fair_value": 304.57,
+    "current_recommendation": "ESPECULATIVO",
+    "current_conviction": 58,
+    "price_change_pct": -4.4,
+    "fair_value_change_pct": -3.4,
+    "recommendation_changed": false
+  },
+  "deep_memory": {
+    "n_prior": 2,
+    "hist_hit_rate": 100.0,
+    "n_scored": 2
+  },
+  "open_options": [],
+  "portfolio_fit": null,
+  "noticias_reales": [
+    {
+      "title": "Not Nvidia. Not AMD. This Semiconductor Giant Will Be the Ultimate Winner of the Artificial Intelligence (AI) Hardware Race.",
+      "publisher": "Fool - Investing News",
+      "publish_time": "2026-08-30 01:15 PM",
+      "summary": "Taiwan Semiconductor is primed to be a major winner over the next few years."
+    },
+    {
+      "title": "Nvidia Just Delivered Bad News for AMD and Intel",
+      "publisher": "The Motley Fool",
+      "publish_time": "2026-08-30 11:22 AM",
+      "summary": "Nvidia is largely known for its graphics processing units (GPUs), which play a pivotal role in training large language models. However, the company also launched a newer chip product last quarter that is experiencing incredible growth."
+    },
+    {
+      "title": "Altman-Musk Feud Escalates as OpenAI Cuts Off Cursor Access After SpaceX Merger",
+      "publisher": "247 Wallst",
+      "publish_time": "2026-08-30 11:14 AM",
+      "summary": "OpenAI just pulled model access from Cursor the moment SpaceX took ownership, turning a years-long personal feud into a live stress test of who actually controls AI infrastructure and who gets left scrambling."
+    },
+    {
+      "title": "Elon Musk’s 15-Gigawatt Warning Points to a Very Different Set of AI Winners in 2027",
+      "publisher": "247 Wallst",
+      "publish_time": "2026-08-30 11:13 AM",
+      "summary": "Elon Musk just put a number on the AI bottleneck that Goldman Sachs and Morgan Stanley have been quietly flagging for months, and it points to a very different group of winners than the ones dominating every investor conversation right now."
+    },
+    {
+      "title": "The S&P 500 Keeps Hitting Highs — But It's Just Microsoft and Nvidia Carrying the Entire Market",
+      "publisher": "24/7 Wall Street",
+      "publish_time": "2026-08-30 10:55 AM",
+      "summary": "The stock market's march to new highs has made the bull market look healthy."
+    },
+    {
+      "title": "NVDW: Collect High-Yield Income From Nvidia Swaps",
+      "publisher": "Seeking Alpha",
+      "publish_time": "2026-08-30 10:39 AM",
+      "summary": "The Roundhill NVDA WeeklyPay ETF offers weekly income tied to Nvidia share price performance with a leveraged 120% exposure. NVDW targets income investors seeking high yield from NVDA's volatility but carries elevated risk due to leverage and potential NAV declines during NVDA downturns. Since inception, NVDW's total return has matched or slightly exceeded NVDA, with a forward distribution rate around 27%, though distributions are variable."
+    }
+  ],
+  "targets": {
+    "12m": {
+      "bull": 350.26,
+      "base": 304.57,
+      "bear": 215.37
+    }
+  },
+  "targets_source": "victor",
+  "targets_horizon_note": "Metodología de Victor: EPS × (1+crecimiento) × (P/E actual × factor). Un solo horizonte: 12 meses. Fair Value = target Base.",
+  "methodology": {
+    "annual_volatility_pct": 40.81,
+    "daily_vol_pct": 2.571,
+    "atr_14": 6.37,
+    "analyst_high": 515.0,
+    "analyst_low": 270.0,
+    "analyst_mean": 345.21,
+    "analyst_median": 322.5
+  },
+  "analisis": {
+    "biggest_pro": "El dominio indiscutible de NVIDIA en el mercado de GPUs para inteligencia artificial, que impulsa un crecimiento exponencial en ingresos y márgenes, posicionándola como el habilitador clave de la revolución tecnológica actual.",
+    "biggest_risk": "El riesgo más severo es la intensificación de la competencia en el desarrollo de chips de IA personalizados por parte de grandes clientes y rivales, lo que podría erosionar su cuota de mercado y márgenes a largo plazo.",
+    "watch_for": "Monitorear de cerca la evolución de los márgenes brutos y operativos en los próximos trimestres, así como cualquier anuncio de nuevos productos o alianzas estratégicas que refuercen su liderazgo en IA.",
+    "company_summary_simple": "NVIDIA es una empresa de semiconductores que diseña unidades de procesamiento gráfico (GPUs) y software relacionado. Gana dinero vendiendo estos chips a centros de datos para inteligencia artificial, a fabricantes de consolas de videojuegos y a profesionales para diseño gráfico. Es importante para el inversor promedio porque es el motor detrás de la IA, una de las tendencias tecnológicas más grandes, ofreciendo un potencial de crecimiento significativo.",
+    "analisis_numeros_actuales": "NVIDIA ostenta una capitalización de mercado masiva de 5.27 billones de dólares. Su P/E actual de 27.36 y un Forward P/E de 23.45 reflejan altas expectativas de crecimiento. Los márgenes brutos del 74.67% y EBITDA del 77.12% son excepcionalmente robustos, indicando un poder de fijación de precios y eficiencia operativa sobresalientes.",
+    "crecimiento_yoy": "No se dispone de datos específicos de crecimiento de ingresos y márgenes operativos año tras año en la información proporcionada. Sin embargo, los márgenes actuales sugieren una fuerte rentabilidad histórica.",
+    "crecimiento_proyectado": "Se esperan estimaciones de crecimiento robustas para los próximos años, impulsadas por la continua demanda de infraestructura de IA, la expansión de sus plataformas de software como CUDA y la diversificación en nuevos mercados como la robótica y el metaverso.",
+    "sec_filing_10k": "Un análisis profundo del último reporte anual 10-K revelaría factores de riesgo relacionados con la cadena de suministro global, la intensa competencia en la industria de semiconductores, la dependencia de un número limitado de clientes clave y la rápida obsolescencia tecnológica. Los estados auditados probablemente mostrarían una sólida posición financiera, pero con un escrutinio sobre la sostenibilidad de los márgenes actuales.",
+    "sec_filing_10q": "El último reporte trimestral 10-Q probablemente destacaría un rendimiento financiero excepcional, con un crecimiento significativo en los segmentos de centros de datos y gaming. Los balances reflejarían una fuerte liquidez y una gestión eficiente del capital, aunque con la necesidad de invertir continuamente en I+D para mantener su ventaja tecnológica.",
+    "sec_filing_8k": "Recientemente, el 26 de agosto de 2026, se reportaron los resultados de operación y estados financieros (earnings). Previamente, el 17 de agosto de 2026, se divulgó un acuerdo material y una obligación financiera material, lo que indica actividad estratégica y financiera relevante. Estos eventos son catalizadores duros que impactan la percepción del mercado.",
+    "recommendation": "ESPECULATIVO",
+    "conviccion_porque": "La convicción de 58.2/100, clasificada como 'Especulativa', surge de una combinación de factores. El agente de Business y Market probablemente contribuyen positivamente debido al liderazgo en IA y la tendencia alcista del mercado. Sin embargo, el agente de Valuation podría ser un detractor significativo, dado que el DCF de Victor ($121.57) está muy por debajo del precio spot y del target base. El agente de Risk también podría moderar la convicción debido a la alta Beta y la señal bajista de insiders, resultando en un puntaje intermedio que justifica una aproximación cautelosa.",
+    "recomendacion_porque": "La recomendación 'ESPECULATIVO' se basa en la fuerte tesis de crecimiento impulsada por la IA, pero con una valoración que requiere cautela. Aunque el precio actual de $217.55 está por debajo del target base de Victor de $304.57, el perfil de riesgo elevado (Beta de 2.215) y la señal bajista de la actividad de insiders sugieren que, si bien hay potencial alcista, la inversión conlleva un grado considerable de incertidumbre. La evolución desde mi reporte anterior, donde el Fair Value era $315.22 y la recomendación también 'ESPECULATIVO', se mantiene coherente. A pesar de una ligera reducción en el target base de Victor, la tesis fundamental de crecimiento a largo plazo sigue intacta, pero la prudencia es clave dada la volatilidad y los riesgos inherentes.",
+    "tesis_inversion_completa": "Mi tesis de inversión para NVIDIA se mantiene 'ESPECULATIVA', una postura que he sostenido desde mi reporte anterior del 17 de agosto de 2026, cuando el Fair Value era $315.22 y el precio $227.5. Desde entonces, el precio ha retrocedido un 4.4% hasta los $217.55, y el target base de Victor se ha ajustado ligeramente a $304.57. Esta evolución refuerza la necesidad de una aproximación cautelosa. La compañía sigue siendo el líder indiscutible en el hardware y software para inteligencia artificial, un mercado con un crecimiento explosivo. Su 'moat' tecnológico, basado en la arquitectura CUDA y la constante innovación en GPUs, le otorga una ventaja competitiva formidable. Los márgenes brutos y EBITDA son excepcionales, lo que demuestra su poder de fijación de precios y eficiencia. Sin embargo, la valoración actual, aunque por debajo del target base de Victor, sigue siendo exigente, especialmente si consideramos el DCF de $121.57. La alta volatilidad (Beta de 2.215) y la reciente actividad de insiders con ventas significativas (-$185.99M netos) añaden un componente de riesgo que no puede ignorarse. En un régimen de mercado alcista y volátil, NVIDIA ofrece un potencial de crecimiento considerable, pero su naturaleza 'especulativa' implica que solo debe considerarse con un tamaño de riesgo adecuado, monitoreando de cerca la ejecución, la competencia y las señales de flujo institucional.",
+    "tesis_riesgos": "Los riesgos inherentes a la tesis incluyen la intensificación de la competencia por parte de fabricantes de chips personalizados (como los desarrollados por grandes empresas tecnológicas), la dependencia de la cadena de suministro global y la geopolítica, la rápida obsolescencia tecnológica que exige una inversión constante en I+D, y la posible desaceleración del gasto en infraestructura de IA si las expectativas no se materializan. Además, la alta Beta de 2.215 expone a la acción a movimientos de mercado amplificados, y la reciente señal bajista de insiders es un factor a considerar.",
+    "analistas_consenso": "El consenso de Wall Street establece un precio objetivo medio de $345.21, lo que sugiere un optimismo considerable y un potencial alcista desde los niveles actuales. Este veredicto contrasta con el target base de Victor de $304.57. La divergencia podría explicarse por el hecho de que los analistas de Wall Street podrían estar incorporando proyecciones de crecimiento más agresivas o asignando múltiplos de valoración más elevados, mientras que el modelo de Victor, especialmente al considerar el DCF de $121.57, adopta una postura más conservadora en cuanto al valor intrínseco, lo que resulta en un target más moderado. El consenso sirve como contexto de mercado, pero la metodología de Victor ofrece una perspectiva más anclada en sus propios modelos cuantitativos.",
+    "calculos_y_crecimiento_ai": "Los targets a 12 meses de Victor se calculan utilizando una fórmula que considera el EPS proyectado, el crecimiento y un múltiplo ajustado al escenario. Para NVIDIA, el EPS estimado es de $9.27. El crecimiento se ancla al CAGR de utilidades a 5 años, aunque este dato específico no se proporciona en la información actual. El múltiplo se deriva del P/E actual (27.36) ajustado por un factor de escenario (no especificado) para generar los escenarios Bull, Base y Bear. El Fair Value de este reporte es el target base de Victor, fijado en $304.57. Adicionalmente, el especialista de valuación de Victor calcula un DCF (FCFF) de $121.57 por acción; el WACC utilizado para este cálculo no se especifica. El puntaje de convicción de 58.2/100 es un reflejo de los 6 agentes de Victor, donde factores como el liderazgo de negocio y el momentum de mercado probablemente impulsan el puntaje, mientras que la valoración y el riesgo lo moderan, resultando en una convicción intermedia.",
+    "posicion_competitiva": "NVIDIA posee un 'moat' o ventaja competitiva extremadamente fuerte, principalmente debido a su liderazgo tecnológico en GPUs y su plataforma de software CUDA, que ha creado un ecosistema difícil de replicar. Esto le otorga una posición dominante en el mercado de chips para IA y centros de datos, así como en gráficos profesionales y gaming.",
+    "principales_competidores": "Los principales competidores de NVIDIA incluyen a AMD (Advanced Micro Devices) en GPUs y CPUs, Intel Corporation en CPUs y GPUs, y potencialmente empresas como Google (con sus TPUs), Amazon (con sus chips Graviton y Trainium) y Microsoft (con sus chips Maia y Cobalt) que desarrollan silicio personalizado para sus propias infraestructuras de IA.",
+    "porque_mejor_peor_inversion": "NVIDIA se destaca como una inversión potencialmente superior debido a sus márgenes brutos y operativos excepcionalmente altos (74.67% y 77.12% respectivamente), que superan a la mayoría de sus competidores y reflejan un poder de fijación de precios y eficiencia inigualables. Sus retornos de capital son probablemente muy fuertes, aunque no se proporcionan datos específicos. Sin embargo, sus múltiplos de valoración (P/E de 27.36) son exigentes, lo que la hace una inversión 'peor' en términos de valor relativo si el crecimiento no justifica estas primas. La justificación exacta reside en el equilibrio entre su calidad superior y su valoración premium.",
+    "in_simple_terms": "Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fabricante del motor más potente y eficiente que todos los equipos de carreras quieren usar. No solo hace el motor, sino también las herramientas y el software para que funcione a la perfección. Por eso, es una pieza fundamental en la carrera de la IA.",
+    "should_you_buy_now": "La recomendación 'ESPECULATIVO' sugiere que, si bien NVIDIA es una empresa de alta calidad con un potencial de crecimiento significativo, los niveles de cotización actuales requieren prudencia. No es una compra agresiva para todos los perfiles de inversor debido a su alta volatilidad y valoración. Se aconseja una asignación de capital con un tamaño de riesgo controlado, monitoreando de cerca los catalizadores y riesgos.",
+    "the_bottom_line": "NVIDIA es un líder tecnológico indispensable en la era de la IA, ofreciendo un crecimiento explosivo, pero su valoración premium y riesgos inherentes la convierten en una inversión de naturaleza especulativa.",
+    "probabilities": {
+      "rationale": "La probabilidad de un movimiento positivo significativo en los próximos 12 meses es moderada, anclada en el historial de crecimiento del sector tecnológico y el liderazgo de NVIDIA. Sin embargo, la alta volatilidad y la valoración exigente sugieren que los movimientos extremos, tanto al alza como a la baja, son más probables que en acciones de menor riesgo, lo que requiere una calibración cuidadosa basada en base-rates históricos para activos de alto crecimiento y beta."
+    },
+    "fair_value": 304.57,
+    "upside_pct": 40.0,
+    "regime": {
+      "vol": "calmo",
+      "trend": "alcista",
+      "breadth": "neutral",
+      "rates": "estable",
+      "vix": 14.4,
+      "spy_vs_200d_pct": 8.4,
+      "detail": {
+        "spy_20d_pct": 3.0,
+        "rsp_minus_spy_20d_pct": -0.3,
+        "tlt_20d_pct": 0.8
+      },
+      "label": "Tendencia alcista · vol calmo · amplitud neutral · tasas estable"
+    },
+    "conviction_source": "puntaje de los 6 agentes de Victor (raw_total 0-100)",
+    "prob_anchoring": null,
+    "trade_plan": {
+      "probabilities": {
+        "p_positive_12m": null,
+        "rationale": "La probabilidad de un movimiento positivo significativo en los próximos 12 meses es moderada, anclada en el historial de crecimiento del sector tecnológico y el liderazgo de NVIDIA. Sin embargo, la alta volatilidad y la valoración exigente sugieren que los movimientos extremos, tanto al alza como a la baja, son más probables que en acciones de menor riesgo, lo que requiere una calibración cuidadosa basada en base-rates históricos para activos de alto crecimiento y beta.",
+        "fuente": "sin muestra medida: no se publica probabilidad"
+      },
+      "reward_pct": 61.0,
+      "risk_pct": 1.0,
+      "reward_risk": 60.88,
+      "kelly_full_pct": null,
+      "kelly_half_pct": null,
+      "suggested_pct": null,
+      "cap_reason": "Sin dimensionar: hace falta al menos una predicción VENCIDA para medir la probabilidad. La del modelo no se usa — sin evidencia no hay número.",
+      "factor_haircut_pct": 0.0,
+      "already_held_pct": 0.0,
+      "risk_plan": {
+        "is_a_grade": false,
+        "equity_stop": 204.81,
+        "equity_stop_note": "No A-grade: stop sugerido en $204.81 (2×ATR-14 bajo el spot).",
+        "thesis_break_level": 215.37,
+        "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada."
+      },
+      "targets_r": {
+        "entry": 217.55,
+        "stop": 215.37,
+        "r_unit": 2.18,
+        "bull_r": 60.88,
+        "base_r": 39.92,
+        "bear_r": -1.0
+      },
+      "thesis_invalidation": [
+        {
+          "factor": "Precio",
+          "kind": "price",
+          "trigger": "Cierre sobre $215.37 (quiebre de tesis = −1R)"
+        }
+      ]
+    },
+    "coherence_flags": [],
+    "coherence_ok": true,
+    "model_source": "gemini",
+    "earnings_history": {
+      "n": 8,
+      "beats": 8,
+      "misses": 0,
+      "avg_surprise_pct": null,
+      "avg_abs_move_pct": 4.1,
+      "avg_move_pct": -3.1,
+      "rows": [
+        {
+          "date": "2026-08-26",
+          "reported": 2.22,
+          "estimate": 2.09,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": 3.8
+        },
+        {
+          "date": "2026-05-20",
+          "reported": 1.87,
+          "estimate": 1.76,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -3.6
+        },
+        {
+          "date": "2026-02-25",
+          "reported": 1.62,
+          "estimate": 1.54,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -9.4
+        },
+        {
+          "date": "2025-11-19",
+          "reported": 1.3,
+          "estimate": 1.26,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -4.1
+        },
+        {
+          "date": "2025-08-27",
+          "reported": 1.05,
+          "estimate": 1.01,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -4.1
+        },
+        {
+          "date": "2025-05-28",
+          "reported": 0.81,
+          "estimate": 0.74,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": 0.2
+        },
+        {
+          "date": "2025-02-26",
+          "reported": 0.89,
+          "estimate": 0.85,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -4.8
+        },
+        {
+          "date": "2024-11-20",
+          "reported": 0.81,
+          "estimate": 0.75,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -2.7
+        }
+      ]
+    },
+    "integrity": {
+      "checks": [
+        {
+          "name": "Fuente de datos",
+          "status": "ok",
+          "detail": "Quant Data",
+          "value": null
+        },
+        {
+          "name": "Spot",
+          "status": "fail",
+          "detail": "sin precio de referencia",
+          "value": null
+        }
+      ],
+      "ok": 0,
+      "warn": 0,
+      "fail": 1,
+      "status": "fail"
+    },
+    "ai_concentration": {
+      "proxy": "SMH",
+      "rho": 0.66,
+      "level": "media",
+      "note": "ρ=0.66 con el complejo IA/semis (SMH): correlación moderada con IA/semis — diversifica algo, pero vigila el solapamiento del libro."
+    },
+    "news_catalysts": [
+      "acuerdo material (deal/contrato)",
+      "deal",
+      "divulgación Reg FD",
+      "earnings",
+      "estados financieros y exhibits",
+      "guidance",
+      "obligación financiera material (deuda)",
+      "product",
+      "resultados de operación (earnings)"
+    ],
+    "sec_8k": [
+      {
+        "date": "2026-08-26",
+        "form": "8-K",
+        "items": [
+          "2.02",
+          "9.01"
+        ],
+        "items_desc": [
+          "resultados de operación (earnings)",
+          "estados financieros y exhibits"
+        ],
+        "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000073/nvda-20260826.htm"
+      },
+      {
+        "date": "2026-08-17",
+        "form": "8-K",
+        "items": [
+          "1.01",
+          "2.03",
+          "7.01"
+        ],
+        "items_desc": [
+          "acuerdo material (deal/contrato)",
+          "obligación financiera material (deuda)",
+          "divulgación Reg FD"
+        ],
+        "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000069/nvda-20260817.htm"
+      }
+    ],
+    "target_bull_12m": 350.26,
+    "target_base_12m": 304.57,
+    "target_bear_12m": 215.37,
+    "conviccion_score": 58,
+    "wbj": {
+      "framework": "Ruta 2030 Wall Street Agent System v2.0.0",
+      "categories": {
+        "business": {
+          "key": "business",
+          "label": "Business",
+          "max": 20.0,
+          "score10": 6.6,
+          "points": 13.15,
+          "coverage": 1.0,
+          "status": "scored",
+          "confidence": 90,
+          "mandatory_flags": [
+            "THESIS_KILLERS_NOT_LISTED"
+          ],
+          "reason": null
+        },
+        "financial": {
+          "key": "financial",
+          "label": "Financial",
+          "max": 15.0,
+          "score10": 8.7,
+          "points": 13.08,
+          "coverage": 1.0,
+          "status": "scored",
+          "confidence": 95,
+          "mandatory_flags": [],
+          "reason": null
+        },
+        "market": {
+          "key": "market",
+          "label": "Market & Growth",
+          "max": 20.0,
+          "score10": 3.5,
+          "points": 7.07,
+          "coverage": 0.69,
+          "status": "scored",
+          "confidence": 79,
+          "mandatory_flags": [],
+          "reason": null
+        },
+        "technical": {
+          "key": "technical",
+          "label": "Technical & Momentum",
+          "max": 20.0,
+          "score10": 6.0,
+          "points": 12.06,
+          "coverage": 1.0,
+          "status": "scored",
+          "confidence": 94,
+          "mandatory_flags": [],
+          "reason": null
+        },
+        "risk": {
+          "key": "risk",
+          "label": "Risk & Resilience",
+          "max": 15.0,
+          "score10": 5.3,
+          "points": 7.94,
+          "coverage": 1.0,
+          "status": "scored",
+          "confidence": 92,
+          "mandatory_flags": [],
+          "reason": null
+        },
+        "valuation": {
+          "key": "valuation",
+          "label": "Valuation",
+          "max": 10.0,
+          "score10": 4.9,
+          "points": 4.89,
+          "coverage": 1.0,
+          "status": "scored",
+          "confidence": 92,
+          "mandatory_flags": [
+            "PER_SHARE_VALUE_INCOMPLETE_NO_DILUTION_SCHEDULE"
+          ],
+          "reason": null
+        }
+      },
+      "raw_total": 58.2,
+      "total_confidence": 89,
+      "band": "Weak",
+      "profile": "Speculative",
+      "classification": "Especulativa — solo tamaño de riesgo",
+      "passed_gates": [],
+      "failed_gates": [
+        "raw_total<78 (got 58.18226639178609)",
+        "technical<17 (got 12.056831204809109)",
+        "market<16 (got 7.069042394452928)",
+        "business+financial<28 (got 26.22722170782687)",
+        "risk<8 (got 7.943677930571874)",
+        "raw_total<80 (got 58.18226639178609)",
+        "business<16 (got 13.146864564969727)",
+        "risk<10 (got 7.943677930571874)",
+        "valuation<5 (got 4.885493154125308)",
+        "raw_total<75 (got 58.18226639178609)",
+        "valuation<8 (got 4.885493154125308)",
+        "risk<10 (got 7.943677930571874)"
+      ],
+      "overrides": [
+        "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE"
+      ],
+      "warnings": [
+        "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE: a critical category is incomplete"
+      ],
+      "contradictions": [],
+      "handoff_validation": {},
+      "data_staleness": {
+        "daily_market": "FRESH",
+        "quarterly_fundamentals": "FRESH",
+        "consensus": "FRESH",
+        "peer_set": "FRESH"
+      },
+      "recalc_recommended": false,
+      "proxy_inputs": {
+        "macro_series": "Factor macro = producción industrial FRED (INDPRO) en variación YoY, alineada al último dato NO POSTERIOR a cada cierre trimestral",
+        "ppe": "PP&E NETO de FMP como proxy del PP&E bruto que piden Beneish AQI/DEPI (proxy documentado de Victor: ppe_net)"
+      },
+      "categories_10": {
+        "business": 6.6,
+        "financial": 8.7,
+        "market": 3.5,
+        "technical": 6.0,
+        "risk": 5.3,
+        "valuation": 4.9
+      },
+      "gates_source": "aggregate real de Victor",
+      "scores_source": "engine determinista (metodología de Victor)",
+      "ai_judgment": null
+    },
+    "victor_targets_detail": {
+      "status": "ok",
+      "price": 217.55,
+      "eps": 4.9,
+      "pe_now": 44.4,
+      "growth_base": 0.4,
+      "horizon": "12 months",
+      "scenarios": [
+        {
+          "key": "bear",
+          "label": "Bear",
+          "target": 215.37,
+          "upside": -0.01,
+          "assumptions": "growth +32% (5y earnings) · multiple 33.3x (75% of current P/E)"
+        },
+        {
+          "key": "base",
+          "label": "Base",
+          "target": 304.57,
+          "upside": 0.4,
+          "assumptions": "growth +40% (5y earnings) · multiple 44.4x (100% of current P/E)"
+        },
+        {
+          "key": "bull",
+          "label": "Bull",
+          "target": 350.26,
+          "upside": 0.61,
+          "assumptions": "growth +40% (5y earnings) · multiple 51.1x (115% of current P/E)"
+        }
+      ],
+      "disclaimer": "Reference ranges with declared assumptions — research classification, not investment advice or a promise of return."
+    },
+    "victor_narrative": [
+      "Sold $215.9B last fiscal year; revenue is growing strongly (+65.5%).",
+      "For every $100 in sales, $56 is net profit — very profitable.",
+      "Generates real cash: $108.8B of free cash flow per year.",
+      "Owes $0.05 for every $1 of equity — low debt.",
+      "Quick score: 8.5/10, computed from 100 of 100 evidence points — full coverage of all 6 categories.",
+      "If it keeps growing as it has and the market pays the same multiple, the stock would be worth ~$304.57 in 12 months (40% above the current price of $217.55)."
+    ],
+    "victor_scorecard": {
+      "overall_10": 8.5,
+      "evidence_points_covered": 100,
+      "categories": [
+        {
+          "key": "business",
+          "label": "Negocio (rápido)",
+          "score10": 7.5,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "financial",
+          "label": "Finanzas (rápido)",
+          "score10": 10.0,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "market",
+          "label": "Mercado y Crecimiento (rápido)",
+          "score10": 10.0,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "technical",
+          "label": "Técnico y Momentum (rápido)",
+          "score10": 7.6,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "risk",
+          "label": "Riesgo y Resiliencia (rápido)",
+          "score10": 10.0,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "valuation",
+          "label": "Valuación (rápido)",
+          "score10": 5.0,
+          "status": "scored",
+          "reason": null
+        }
+      ]
+    },
+    "victor_interpretation": {
+      "overall_10": 8.5,
+      "classification": "favors",
+      "classification_label": "the analysis favors investing (research classification)",
+      "revisit": null,
+      "categories": [
+        {
+          "key": "business",
+          "label": "Negocio (rápido)",
+          "score10": 7.5,
+          "meaning": "solid"
+        },
+        {
+          "key": "financial",
+          "label": "Finanzas (rápido)",
+          "score10": 10.0,
+          "meaning": "very strong"
+        },
+        {
+          "key": "market",
+          "label": "Mercado y Crecimiento (rápido)",
+          "score10": 10.0,
+          "meaning": "very strong"
+        },
+        {
+          "key": "technical",
+          "label": "Técnico y Momentum (rápido)",
+          "score10": 7.6,
+          "meaning": "solid"
+        },
+        {
+          "key": "risk",
+          "label": "Riesgo y Resiliencia (rápido)",
+          "score10": 10.0,
+          "meaning": "very strong"
+        },
+        {
+          "key": "valuation",
+          "label": "Valuación (rápido)",
+          "score10": 5.0,
+          "meaning": "mixed"
+        }
+      ]
+    },
+    "victor_targets_reason": null,
+    "financials_annual": {
+      "years": [
+        "2021",
+        "2022",
+        "2023",
+        "2024",
+        "2025",
+        "2026"
+      ],
+      "revenue": [
+        16675000000.0,
+        26914000000.0,
+        26974000000.0,
+        60922000000.0,
+        130497000000.0,
+        215938000000.0
+      ],
+      "net_income": [
+        4332000000.0,
+        9752000000.0,
+        4368000000.0,
+        29760000000.0,
+        72880000000.0,
+        120067000000.0
+      ],
+      "revenue_growth_yoy": [
+        null,
+        61.4,
+        0.2,
+        125.9,
+        114.2,
+        65.5
+      ],
+      "revenue_cagr": 66.9,
+      "net_margin": [
+        26.0,
+        36.2,
+        16.2,
+        48.8,
+        55.8,
+        55.6
+      ],
+      "operating_margin": [
+        27.2,
+        37.3,
+        15.7,
+        54.1,
+        62.4,
+        60.4
+      ],
+      "gross_margin": [
+        62.3,
+        64.9,
+        56.9,
+        72.7,
+        75.0,
+        71.1
+      ]
+    },
+    "victor_levels": {
+      "current_price": 217.55,
+      "atr14": 7.6633191069520565,
+      "levels": [
+        {
+          "level_class": "current_adjusted_close",
+          "label": "Current adjusted close",
+          "source": "current_price",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 217.55,
+          "distance_percent": 0.0,
+          "distance_atr": 0.0,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "nearest_confirmed_support_zone",
+          "label": "Nearest support zone (daily-support-188.88)",
+          "source": "technical",
+          "zone_low": 186.01122637078183,
+          "zone_high": 191.74877362921816,
+          "value": null,
+          "distance_percent": -11.85990639888846,
+          "distance_atr": -3.3668474469992167,
+          "strength_or_confidence": 80.41639191712956,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "nearest_confirmed_resistance_zone",
+          "label": "Nearest resistance zone (weekly-resistance-232.28)",
+          "source": "technical",
+          "zone_low": 224.28007326865628,
+          "zone_high": 240.27992673134372,
+          "value": null,
+          "distance_percent": 3.0935753935445964,
+          "distance_atr": 0.8782191077689615,
+          "strength_or_confidence": 75.24829681410604,
+          "status": "confirmed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "breakout_trigger_or_failure",
+          "label": "Failed-breakout level (weekly-resistance-232.28)",
+          "source": "technical",
+          "zone_low": 224.28007326865628,
+          "zone_high": 240.27992673134372,
+          "value": null,
+          "distance_percent": 3.0935753935445964,
+          "distance_atr": 0.8782191077689615,
+          "strength_or_confidence": 75.24829681410604,
+          "status": "confirmed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-188.88)",
+          "source": "technical",
+          "zone_low": 186.01122637078183,
+          "zone_high": 191.74877362921816,
+          "value": null,
+          "distance_percent": -11.85990639888846,
+          "distance_atr": -3.3668474469992167,
+          "strength_or_confidence": 80.41639191712956,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-174.25)",
+          "source": "technical",
+          "zone_low": 172.28338276689894,
+          "zone_high": 176.21661723310106,
+          "value": null,
+          "distance_percent": -18.99948644766672,
+          "distance_atr": -5.393665876369663,
+          "strength_or_confidence": 37.51970151263424,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "moving_average",
+          "label": "SMA50",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 208.42,
+          "distance_percent": -4.196736382440829,
+          "distance_atr": -1.1913897715309043,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "moving_average",
+          "label": "SMA200",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 195.66775,
+          "distance_percent": -10.058492300620546,
+          "distance_atr": -2.855453321805264,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2026-08-27 (material earnings gap)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 224.37913749843017,
+          "distance_percent": 3.139111697738523,
+          "distance_atr": 0.8911461734948318,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2026-05-14 (major swing high)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 210.886662928445,
+          "distance_percent": -3.062899136545631,
+          "distance_atr": -0.8695105839335509,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2023-10-31 (major swing low)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 122.18482456344768,
+          "distance_percent": -43.83598043509645,
+          "distance_atr": -12.44436961394944,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-02-22 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 75.03,
+          "distance_percent": -65.51137669501264,
+          "distance_atr": -18.597685677829578,
+          "strength_or_confidence": null,
+          "status": "open",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-02-22 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 78.58,
+          "distance_percent": -63.87956791542175,
+          "distance_atr": -18.13443992876773,
+          "strength_or_confidence": null,
+          "status": "open",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-02-22 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 74.22,
+          "distance_percent": -65.88370489542635,
+          "distance_atr": -18.70338400367186,
+          "strength_or_confidence": null,
+          "status": "open",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-02-22 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 71.19,
+          "distance_percent": -67.27648816364055,
+          "distance_atr": -19.09877403737817,
+          "strength_or_confidence": null,
+          "status": "open",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-23 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 102.03,
+          "distance_percent": -53.1004366812227,
+          "distance_atr": -15.074408149753529,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-23 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 106.32,
+          "distance_percent": -51.12847621236498,
+          "distance_atr": -14.514598498070335,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-23 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 101.52,
+          "distance_percent": -53.33486554814986,
+          "distance_atr": -15.140958947506077,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-23 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 98.41,
+          "distance_percent": -54.76442197196047,
+          "distance_atr": -15.546788322036317,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-05-29 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 142.25,
+          "distance_percent": -34.61273270512526,
+          "distance_atr": -9.826029550523206,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-05-29 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 143.49,
+          "distance_percent": -34.04274879338083,
+          "distance_atr": -9.664219767752305,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-05-29 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 137.91,
+          "distance_percent": -36.60767639623075,
+          "distance_atr": -10.392363790221356,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-05-29 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 138.435,
+          "distance_percent": -36.36635256262928,
+          "distance_atr": -10.323855616064321,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-11-20 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 195.95,
+          "distance_percent": -9.928752011031957,
+          "distance_atr": -2.8186220224608425,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-11-20 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 196.0,
+          "distance_percent": -9.905768788784192,
+          "distance_atr": -2.8120974344458856,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-11-20 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 179.85,
+          "distance_percent": -17.329349574810397,
+          "distance_atr": -4.91953936327656,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-11-20 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 191.12,
+          "distance_percent": -12.148931280165481,
+          "distance_atr": -3.448897224705556,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-08-27 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 222.86,
+          "distance_percent": 2.440818202712021,
+          "distance_atr": 0.69291124718829,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-08-27 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 230.47,
+          "distance_percent": 5.938864628820955,
+          "distance_atr": 1.6859535430645376,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-08-27 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 220.9,
+          "distance_percent": 1.5398758905998595,
+          "distance_atr": 0.4371473970020276,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-08-27 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 216.26,
+          "distance_percent": -0.5929671339921951,
+          "distance_atr": -0.16833437078585836,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "weekly_zone",
+          "label": "Weekly support zone (weekly-support-100.95)",
+          "source": "technical",
+          "zone_low": 94.4760049704367,
+          "zone_high": 107.4239950295633,
+          "value": null,
+          "distance_percent": -50.62100894986749,
+          "distance_atr": -14.370536243301148,
+          "strength_or_confidence": 76.60981268385724,
+          "status": "strong",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "weekly_zone",
+          "label": "Weekly resistance zone (weekly-resistance-232.28)",
+          "source": "technical",
+          "zone_low": 224.28007326865628,
+          "zone_high": 240.27992673134372,
+          "value": null,
+          "distance_percent": 3.0935753935445964,
+          "distance_atr": 0.8782191077689615,
+          "strength_or_confidence": 75.24829681410604,
+          "status": "confirmed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Bear-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 85.43942828581316,
+          "distance_percent": -60.72653261971356,
+          "distance_atr": -17.23934105710644,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Base-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 121.57101451254233,
+          "distance_percent": -44.118127091453765,
+          "distance_atr": -12.524466767981366,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Bull-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 159.94019199459902,
+          "distance_percent": -26.48118042077729,
+          "distance_atr": -7.517605257118704,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "reverse_dcf_implied_assumptions",
+          "label": "Reverse-DCF current-price implied assumptions (reference only)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 217.55,
+          "distance_percent": null,
+          "distance_atr": null,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": "implied revenue CAGR 59.41%; implied operating margin 28.95%"
+        },
+        {
+          "level_class": "margin_of_safety_band",
+          "label": "Margin-of-safety reference band (15%)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 103.33536233566097,
+          "distance_percent": -52.50040802773571,
+          "distance_atr": -14.904069120744966,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "margin_of_safety_band",
+          "label": "Margin-of-safety reference band (25%)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 91.17826088440675,
+          "distance_percent": -58.08859531859032,
+          "distance_atr": -16.49047068925403,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        }
+      ],
+      "confluences": [
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-188.88)",
+            "Role-reversal retest zone (daily-support-188.88)"
+          ],
+          "low": 186.01122637078183,
+          "high": 191.74877362921816,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-188.88)' and 'Role-reversal retest zone (daily-support-188.88)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-188.88)",
+            "SMA200"
+          ],
+          "low": 186.01122637078183,
+          "high": 195.66775,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-188.88)' and 'SMA200' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-188.88)",
+            "Earnings gap 2025-11-20 gap open"
+          ],
+          "low": 186.01122637078183,
+          "high": 195.95,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-188.88)' and 'Earnings gap 2025-11-20 gap open' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-188.88)",
+            "Earnings gap 2025-11-20 gap high"
+          ],
+          "low": 186.01122637078183,
+          "high": 196.0,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-188.88)' and 'Earnings gap 2025-11-20 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-188.88)",
+            "Earnings gap 2025-11-20 gap low"
+          ],
+          "low": 179.85,
+          "high": 191.74877362921816,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-188.88)' and 'Earnings gap 2025-11-20 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-188.88)",
+            "Earnings gap 2025-11-20 gap midpoint"
+          ],
+          "low": 186.01122637078183,
+          "high": 191.74877362921816,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-188.88)' and 'Earnings gap 2025-11-20 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (weekly-resistance-232.28)",
+            "Failed-breakout level (weekly-resistance-232.28)"
+          ],
+          "low": 224.28007326865628,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Nearest resistance zone (weekly-resistance-232.28)' and 'Failed-breakout level (weekly-resistance-232.28)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (weekly-resistance-232.28)",
+            "AVWAP anchored 2026-08-27 (material earnings gap)"
+          ],
+          "low": 224.28007326865628,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Nearest resistance zone (weekly-resistance-232.28)' and 'AVWAP anchored 2026-08-27 (material earnings gap)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (weekly-resistance-232.28)",
+            "Earnings gap 2026-08-27 gap open"
+          ],
+          "low": 222.86,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Nearest resistance zone (weekly-resistance-232.28)' and 'Earnings gap 2026-08-27 gap open' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (weekly-resistance-232.28)",
+            "Earnings gap 2026-08-27 gap high"
+          ],
+          "low": 224.28007326865628,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Nearest resistance zone (weekly-resistance-232.28)' and 'Earnings gap 2026-08-27 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (weekly-resistance-232.28)",
+            "Earnings gap 2026-08-27 gap low"
+          ],
+          "low": 220.9,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Nearest resistance zone (weekly-resistance-232.28)' and 'Earnings gap 2026-08-27 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (weekly-resistance-232.28)",
+            "Weekly resistance zone (weekly-resistance-232.28)"
+          ],
+          "low": 224.28007326865628,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Nearest resistance zone (weekly-resistance-232.28)' and 'Weekly resistance zone (weekly-resistance-232.28)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (weekly-resistance-232.28)",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 217.55,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Nearest resistance zone (weekly-resistance-232.28)' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Failed-breakout level (weekly-resistance-232.28)",
+            "AVWAP anchored 2026-08-27 (material earnings gap)"
+          ],
+          "low": 224.28007326865628,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Failed-breakout level (weekly-resistance-232.28)' and 'AVWAP anchored 2026-08-27 (material earnings gap)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Failed-breakout level (weekly-resistance-232.28)",
+            "Earnings gap 2026-08-27 gap open"
+          ],
+          "low": 222.86,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Failed-breakout level (weekly-resistance-232.28)' and 'Earnings gap 2026-08-27 gap open' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Failed-breakout level (weekly-resistance-232.28)",
+            "Earnings gap 2026-08-27 gap high"
+          ],
+          "low": 224.28007326865628,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Failed-breakout level (weekly-resistance-232.28)' and 'Earnings gap 2026-08-27 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Failed-breakout level (weekly-resistance-232.28)",
+            "Earnings gap 2026-08-27 gap low"
+          ],
+          "low": 220.9,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Failed-breakout level (weekly-resistance-232.28)' and 'Earnings gap 2026-08-27 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Failed-breakout level (weekly-resistance-232.28)",
+            "Weekly resistance zone (weekly-resistance-232.28)"
+          ],
+          "low": 224.28007326865628,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Failed-breakout level (weekly-resistance-232.28)' and 'Weekly resistance zone (weekly-resistance-232.28)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Failed-breakout level (weekly-resistance-232.28)",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 217.55,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Failed-breakout level (weekly-resistance-232.28)' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-188.88)",
+            "SMA200"
+          ],
+          "low": 186.01122637078183,
+          "high": 195.66775,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-188.88)' and 'SMA200' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-188.88)",
+            "Earnings gap 2025-11-20 gap open"
+          ],
+          "low": 186.01122637078183,
+          "high": 195.95,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-188.88)' and 'Earnings gap 2025-11-20 gap open' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-188.88)",
+            "Earnings gap 2025-11-20 gap high"
+          ],
+          "low": 186.01122637078183,
+          "high": 196.0,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-188.88)' and 'Earnings gap 2025-11-20 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-188.88)",
+            "Earnings gap 2025-11-20 gap low"
+          ],
+          "low": 179.85,
+          "high": 191.74877362921816,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-188.88)' and 'Earnings gap 2025-11-20 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-188.88)",
+            "Earnings gap 2025-11-20 gap midpoint"
+          ],
+          "low": 186.01122637078183,
+          "high": 191.74877362921816,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-188.88)' and 'Earnings gap 2025-11-20 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-174.25)",
+            "Earnings gap 2025-11-20 gap low"
+          ],
+          "low": 172.28338276689894,
+          "high": 179.85,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-174.25)' and 'Earnings gap 2025-11-20 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "SMA50",
+            "AVWAP anchored 2026-05-14 (major swing high)"
+          ],
+          "low": 208.42,
+          "high": 210.886662928445,
+          "note": "Confluence reference: 'SMA50' and 'AVWAP anchored 2026-05-14 (major swing high)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "SMA200",
+            "Earnings gap 2025-11-20 gap open"
+          ],
+          "low": 195.66775,
+          "high": 195.95,
+          "note": "Confluence reference: 'SMA200' and 'Earnings gap 2025-11-20 gap open' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "SMA200",
+            "Earnings gap 2025-11-20 gap high"
+          ],
+          "low": 195.66775,
+          "high": 196.0,
+          "note": "Confluence reference: 'SMA200' and 'Earnings gap 2025-11-20 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "SMA200",
+            "Earnings gap 2025-11-20 gap midpoint"
+          ],
+          "low": 191.12,
+          "high": 195.66775,
+          "note": "Confluence reference: 'SMA200' and 'Earnings gap 2025-11-20 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-08-27 (material earnings gap)",
+            "Earnings gap 2026-08-27 gap open"
+          ],
+          "low": 222.86,
+          "high": 224.37913749843017,
+          "note": "Confluence reference: 'AVWAP anchored 2026-08-27 (material earnings gap)' and 'Earnings gap 2026-08-27 gap open' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-08-27 (material earnings gap)",
+            "Earnings gap 2026-08-27 gap high"
+          ],
+          "low": 224.37913749843017,
+          "high": 230.47,
+          "note": "Confluence reference: 'AVWAP anchored 2026-08-27 (material earnings gap)' and 'Earnings gap 2026-08-27 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-08-27 (material earnings gap)",
+            "Earnings gap 2026-08-27 gap low"
+          ],
+          "low": 220.9,
+          "high": 224.37913749843017,
+          "note": "Confluence reference: 'AVWAP anchored 2026-08-27 (material earnings gap)' and 'Earnings gap 2026-08-27 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-08-27 (material earnings gap)",
+            "Weekly resistance zone (weekly-resistance-232.28)"
+          ],
+          "low": 224.28007326865628,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'AVWAP anchored 2026-08-27 (material earnings gap)' and 'Weekly resistance zone (weekly-resistance-232.28)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-08-27 (material earnings gap)",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 217.55,
+          "high": 224.37913749843017,
+          "note": "Confluence reference: 'AVWAP anchored 2026-08-27 (material earnings gap)' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-05-14 (major swing high)",
+            "Earnings gap 2026-08-27 gap midpoint"
+          ],
+          "low": 210.886662928445,
+          "high": 216.26,
+          "note": "Confluence reference: 'AVWAP anchored 2026-05-14 (major swing high)' and 'Earnings gap 2026-08-27 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-05-14 (major swing high)",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 210.886662928445,
+          "high": 217.55,
+          "note": "Confluence reference: 'AVWAP anchored 2026-05-14 (major swing high)' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2023-10-31 (major swing low)",
+            "Base-case intrinsic-value reference (scenario value)"
+          ],
+          "low": 121.57101451254233,
+          "high": 122.18482456344768,
+          "note": "Confluence reference: 'AVWAP anchored 2023-10-31 (major swing low)' and 'Base-case intrinsic-value reference (scenario value)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-02-22 gap open",
+            "Earnings gap 2024-02-22 gap high"
+          ],
+          "low": 75.03,
+          "high": 78.58,
+          "note": "Confluence reference: 'Earnings gap 2024-02-22 gap open' and 'Earnings gap 2024-02-22 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-02-22 gap open",
+            "Earnings gap 2024-02-22 gap low"
+          ],
+          "low": 74.22,
+          "high": 75.03,
+          "note": "Confluence reference: 'Earnings gap 2024-02-22 gap open' and 'Earnings gap 2024-02-22 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-02-22 gap open",
+            "Earnings gap 2024-02-22 gap midpoint"
+          ],
+          "low": 71.19,
+          "high": 75.03,
+          "note": "Confluence reference: 'Earnings gap 2024-02-22 gap open' and 'Earnings gap 2024-02-22 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-02-22 gap high",
+            "Earnings gap 2024-02-22 gap low"
+          ],
+          "low": 74.22,
+          "high": 78.58,
+          "note": "Confluence reference: 'Earnings gap 2024-02-22 gap high' and 'Earnings gap 2024-02-22 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-02-22 gap high",
+            "Earnings gap 2024-02-22 gap midpoint"
+          ],
+          "low": 71.19,
+          "high": 78.58,
+          "note": "Confluence reference: 'Earnings gap 2024-02-22 gap high' and 'Earnings gap 2024-02-22 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-02-22 gap high",
+            "Bear-case intrinsic-value reference (scenario value)"
+          ],
+          "low": 78.58,
+          "high": 85.43942828581316,
+          "note": "Confluence reference: 'Earnings gap 2024-02-22 gap high' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-02-22 gap low",
+            "Earnings gap 2024-02-22 gap midpoint"
+          ],
+          "low": 71.19,
+          "high": 74.22,
+          "note": "Confluence reference: 'Earnings gap 2024-02-22 gap low' and 'Earnings gap 2024-02-22 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap open",
+            "Earnings gap 2024-05-23 gap high"
+          ],
+          "low": 102.03,
+          "high": 106.32,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap open' and 'Earnings gap 2024-05-23 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap open",
+            "Earnings gap 2024-05-23 gap low"
+          ],
+          "low": 101.52,
+          "high": 102.03,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap open' and 'Earnings gap 2024-05-23 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap open",
+            "Earnings gap 2024-05-23 gap midpoint"
+          ],
+          "low": 98.41,
+          "high": 102.03,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap open' and 'Earnings gap 2024-05-23 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap open",
+            "Weekly support zone (weekly-support-100.95)"
+          ],
+          "low": 94.4760049704367,
+          "high": 107.4239950295633,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap open' and 'Weekly support zone (weekly-support-100.95)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap open",
+            "Margin-of-safety reference band (15%)"
+          ],
+          "low": 102.03,
+          "high": 103.33536233566097,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap open' and 'Margin-of-safety reference band (15%)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap high",
+            "Earnings gap 2024-05-23 gap low"
+          ],
+          "low": 101.52,
+          "high": 106.32,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap high' and 'Earnings gap 2024-05-23 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap high",
+            "Weekly support zone (weekly-support-100.95)"
+          ],
+          "low": 94.4760049704367,
+          "high": 107.4239950295633,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap high' and 'Weekly support zone (weekly-support-100.95)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap high",
+            "Margin-of-safety reference band (15%)"
+          ],
+          "low": 103.33536233566097,
+          "high": 106.32,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap high' and 'Margin-of-safety reference band (15%)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap low",
+            "Earnings gap 2024-05-23 gap midpoint"
+          ],
+          "low": 98.41,
+          "high": 101.52,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap low' and 'Earnings gap 2024-05-23 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap low",
+            "Weekly support zone (weekly-support-100.95)"
+          ],
+          "low": 94.4760049704367,
+          "high": 107.4239950295633,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap low' and 'Weekly support zone (weekly-support-100.95)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap low",
+            "Margin-of-safety reference band (15%)"
+          ],
+          "low": 101.52,
+          "high": 103.33536233566097,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap low' and 'Margin-of-safety reference band (15%)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap midpoint",
+            "Weekly support zone (weekly-support-100.95)"
+          ],
+          "low": 94.4760049704367,
+          "high": 107.4239950295633,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap midpoint' and 'Weekly support zone (weekly-support-100.95)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap midpoint",
+            "Margin-of-safety reference band (15%)"
+          ],
+          "low": 98.41,
+          "high": 103.33536233566097,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap midpoint' and 'Margin-of-safety reference band (15%)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-23 gap midpoint",
+            "Margin-of-safety reference band (25%)"
+          ],
+          "low": 91.17826088440675,
+          "high": 98.41,
+          "note": "Confluence reference: 'Earnings gap 2024-05-23 gap midpoint' and 'Margin-of-safety reference band (25%)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-05-29 gap open",
+            "Earnings gap 2025-05-29 gap high"
+          ],
+          "low": 142.25,
+          "high": 143.49,
+          "note": "Confluence reference: 'Earnings gap 2025-05-29 gap open' and 'Earnings gap 2025-05-29 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-05-29 gap open",
+            "Earnings gap 2025-05-29 gap low"
+          ],
+          "low": 137.91,
+          "high": 142.25,
+          "note": "Confluence reference: 'Earnings gap 2025-05-29 gap open' and 'Earnings gap 2025-05-29 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-05-29 gap open",
+            "Earnings gap 2025-05-29 gap midpoint"
+          ],
+          "low": 138.435,
+          "high": 142.25,
+          "note": "Confluence reference: 'Earnings gap 2025-05-29 gap open' and 'Earnings gap 2025-05-29 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-05-29 gap high",
+            "Earnings gap 2025-05-29 gap low"
+          ],
+          "low": 137.91,
+          "high": 143.49,
+          "note": "Confluence reference: 'Earnings gap 2025-05-29 gap high' and 'Earnings gap 2025-05-29 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-05-29 gap high",
+            "Earnings gap 2025-05-29 gap midpoint"
+          ],
+          "low": 138.435,
+          "high": 143.49,
+          "note": "Confluence reference: 'Earnings gap 2025-05-29 gap high' and 'Earnings gap 2025-05-29 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-05-29 gap low",
+            "Earnings gap 2025-05-29 gap midpoint"
+          ],
+          "low": 137.91,
+          "high": 138.435,
+          "note": "Confluence reference: 'Earnings gap 2025-05-29 gap low' and 'Earnings gap 2025-05-29 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-11-20 gap open",
+            "Earnings gap 2025-11-20 gap high"
+          ],
+          "low": 195.95,
+          "high": 196.0,
+          "note": "Confluence reference: 'Earnings gap 2025-11-20 gap open' and 'Earnings gap 2025-11-20 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-11-20 gap open",
+            "Earnings gap 2025-11-20 gap midpoint"
+          ],
+          "low": 191.12,
+          "high": 195.95,
+          "note": "Confluence reference: 'Earnings gap 2025-11-20 gap open' and 'Earnings gap 2025-11-20 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-11-20 gap high",
+            "Earnings gap 2025-11-20 gap midpoint"
+          ],
+          "low": 191.12,
+          "high": 196.0,
+          "note": "Confluence reference: 'Earnings gap 2025-11-20 gap high' and 'Earnings gap 2025-11-20 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap open",
+            "Earnings gap 2026-08-27 gap high"
+          ],
+          "low": 222.86,
+          "high": 230.47,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap open' and 'Earnings gap 2026-08-27 gap high' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap open",
+            "Earnings gap 2026-08-27 gap low"
+          ],
+          "low": 220.9,
+          "high": 222.86,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap open' and 'Earnings gap 2026-08-27 gap low' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap open",
+            "Earnings gap 2026-08-27 gap midpoint"
+          ],
+          "low": 216.26,
+          "high": 222.86,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap open' and 'Earnings gap 2026-08-27 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap open",
+            "Weekly resistance zone (weekly-resistance-232.28)"
+          ],
+          "low": 222.86,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap open' and 'Weekly resistance zone (weekly-resistance-232.28)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap open",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 217.55,
+          "high": 222.86,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap open' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap high",
+            "Weekly resistance zone (weekly-resistance-232.28)"
+          ],
+          "low": 224.28007326865628,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap high' and 'Weekly resistance zone (weekly-resistance-232.28)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap low",
+            "Earnings gap 2026-08-27 gap midpoint"
+          ],
+          "low": 216.26,
+          "high": 220.9,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap low' and 'Earnings gap 2026-08-27 gap midpoint' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap low",
+            "Weekly resistance zone (weekly-resistance-232.28)"
+          ],
+          "low": 220.9,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap low' and 'Weekly resistance zone (weekly-resistance-232.28)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap low",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 217.55,
+          "high": 220.9,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap low' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-08-27 gap midpoint",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 216.26,
+          "high": 217.55,
+          "note": "Confluence reference: 'Earnings gap 2026-08-27 gap midpoint' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Weekly support zone (weekly-support-100.95)",
+            "Margin-of-safety reference band (15%)"
+          ],
+          "low": 94.4760049704367,
+          "high": 107.4239950295633,
+          "note": "Confluence reference: 'Weekly support zone (weekly-support-100.95)' and 'Margin-of-safety reference band (15%)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Weekly support zone (weekly-support-100.95)",
+            "Margin-of-safety reference band (25%)"
+          ],
+          "low": 91.17826088440675,
+          "high": 107.4239950295633,
+          "note": "Confluence reference: 'Weekly support zone (weekly-support-100.95)' and 'Margin-of-safety reference band (25%)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Weekly resistance zone (weekly-resistance-232.28)",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 217.55,
+          "high": 240.27992673134372,
+          "note": "Confluence reference: 'Weekly resistance zone (weekly-resistance-232.28)' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.8317); both zone/scenario values are retained independently, not averaged."
+        }
+      ]
+    },
+    "victor_valuation": {
+      "dcf_per_share": 121.57,
+      "weighted_per_share": null,
+      "scenarios": [
+        {
+          "name": "Bear",
+          "per_share_value": 85.44,
+          "assumptions": {
+            "growth": 0.31788979744277124,
+            "margin": 0.5838168363141272,
+            "wacc": 0.15615699509068387,
+            "tv_growth": 0.025
+          }
+        },
+        {
+          "name": "Base",
+          "per_share_value": 121.57,
+          "assumptions": {
+            "growth": 0.3898119238566673,
+            "margin": 0.6038168363141272,
+            "wacc": 0.14615699509068386,
+            "tv_growth": 0.025
+          }
+        },
+        {
+          "name": "Bull",
+          "per_share_value": 159.94,
+          "assumptions": {
+            "growth": 0.43326771688769905,
+            "margin": 0.6238168363141272,
+            "wacc": 0.13615699509068385,
+            "tv_growth": 0.025
+          }
+        }
+      ],
+      "wacc": 0.1462,
+      "model": "FCFF DCF (especialista de valuación de Victor)",
+      "note": "Valor intrínseco por acción. Es OTRA cosa que el target a 12 meses: el DCF dice cuánto vale el negocio hoy; el target, a cuánto podría cotizar en un año si el mercado paga el mismo múltiplo."
+    },
+    "thesis_killers": {
+      "risk": [],
+      "business": [],
+      "market": [],
+      "source": null,
+      "unavailable_reason": "Los thesis killers son judgment-only por diseño: el motor determinista no inventa riesgos. Requieren el juez cualitativo (ANTHROPIC_API_KEY con saldo). Sin él quedan NOT_SCORABLE, no vacíos por error."
+    },
+    "profile_fit": {
+      "profile_name": "Kevin",
+      "es_por_defecto": false,
+      "universe_ok": true,
+      "universo": "EE.UU.",
+      "tolerancia": "especulativo",
+      "horizonte": "1-3 años",
+      "instrumentos": "opciones, acciones, etf; sin penny, forex, cripto, apalancados",
+      "capital": "$10,000",
+      "riesgo_por_operacion": "30% de la posición ($150–$2,400)",
+      "max_posicion_pct": "5% – 80%",
+      "sizing_note": "Tope por posición 5%–80% de $10,000 ($500–$8,000 por posición). Prioriza probabilidad de éxito y puntos de entrada/salida (timing).",
+      "fit": "apto-especulativo",
+      "fit_reason": "Especulativa, pero dentro de tu tolerancia especulativo — dimensiona con tu tope por posición.",
+      "disclaimer": "Clasificación de research; nunca una orden automática. La ejecución es manual y tuya."
+    },
+    "mandatory_report": {
+      "insiders_over_1m": {
+        "threshold_usd": 1000000,
+        "count": 8,
+        "transactions": [
+          {
+            "insider": "STEVENS MARK A",
+            "transaction": "S-Sale",
+            "shares": 2329182,
+            "n_operaciones": 8,
+            "price": 208.52,
+            "value": 485692442.55,
+            "date": "2026-06-18",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "Puri Ajay K",
+            "transaction": "S-Sale",
+            "shares": 1000000,
+            "n_operaciones": 9,
+            "price": 183.0,
+            "value": 183002962.71,
+            "date": "2026-03-18",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "JONES HARVEY C",
+            "transaction": "S-Sale",
+            "shares": 250000,
+            "n_operaciones": 1,
+            "price": 177.33,
+            "value": 44333450.0,
+            "date": "2025-12-15",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "Shoquist Debora",
+            "transaction": "S-Sale",
+            "shares": 229840,
+            "n_operaciones": 17,
+            "price": 180.19,
+            "value": 41414514.71,
+            "date": "2025-12-12",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "Kress Colette",
+            "transaction": "S-Sale",
+            "shares": 205484,
+            "n_operaciones": 81,
+            "price": 178.11,
+            "value": 36598824.32,
+            "date": "2026-03-20",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "Robertson Donald F Jr",
+            "transaction": "S-Sale",
+            "shares": 109986,
+            "n_operaciones": 16,
+            "price": 186.9,
+            "value": 20556412.82,
+            "date": "2026-03-20",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "Shah Aarti S.",
+            "transaction": "S-Sale",
+            "shares": 19000,
+            "n_operaciones": 3,
+            "price": 176.71,
+            "value": 3357549.04,
+            "date": "2026-03-19",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "Neal Stephen C",
+            "transaction": "S-Sale",
+            "shares": 15500,
+            "n_operaciones": 1,
+            "price": 215.73,
+            "value": 3343863.05,
+            "date": "2026-06-03",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          }
+        ],
+        "net_value": -818300019.2,
+        "net_exceeds_1m": true,
+        "signal": "BEARISH",
+        "source": "FMP (Form 4)",
+        "note": "Solo se listan insiders con transacciones que exceden $1M USD (Forms 4, SEC)."
+      },
+      "insiders_flow": {
+        "buy_usd": 0.0,
+        "sell_usd": 818989208.79,
+        "net_usd": -818989208.79,
+        "buy_count": 0,
+        "sell_count": 138
+      },
+      "institutional_13f": [
+        {
+          "holder": "BlackRock, Inc.",
+          "shares": 1928629174.0,
+          "value": 336352928002.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0002012383-26-001841 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "VANGUARD CAPITAL MANAGEMENT LLC",
+          "shares": 1538550382.0,
+          "value": 268519177197.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0002100119-26-001306 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "STATE STREET CORP",
+          "shares": 993885601.0,
+          "value": 173343323230.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0000093751-26-000315 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "FMR LLC",
+          "shares": 993852968.0,
+          "value": 173327957590.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0000315066-26-001390 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "GEODE CAPITAL MANAGEMENT, LLC",
+          "shares": 601327167.0,
+          "value": 104562529968.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0001214717-26-000006 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "VANGUARD PORTFOLIO MANAGEMENT LLC",
+          "shares": 510126721.0,
+          "value": 88966100143.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0002100121-26-000861 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "JPMORGAN CHASE & CO",
+          "shares": 447798884.0,
+          "value": 73962942086.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0000019617-26-000225 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "MORGAN STANLEY",
+          "shares": 323733984.0,
+          "value": 60376388548.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0000895421-26-000187 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        }
+      ],
+      "management": {
+        "roster": [
+          {
+            "name": "Jen-Hsun Huang",
+            "title": "Co-Founder, CEO & Director",
+            "is_key": true,
+            "age": null,
+            "year_born": 1963,
+            "total_pay": 11543318,
+            "fiscal_year": null
+          },
+          {
+            "name": "Ajay K. Puri",
+            "title": "Executive Vice President of Worldwide Field Operations",
+            "is_key": true,
+            "age": null,
+            "year_born": 1955,
+            "total_pay": 2298337,
+            "fiscal_year": null
+          },
+          {
+            "name": "Colette Kress",
+            "title": "Executive Vice President & Chief Financial Officer",
+            "is_key": true,
+            "age": null,
+            "year_born": 1967,
+            "total_pay": 1514979,
+            "fiscal_year": null
+          },
+          {
+            "name": "Debora Shoquist",
+            "title": "Executive Vice President of Operations",
+            "is_key": true,
+            "age": null,
+            "year_born": 1955,
+            "total_pay": 1382223,
+            "fiscal_year": null
+          },
+          {
+            "name": "Timothy S. Teter",
+            "title": "Executive Vice President, General Counsel & Secretary",
+            "is_key": true,
+            "age": null,
+            "year_born": 1967,
+            "total_pay": 1363896,
+            "fiscal_year": null
+          },
+          {
+            "name": "Karen T. Burns",
+            "title": "Vice President of Finance",
+            "is_key": true,
+            "age": null,
+            "year_born": 1968,
+            "total_pay": 622882,
+            "fiscal_year": null
+          },
+          {
+            "name": "Chris A. Malachowsky",
+            "title": "Co-Founder",
+            "is_key": true,
+            "age": null,
+            "year_born": null,
+            "total_pay": 320000,
+            "fiscal_year": null
+          },
+          {
+            "name": "Kimberly Powell",
+            "title": "Vice President of Healthcare",
+            "is_key": true,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Ian Buck",
+            "title": "Vice President of Accelerated Computing Business Unit",
+            "is_key": true,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "William J. Dally",
+            "title": "Chief Scientist & Senior Vice President of Research",
+            "is_key": true,
+            "age": null,
+            "year_born": 1961,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Toshiya Hari",
+            "title": "Vice President of Investor Relations & Strategic Finance",
+            "is_key": true,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Mylene Mangalindan",
+            "title": "Vice President of Corporate Communications",
+            "is_key": true,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Charu Chaubal",
+            "title": "Senior Manager of Datacenter Product Marketing",
+            "is_key": false,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Stewart Stecker",
+            "title": "Director of Investor Relations",
+            "is_key": false,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Alison Berkley Wagonfeld",
+            "title": "Chief Marketing Officer",
+            "is_key": false,
+            "age": null,
+            "year_born": 1971,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Rebecca Peters",
+            "title": "VP of Corporate Affairs, Deputy General Counsel & Assistant Secretary",
+            "is_key": false,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Scott C. Gawel",
+            "title": "Chief Accounting Officer",
+            "is_key": false,
+            "age": null,
+            "year_born": 1971,
+            "total_pay": null,
+            "fiscal_year": null
+          }
+        ],
+        "source": "yfinance companyOfficers",
+        "note": "Roster factual. FMP no expone ejecutivos; yfinance sí (companyOfficers).",
+        "track_record": {
+          "status": "no_evaluado",
+          "note": "El historial cualitativo no se pudo evaluar (el roster factual sí está)."
+        }
+      },
+      "edgar": {
+        "cik": "0001045810",
+        "form4": [
+          {
+            "date": "2026-08-24",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/1045810/000134784226000015/xslF345X06/wk-form4_1787607122.xml"
+          },
+          {
+            "date": "2026-08-12",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/1045810/000131026426000008/xslF345X06/wk-form4_1786569187.xml"
+          },
+          {
+            "date": "2026-08-07",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/1045810/000119764726000007/xslF345X06/wk-form4_1786135642.xml"
+          },
+          {
+            "date": "2026-07-06",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/1045810/000119764726000005/xslF345X06/wk-form4_1783371701.xml"
+          },
+          {
+            "date": "2026-06-29",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/1045810/000119903926000009/xslF345X06/wk-form4_1782767219.xml"
+          },
+          {
+            "date": "2026-06-29",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/1045810/000172529226000004/xslF345X06/wk-form4_1782767179.xml"
+          },
+          {
+            "date": "2026-06-29",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/1045810/000119765226000007/xslF345X06/wk-form4_1782767137.xml"
+          },
+          {
+            "date": "2026-06-29",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/1045810/000176867026000004/xslF345X06/wk-form4_1782767093.xml"
+          }
+        ],
+        "form13f": [],
+        "holders_5pct": [
+          {
+            "name": "BlackRock, Inc.",
+            "shares": 1928629174.0,
+            "value": 336352928002.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0002012383-26-001841 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "VANGUARD CAPITAL MANAGEMENT LLC",
+            "shares": 1538550382.0,
+            "value": 268519177197.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0002100119-26-001306 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "STATE STREET CORP",
+            "shares": 993885601.0,
+            "value": 173343323230.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0000093751-26-000315 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "FMR LLC",
+            "shares": 993852968.0,
+            "value": 173327957590.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0000315066-26-001390 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "GEODE CAPITAL MANAGEMENT, LLC",
+            "shares": 601327167.0,
+            "value": 104562529968.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0001214717-26-000006 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "VANGUARD PORTFOLIO MANAGEMENT LLC",
+            "shares": 510126721.0,
+            "value": 88966100143.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0002100121-26-000861 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "JPMORGAN CHASE & CO",
+            "shares": 447798884.0,
+            "value": 73962942086.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0000019617-26-000225 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "MORGAN STANLEY",
+            "shares": 323733984.0,
+            "value": 60376388548.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0000895421-26-000187 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          }
+        ],
+        "holders_source": "SEC Form 13F structured data set (01mar2026-31may2026_form13f.zip): 10 mayores tenedores institucionales de CUSIP 67066G104, ORDENADOS POR VALOR DE POSICION reportado, con acciones y dolares. Es el conjunto completo de 13F del trimestre, no una muestra del indice de texto completo."
+      }
+    },
+    "re_execution": {
+      "status": "evaluado",
+      "recalc_required": true,
+      "prior_report_date": "2026-08-17",
+      "prior_report_age_days": 13,
+      "triggers": [
+        {
+          "tipo": "DATA_VENCIDA",
+          "detalle": "El análisis previo tiene 13d; consenso de estimados vence a los 7d (DATA_POLICY.md) → recalcular.",
+          "fecha": "2026-08-17"
+        },
+        {
+          "tipo": "DATA_VENCIDA",
+          "detalle": "El análisis previo tiene 13d; data de mercado diaria vence a los 3d (DATA_POLICY.md) → recalcular.",
+          "fecha": "2026-08-17"
+        },
+        {
+          "tipo": "FILING_SEC",
+          "detalle": "nuevo reporte trimestral (10-Q / earnings)",
+          "fecha": "2026-08-26"
+        },
+        {
+          "tipo": "FILING_SEC",
+          "detalle": "evento material (8-K): financiamiento / adquisición / legal",
+          "fecha": "2026-08-26"
+        }
+      ],
+      "note": "La tesis previa quedó obsoleta; este análisis la reemplaza."
+    },
+    "final_report": {
+      "report_version": "2.0.0",
+      "security": {
+        "ticker": "NVDA",
+        "exchange": "NASDAQ",
+        "currency": "USD",
+        "analysis_timestamp": "2026-08-30T23:54:16.426034+00:00",
+        "knowledge_timestamp": "2026-08-30T23:53:21.017420+00:00"
+      },
+      "profile": {
+        "label": "Speculative",
+        "raw_score": 58.18226639178609,
+        "total_confidence": 89.49166666666666,
+        "passed_gates": [],
+        "failed_gates": [
+          "raw_total<78 (got 58.18226639178609)",
+          "technical<17 (got 12.056831204809109)",
+          "market<16 (got 7.069042394452928)",
+          "business+financial<28 (got 26.22722170782687)",
+          "risk<8 (got 7.943677930571874)",
+          "raw_total<80 (got 58.18226639178609)",
+          "business<16 (got 13.146864564969727)",
+          "risk<10 (got 7.943677930571874)",
+          "valuation<5 (got 4.885493154125308)",
+          "raw_total<75 (got 58.18226639178609)",
+          "valuation<8 (got 4.885493154125308)",
+          "risk<10 (got 7.943677930571874)"
+        ],
+        "overrides": [
+          "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE"
+        ]
+      },
+      "category_scorecard": {
+        "business": {
+          "points": 13.146864564969727,
+          "max": 20.0,
+          "confidence": 89.75
+        },
+        "financial": {
+          "points": 13.080357142857142,
+          "max": 15.0,
+          "confidence": 95.0
+        },
+        "market": {
+          "points": 7.069042394452928,
+          "max": 20.0,
+          "confidence": 78.58333333333333
+        },
+        "technical": {
+          "points": 12.056831204809109,
+          "max": 20.0,
+          "confidence": 93.5
+        },
+        "risk": {
+          "points": 7.943677930571874,
+          "max": 15.0,
+          "confidence": 91.5
+        },
+        "valuation": {
+          "points": 4.885493154125308,
+          "max": 10.0,
+          "confidence": 91.5
+        }
+      },
+      "executive_thesis": {
+        "business_quality": "NVIDIA es una empresa de semiconductores que diseña unidades de procesamiento gráfico (GPUs) y software relacionado. Gana dinero vendiendo estos chips a centros de datos para inteligencia artificial, a fabricantes de consolas de videojuegos y a profesionales para diseño gráfico. Es importante para el inversor promedio porque es el motor detrás de la IA, una de las tendencias tecnológicas más grandes, ofreciendo un potencial de crecimiento significativo.",
+        "value_creation_durability": "NVIDIA posee un 'moat' o ventaja competitiva extremadamente fuerte, principalmente debido a su liderazgo tecnológico en GPUs y su plataforma de software CUDA, que ha creado un ecosistema difícil de replicar. Esto le otorga una posición dominante en el mercado de chips para IA y centros de datos, así como en gráficos profesionales y gaming.",
+        "growth_engine": "Los targets a 12 meses de Victor se calculan utilizando una fórmula que considera el EPS proyectado, el crecimiento y un múltiplo ajustado al escenario. Para NVIDIA, el EPS estimado es de $9.27. El crecimiento se ancla al CAGR de utilidades a 5 años, aunque este dato específico no se proporciona en la información actual. El múltiplo se deriva del P/E actual (27.36) ajustado por un factor de escenario (no especificado) para generar los escenarios Bull, Base y Bear. El Fair Value de este reporte es el target base de Victor, fijado en $304.57. Adicionalmente, el especialista de valuación de Victo",
+        "market_validation": "El consenso de Wall Street establece un precio objetivo medio de $345.21, lo que sugiere un optimismo considerable y un potencial alcista desde los niveles actuales. Este veredicto contrasta con el target base de Victor de $304.57. La divergencia podría explicarse por el hecho de que los analistas de Wall Street podrían estar incorporando proyecciones de crecimiento más agresivas o asignando múltiplos de valoración más elevados, mientras que el modelo de Victor, especialmente al considerar el DCF de $121.57, adopta una postura más conservadora en cuanto al valor intrínseco, lo que resulta en u",
+        "valuation_message": "NVIDIA ostenta una capitalización de mercado masiva de 5.27 billones de dólares. Su P/E actual de 27.36 y un Forward P/E de 23.45 reflejan altas expectativas de crecimiento. Los márgenes brutos del 74.67% y EBITDA del 77.12% son excepcionalmente robustos, indicando un poder de fijación de precios y eficiencia operativa sobresalientes.",
+        "key_levels_summary": "Current adjusted close $217.55; Nearest support zone (daily-support-188.88) $186.01122637078183-191.74877362921816; Nearest resistance zone (weekly-resistance-232.28) $224.28007326865628-240.27992673134372; Failed-breakout level (weekly-resistance-232.28) $224.28007326865628-240.27992673134372",
+        "primary_risk": "El riesgo más severo es la intensificación de la competencia en el desarrollo de chips de IA personalizados por parte de grandes clientes y rivales, lo que podría erosionar su cuota de mercado y márgenes a largo plazo."
+      },
+      "important_levels": [
+        {
+          "level_class": "current_adjusted_close",
+          "label": "Current adjusted close",
+          "source": "current_price",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 217.55,
+          "distance_percent": 0.0,
+          "distance_atr": 0.0,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "nearest_confirmed_support_zone",
+          "label": "Nearest support zone (daily-support-188.88)",
+          "source": "technical",
+          "zone_low": 186.01122637078183,
+          "zone_high": 191.74877362921816,
+          "value": null,
+          "distance_percent": -11.85990639888846,
+          "distance_atr": -3.3668474469992167,
+          "strength_or_confidence": 80.41639191712956,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "nearest_confirmed_resistance_zone",
+          "label": "Nearest resistance zone (weekly-resistance-232.28)",
+          "source": "technical",
+          "zone_low": 224.28007326865628,
+          "zone_high": 240.27992673134372,
+          "value": null,
+          "distance_percent": 3.0935753935445964,
+          "distance_atr": 0.8782191077689615,
+          "strength_or_confidence": 75.24829681410604,
+          "status": "confirmed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "breakout_trigger_or_failure",
+          "label": "Failed-breakout level (weekly-resistance-232.28)",
+          "source": "technical",
+          "zone_low": 224.28007326865628,
+          "zone_high": 240.27992673134372,
+          "value": null,
+          "distance_percent": 3.0935753935445964,
+          "distance_atr": 0.8782191077689615,
+          "strength_or_confidence": 75.24829681410604,
+          "status": "confirmed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-188.88)",
+          "source": "technical",
+          "zone_low": 186.01122637078183,
+          "zone_high": 191.74877362921816,
+          "value": null,
+          "distance_percent": -11.85990639888846,
+          "distance_atr": -3.3668474469992167,
+          "strength_or_confidence": 80.41639191712956,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-174.25)",
+          "source": "technical",
+          "zone_low": 172.28338276689894,
+          "zone_high": 176.21661723310106,
+          "value": null,
+          "distance_percent": -18.99948644766672,
+          "distance_atr": -5.393665876369663,
+          "strength_or_confidence": 37.51970151263424,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "moving_average",
+          "label": "SMA50",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 208.42,
+          "distance_percent": -4.196736382440829,
+          "distance_atr": -1.1913897715309043,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "moving_average",
+          "label": "SMA200",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 195.66775,
+          "distance_percent": -10.058492300620546,
+          "distance_atr": -2.855453321805264,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2026-08-27 (material earnings gap)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 224.37913749843017,
+          "distance_percent": 3.139111697738523,
+          "distance_atr": 0.8911461734948318,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2026-05-14 (major swing high)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 210.886662928445,
+          "distance_percent": -3.062899136545631,
+          "distance_atr": -0.8695105839335509,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2023-10-31 (major swing low)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 122.18482456344768,
+          "distance_percent": -43.83598043509645,
+          "distance_atr": -12.44436961394944,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-02-22 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 75.03,
+          "distance_percent": -65.51137669501264,
+          "distance_atr": -18.597685677829578,
+          "strength_or_confidence": null,
+          "status": "open",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-02-22 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 78.58,
+          "distance_percent": -63.87956791542175,
+          "distance_atr": -18.13443992876773,
+          "strength_or_confidence": null,
+          "status": "open",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-02-22 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 74.22,
+          "distance_percent": -65.88370489542635,
+          "distance_atr": -18.70338400367186,
+          "strength_or_confidence": null,
+          "status": "open",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-02-22 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 71.19,
+          "distance_percent": -67.27648816364055,
+          "distance_atr": -19.09877403737817,
+          "strength_or_confidence": null,
+          "status": "open",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-23 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 102.03,
+          "distance_percent": -53.1004366812227,
+          "distance_atr": -15.074408149753529,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-23 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 106.32,
+          "distance_percent": -51.12847621236498,
+          "distance_atr": -14.514598498070335,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-23 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 101.52,
+          "distance_percent": -53.33486554814986,
+          "distance_atr": -15.140958947506077,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-23 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 98.41,
+          "distance_percent": -54.76442197196047,
+          "distance_atr": -15.546788322036317,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-05-29 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 142.25,
+          "distance_percent": -34.61273270512526,
+          "distance_atr": -9.826029550523206,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-05-29 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 143.49,
+          "distance_percent": -34.04274879338083,
+          "distance_atr": -9.664219767752305,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-05-29 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 137.91,
+          "distance_percent": -36.60767639623075,
+          "distance_atr": -10.392363790221356,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-05-29 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 138.435,
+          "distance_percent": -36.36635256262928,
+          "distance_atr": -10.323855616064321,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-11-20 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 195.95,
+          "distance_percent": -9.928752011031957,
+          "distance_atr": -2.8186220224608425,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-11-20 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 196.0,
+          "distance_percent": -9.905768788784192,
+          "distance_atr": -2.8120974344458856,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-11-20 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 179.85,
+          "distance_percent": -17.329349574810397,
+          "distance_atr": -4.91953936327656,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-11-20 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 191.12,
+          "distance_percent": -12.148931280165481,
+          "distance_atr": -3.448897224705556,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-08-27 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 222.86,
+          "distance_percent": 2.440818202712021,
+          "distance_atr": 0.69291124718829,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-08-27 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 230.47,
+          "distance_percent": 5.938864628820955,
+          "distance_atr": 1.6859535430645376,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-08-27 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 220.9,
+          "distance_percent": 1.5398758905998595,
+          "distance_atr": 0.4371473970020276,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-08-27 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 216.26,
+          "distance_percent": -0.5929671339921951,
+          "distance_atr": -0.16833437078585836,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "weekly_zone",
+          "label": "Weekly support zone (weekly-support-100.95)",
+          "source": "technical",
+          "zone_low": 94.4760049704367,
+          "zone_high": 107.4239950295633,
+          "value": null,
+          "distance_percent": -50.62100894986749,
+          "distance_atr": -14.370536243301148,
+          "strength_or_confidence": 76.60981268385724,
+          "status": "strong",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "weekly_zone",
+          "label": "Weekly resistance zone (weekly-resistance-232.28)",
+          "source": "technical",
+          "zone_low": 224.28007326865628,
+          "zone_high": 240.27992673134372,
+          "value": null,
+          "distance_percent": 3.0935753935445964,
+          "distance_atr": 0.8782191077689615,
+          "strength_or_confidence": 75.24829681410604,
+          "status": "confirmed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Bear-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 85.43942828581316,
+          "distance_percent": -60.72653261971356,
+          "distance_atr": -17.23934105710644,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Base-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 121.57101451254233,
+          "distance_percent": -44.118127091453765,
+          "distance_atr": -12.524466767981366,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Bull-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 159.94019199459902,
+          "distance_percent": -26.48118042077729,
+          "distance_atr": -7.517605257118704,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "reverse_dcf_implied_assumptions",
+          "label": "Reverse-DCF current-price implied assumptions (reference only)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 217.55,
+          "distance_percent": null,
+          "distance_atr": null,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": "implied revenue CAGR 59.41%; implied operating margin 28.95%"
+        },
+        {
+          "level_class": "margin_of_safety_band",
+          "label": "Margin-of-safety reference band (15%)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 103.33536233566097,
+          "distance_percent": -52.50040802773571,
+          "distance_atr": -14.904069120744966,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "margin_of_safety_band",
+          "label": "Margin-of-safety reference band (25%)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 91.17826088440675,
+          "distance_percent": -58.08859531859032,
+          "distance_atr": -16.49047068925403,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        }
+      ],
+      "valuation_scenarios": [
+        {
+          "name": "Bear",
+          "probability": 0.25,
+          "assumptions": {
+            "growth": 0.31788979744277124,
+            "margin": 0.5838168363141272,
+            "wacc": 0.15615699509068387,
+            "tv_growth": 0.025
+          },
+          "enterprise_value": null,
+          "equity_value": null,
+          "per_share_value": 85.43942828581316
+        },
+        {
+          "name": "Base",
+          "probability": 0.5,
+          "assumptions": {
+            "growth": 0.3898119238566673,
+            "margin": 0.6038168363141272,
+            "wacc": 0.14615699509068386,
+            "tv_growth": 0.025
+          },
+          "enterprise_value": null,
+          "equity_value": null,
+          "per_share_value": 121.57101451254233
+        },
+        {
+          "name": "Bull",
+          "probability": 0.25,
+          "assumptions": {
+            "growth": 0.43326771688769905,
+            "margin": 0.6238168363141272,
+            "wacc": 0.13615699509068385,
+            "tv_growth": 0.025
+          },
+          "enterprise_value": null,
+          "equity_value": null,
+          "per_share_value": 159.94019199459902
+        }
+      ],
+      "valuation_weighted_value": 122.1304123263742,
+      "terminal_value_share": 0.8011957854024486,
+      "implied_exit_multiple": 6.987254322851921,
+      "reverse_dcf": {
+        "current_price": 217.55,
+        "implied_revenue_cagr": 0.5940514634283618,
+        "implied_margin": 0.28945981098915696,
+        "implied_high_growth_years": 5
+      },
+      "thesis_killers": [],
+      "monitoring_triggers": [],
+      "missing_or_conflicted_data": [
+        "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE: a critical category is incomplete",
+        "business: THESIS_KILLERS_NOT_LISTED",
+        "valuation: PER_SHARE_VALUE_INCOMPLETE_NO_DILUTION_SCHEDULE"
+      ],
+      "audit": {
+        "packet_hashes": {
+          "packet": "5310f3272e0c606520f0502219ca8199bd6bde9cc604bc8bd5599e69f4890aca"
+        },
+        "formula_versions": [
+          "BUS-ALLOC-029@2026.1",
+          "BUS-CAC-024@2026.1",
+          "BUS-CAGR-006@2026.1",
+          "BUS-CHURN-022@2026.1",
+          "BUS-CONC-003@2026.1",
+          "BUS-DIL-028@2026.1",
+          "BUS-EVA-015@2026.1",
+          "BUS-FCFC-017@2026.1",
+          "BUS-GM-007@2026.1",
+          "BUS-GRR-021@2026.1",
+          "BUS-GUIDE-027@2026.1",
+          "BUS-HHI-004@2026.1",
+          "BUS-HHI-005@2026.1",
+          "BUS-IC-012@2026.1",
+          "BUS-IROIC-016@2026.1",
+          "BUS-LTV-023@2026.1",
+          "BUS-LTVCAC-025@2026.1",
+          "BUS-MIX-001@2026.1",
+          "BUS-NOPAT-011@2026.1",
+          "BUS-NRR-020@2026.1",
+          "BUS-OM-008@2026.1",
+          "BUS-PAYBACK-026@2026.1",
+          "BUS-RANGE-010@2026.1",
+          "BUS-REC-002@2026.1",
+          "BUS-REINV-018@2026.1",
+          "BUS-ROIC-013@2026.1",
+          "BUS-SBC-030@2026.1",
+          "BUS-SG-019@2026.1",
+          "BUS-SPREAD-014@2026.1",
+          "BUS-STAB-009@2026.1",
+          "FIN-BS-017@2.0.0",
+          "FIN-BS-018@2.0.0",
+          "FIN-BS-019@2.0.0",
+          "FIN-BS-020@2.0.0",
+          "FIN-BS-021@2.0.0",
+          "FIN-BS-022@2.0.0",
+          "FIN-CF-012@2.0.0",
+          "FIN-CF-013@2.0.0",
+          "FIN-CF-014@2.0.0",
+          "FIN-CF-015@2.0.0",
+          "FIN-CF-016@2.0.0",
+          "FIN-DX-028@2.0.0",
+          "FIN-DX-029@2.0.0",
+          "FIN-DX-030@2.0.0",
+          "FIN-DX-031@2.0.0",
+          "FIN-DX-032@2.0.0",
+          "FIN-DX-033@2.0.0",
+          "FIN-EF-023@2.0.0",
+          "FIN-EF-024@2.0.0",
+          "FIN-EF-025@2.0.0",
+          "FIN-EF-026@2.0.0",
+          "FIN-EF-027@2.0.0",
+          "FIN-GR-001@2.0.0",
+          "FIN-GR-002@2.0.0",
+          "FIN-GR-003@2.0.0",
+          "FIN-GR-004@2.0.0",
+          "FIN-GR-005@2.0.0",
+          "FIN-PR-006@2.0.0",
+          "FIN-PR-007@2.0.0",
+          "FIN-PR-008@2.0.0",
+          "FIN-PR-009@2.0.0",
+          "FIN-PR-010@2.0.0",
+          "FIN-PR-011@2.0.0",
+          "MKT-ADOPT-021@2.0.0",
+          "MKT-ARPU-022@2.0.0",
+          "MKT-BACK-015@2.0.0",
+          "MKT-CAGR-004@2.0.0",
+          "MKT-CAT-019@2.0.0",
+          "MKT-COVER-016@2.0.0",
+          "MKT-DISP-013@2.0.0",
+          "MKT-GCAP-009@2.0.0",
+          "MKT-HHI-008@2.0.0",
+          "MKT-INCM-018@2.0.0",
+          "MKT-OPLEV-017@2.0.0",
+          "MKT-PEN-005@2.0.0",
+          "MKT-REVBR-011@2.0.0",
+          "MKT-REVMAG-012@2.0.0",
+          "MKT-RSG-024@2.0.0",
+          "MKT-RUN-010@2.0.0",
+          "MKT-SAM-002@2.0.0",
+          "MKT-SCEN-025@2.0.0",
+          "MKT-SECB-023@2.0.0",
+          "MKT-SHARE-006@2.0.0",
+          "MKT-SHDELTA-007@2.0.0",
+          "MKT-SOM-003@2.0.0",
+          "MKT-SURP-014@2.0.0",
+          "MKT-TAM-001@2.0.0",
+          "MKT-TDEC-020@2.0.0",
+          "RSK-ACCR-020@2.0.0",
+          "RSK-ALT-030@2.0.0",
+          "RSK-AQI-023@2.0.0",
+          "RSK-BETA-003@2.0.0",
+          "RSK-CORR-005@2.0.0",
+          "RSK-CUST-017@2.0.0",
+          "RSK-CVAR-009@2.0.0",
+          "RSK-CYC-034@2.0.0",
+          "RSK-DBETA-004@2.0.0",
+          "RSK-DEPI-025@2.0.0",
+          "RSK-DFC-014@2.0.0",
+          "RSK-DIL-032@2.0.0",
+          "RSK-DOWN-002@2.0.0",
+          "RSK-DSRI-021@2.0.0",
+          "RSK-FCC-012@2.0.0",
+          "RSK-GAP-010@2.0.0",
+          "RSK-GEO-019@2.0.0",
+          "RSK-GMI-022@2.0.0",
+          "RSK-ICOV-011@2.0.0",
+          "RSK-LVGI-027@2.0.0",
+          "RSK-MAT-016@2.0.0",
+          "RSK-MDD-006@2.0.0",
+          "RSK-MSCR-029@2.0.0",
+          "RSK-ND-013@2.0.0",
+          "RSK-PIO-031@2.0.0",
+          "RSK-PROD-018@2.0.0",
+          "RSK-REC-007@2.0.0",
+          "RSK-RUN-015@2.0.0",
+          "RSK-SBC-033@2.0.0",
+          "RSK-SGAI-026@2.0.0",
+          "RSK-SGI-024@2.0.0",
+          "RSK-TATA-028@2.0.0",
+          "RSK-THESIS-035@2.0.0",
+          "RSK-VAR-008@2.0.0",
+          "RSK-VOL-001@2.0.0",
+          "TECH-52W-036@2.0.0",
+          "TECH-ATR-006@2.0.0",
+          "TECH-AVWAP-034@2.0.0",
+          "TECH-BASE-037@2.0.0",
+          "TECH-BCONF-031@2.0.0",
+          "TECH-BREAD-039@2.0.0",
+          "TECH-BRK-030@2.0.0",
+          "TECH-CMF-017@2.0.0",
+          "TECH-DATR-029@2.0.0",
+          "TECH-DMI-009@2.0.0",
+          "TECH-EMA-003@2.0.0",
+          "TECH-FBRK-032@2.0.0",
+          "TECH-GAP-020@2.0.0",
+          "TECH-GHOLD-021@2.0.0",
+          "TECH-LIQ-040@2.0.0",
+          "TECH-LSTR-028@2.0.0",
+          "TECH-MACD-008@2.0.0",
+          "TECH-NEFF-026@2.0.0",
+          "TECH-OBV-016@2.0.0",
+          "TECH-PIV-022@2.0.0",
+          "TECH-REJ-027@2.0.0",
+          "TECH-RET-001@2.0.0",
+          "TECH-ROC-010@2.0.0",
+          "TECH-ROLE-033@2.0.0",
+          "TECH-RS-011@2.0.0",
+          "TECH-RSC-013@2.0.0",
+          "TECH-RSI-007@2.0.0",
+          "TECH-RSS-012@2.0.0",
+          "TECH-SLOPE-004@2.0.0",
+          "TECH-SMA-002@2.0.0",
+          "TECH-TIGHT-038@2.0.0",
+          "TECH-TR-005@2.0.0",
+          "TECH-TREND-COMPOSITE@2.0.0",
+          "TECH-UDV-015@2.0.0",
+          "TECH-VCP-019@2.0.0",
+          "TECH-VOL-018@2.0.0",
+          "TECH-VP-035@2.0.0",
+          "TECH-VR-014@2.0.0",
+          "TECH-ZIG-023@2.0.0",
+          "TECH-ZONE-025@2.0.0",
+          "TECH-ZTOL-024@2.0.0",
+          "VAL-APV-019@2.0.0",
+          "VAL-CONV-039@2.0.0",
+          "VAL-DDM-024@2.0.0",
+          "VAL-ENSEMBLE-044@2.0.0",
+          "VAL-EQ-015@2.0.0",
+          "VAL-EV-014@2.0.0",
+          "VAL-EVA-020@2.0.0",
+          "VAL-EVAEV-021@2.0.0",
+          "VAL-EY-029@2.0.0",
+          "VAL-FCFE-017@2.0.0",
+          "VAL-FCFEV-018@2.0.0",
+          "VAL-FCFF-005@2.0.0",
+          "VAL-FCFY-030@2.0.0",
+          "VAL-HDDM-025@2.0.0",
+          "VAL-IRR-041@2.0.0",
+          "VAL-JEVS-033@2.0.0",
+          "VAL-JPB-031@2.0.0",
+          "VAL-JPE-032@2.0.0",
+          "VAL-KD-011@2.0.0",
+          "VAL-KE-008@2.0.0",
+          "VAL-LBETA-010@2.0.0",
+          "VAL-LEASE-004@2.0.0",
+          "VAL-MC-037@2.0.0",
+          "VAL-MOS-040@2.0.0",
+          "VAL-NORM-001@2.0.0",
+          "VAL-NWC-006@2.0.0",
+          "VAL-PEG-028@2.0.0",
+          "VAL-PS-016@2.0.0",
+          "VAL-RD-002@2.0.0",
+          "VAL-RDA-003@2.0.0",
+          "VAL-RDCF-027@2.0.0",
+          "VAL-REINV-043@2.0.0",
+          "VAL-REL-034@2.0.0",
+          "VAL-RI-022@2.0.0",
+          "VAL-RIV-023@2.0.0",
+          "VAL-ROPT-038@2.0.0",
+          "VAL-SCEN-036@2.0.0",
+          "VAL-SOTP-026@2.0.0",
+          "VAL-TVE-013@2.0.0",
+          "VAL-TVG-012@2.0.0",
+          "VAL-TVS-042@2.0.0",
+          "VAL-UBETA-009@2.0.0",
+          "VAL-WACC-007@2.0.0",
+          "VAL-ZHIST-035@2.0.0"
+        ],
+        "validation_summary": {
+          "passed_gates": [],
+          "failed_gates": [
+            "raw_total<78 (got 58.18226639178609)",
+            "technical<17 (got 12.056831204809109)",
+            "market<16 (got 7.069042394452928)",
+            "business+financial<28 (got 26.22722170782687)",
+            "risk<8 (got 7.943677930571874)",
+            "raw_total<80 (got 58.18226639178609)",
+            "business<16 (got 13.146864564969727)",
+            "risk<10 (got 7.943677930571874)",
+            "valuation<5 (got 4.885493154125308)",
+            "raw_total<75 (got 58.18226639178609)",
+            "valuation<8 (got 4.885493154125308)",
+            "risk<10 (got 7.943677930571874)"
+          ],
+          "overrides": [
+            "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE"
+          ],
+          "warnings": [
+            "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE: a critical category is incomplete"
+          ],
+          "handoff_issues": {},
+          "data_staleness": {
+            "daily_market": "FRESH",
+            "quarterly_fundamentals": "FRESH",
+            "consensus": "FRESH",
+            "peer_set": "FRESH"
+          },
+          "proxy_inputs": {
+            "macro_series": "Factor macro = producción industrial FRED (INDPRO) en variación YoY, alineada al último dato NO POSTERIOR a cada cierre trimestral",
+            "ppe": "PP&E NETO de FMP como proxy del PP&E bruto que piden Beneish AQI/DEPI (proxy documentado de Victor: ppe_net)"
+          }
+        }
+      }
+    },
+    "scores_source": "victor"
+  },
+  "fecha": "2026-08-30",
+  "agente": "acciones",
+  "guardado_en": "2026-08-30T23:54:19+00:00"
+}
