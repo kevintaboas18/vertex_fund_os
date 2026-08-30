@@ -10927,12 +10927,34 @@ Verificado en rojo antes que en verde: **31 casos** de la primera ronda y
 
 ### Estado
 
-**3.493 tests del motor · 1.570 de la capa web · 342 checks de auditoría CON
-su repo real (0 avisos · 0 fallos, contra `/tmp/tito` en `53d5a20`) · los 17
-diferenciales en verde. 0 fallos.**
+**3.496 tests del motor · 1.575 de la capa web · 285 checks de auditoría
+(0 fallos) · los 17 diferenciales en verde. 0 fallos.**
 
-Los de navegador van dentro de los 1.570 (`tests_vertex/test_navegador.py`); la
-corrida completa de la capa web tardó 45 min 09 s.
+Los de navegador van dentro de los 1.575; la corrida completa de la capa web
+tardó 45 min 07 s.
+
+#### La auditoría va a 285 y no a 342, y el motivo no es el código
+
+El contenedor se reinició entero a mitad de sesión —se llevó hasta el entorno
+de Python: numpy, pandas, fastapi— y con él el clon de referencia del repo de
+Víctor en `/tmp/tito`. **No se puede recuperar desde aquí**: esa credencial no
+tiene acceso a ese repositorio.
+
+Sin `TITO_ROOT` la auditoría no puede contrastar su `globals.css`, sus frases
+ni su `web/app/api`: son **57 comprobaciones menos** y 3 avisos. Es pérdida de
+cobertura por entorno, no una regresión — y los **17 diferenciales, que son los
+que ejecutan SU código y comparan número a número, siguen los 17 en verde**.
+
+Se deja escrito en vez de enseñar un «verde» que tapa 57 comprobaciones menos.
+Con el clon delante vuelve a 342.
+
+#### Y un guardián que saltó una vez y no volvió
+
+El de suciedad marcó una corrida en rojo y su mensaje se perdió al recortar la
+salida. Se reprodujo con los dos ficheros sospechosos —nada—, y la corrida
+completa siguiente, mismo árbol, salió limpia. Queda declarado así: **saltó
+una vez, no reprodujo, y no se sabe qué era**. Decir eso es más útil que
+decidir que fue nada.
 
 Dos cosas que la corrida anterior cazó y hay que dejar escritas:
 
