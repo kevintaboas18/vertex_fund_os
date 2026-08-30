@@ -262,48 +262,6 @@
         "bueno": null
       },
       {
-        "evento": "GDP Growth Rate QoQ (Q2)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 1.5,
-        "esperado": 1.5,
-        "anterior": 2.1,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
-        "evento": "Core PCE Price Index YoY (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 3.3,
-        "esperado": 3.3,
-        "anterior": 3.3,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
-        "evento": "Personal Income MoM (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 0.4,
-        "esperado": 0.2,
-        "anterior": 0.2,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "08:30",
-        "sorpresa": 0.2,
-        "bueno": true
-      },
-      {
         "evento": "Durable Goods Orders MoM (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 1.1,
@@ -332,6 +290,20 @@
         "bueno": false
       },
       {
+        "evento": "Core PCE Price Index YoY (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 3.3,
+        "esperado": 3.3,
+        "anterior": 3.3,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
         "evento": "Personal Spending MoM (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 0.2,
@@ -346,18 +318,32 @@
         "bueno": true
       },
       {
-        "evento": "PCE Price Index MoM (Jul)",
+        "evento": "Personal Income MoM (Jul)",
         "fecha": "2026-08-26 12:30",
-        "salio": 0.2,
-        "esperado": 0.1,
-        "anterior": -0.1,
+        "salio": 0.4,
+        "esperado": 0.2,
+        "anterior": 0.2,
         "unidad": "",
-        "impacto": "medium",
+        "impacto": "high",
         "nivel": 1,
-        "mejor": "bajo",
+        "mejor": "alto",
         "hora_et": "08:30",
-        "sorpresa": 0.1,
-        "bueno": false
+        "sorpresa": 0.2,
+        "bueno": true
+      },
+      {
+        "evento": "GDP Growth Rate QoQ (Q2)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 1.5,
+        "esperado": 1.5,
+        "anterior": 2.1,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
+        "bueno": null
       },
       {
         "evento": "Gross Domestic Product QoQ (Q2)",
@@ -372,6 +358,20 @@
         "hora_et": "08:30",
         "sorpresa": 0.0,
         "bueno": null
+      },
+      {
+        "evento": "PCE Price Index MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 0.2,
+        "esperado": 0.1,
+        "anterior": -0.1,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.1,
+        "bueno": false
       },
       {
         "evento": "Core PCE Price Index MoM (Jul)",
@@ -575,6 +575,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-08-30T14:47:21.339231+00:00",
-  "generado_macro": "2026-08-30T14:47:21.339231+00:00",
-  "generado": "2026-08-30T14:47:21.339231+00:00"
+  "generado_macro": "2026-08-30T16:33:33.653351+00:00",
+  "generado": "2026-08-30T16:33:33.653351+00:00"
 }
