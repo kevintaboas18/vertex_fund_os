@@ -1778,6 +1778,34 @@ DIVERGENCIAS = {
         "stream a medias congela la pantalla en el paso 3. NO cambia: su propio "
         "AnalysisLoader ya colapsa los ~100 pasos en cuatro fases y no lee el "
         "texto de ninguno — esa pantalla está portada (`vcLoaderHTML`)."),
+    "401 y 403 no son el mismo fallo": (
+        VERTEX / "engine/wbj/tito/massive.py",
+        "Su `describeStatus` mete 401 y 403 en la misma rama —«Autenticación "
+        "rechazada por Massive. Revisa la API key.»— y no dice qué endpoint "
+        "falló. Son dos problemas distintos: el 401 se arregla cambiando la "
+        "clave y el 403 NO (la clave vale, el plan no cubre ese endpoint; "
+        "Massive hereda los planes de Polygon, donde snapshot de acciones, de "
+        "opciones y aggregates se contratan aparte). Con el mensaje de él, un "
+        "403 manda a revisar una credencial que está perfecta. Aquí van "
+        "separados y con la RUTA. No toca ningún número: es el texto que se lee "
+        "cuando la descarga falla."),
+    "la cadena se filtra antes de puntuar": (
+        VERTEX / "engine/wbj/tito/massive.py",
+        "Su `fetchOptionChain` no filtra: hace `contracts.map(toRow)` a secas, "
+        "porque su destino es una TABLA y una fila rara solo se ve fea. Aquí el "
+        "destino son GEX, niveles y Estructura, donde un strike 0 mete un nodo "
+        "imán en cero y un vencimiento vacío crea un grupo fantasma en el "
+        "sub-agente 4. Se descartan las filas con `strike <= 0` o sin "
+        "vencimiento. NO cambia ninguna fórmula: la conversión sigue siendo su "
+        "`compute.to_row` (diff_compute, 604/604)."),
+    "el spot tiene que ser utilizable": (
+        VERTEX / "engine/wbj/tito/massive.py",
+        "Su condición para el precio del subyacente es `typeof price === "
+        "\"number\"` a secas, que acepta `NaN`, `0` y los negativos: se queda "
+        "con el PRIMERO que sea número. Aquí se exige además `> 0` y se sigue "
+        "buscando. Es el SPOT: con `NaN` el cono entero sale `NaN` sin lanzar "
+        "nada, y con `0` las distancias a los muros se van a infinito. Si "
+        "ninguno sirve el resultado es `None`, que sí se puede reportar."),
     "wheel sin bid": (
         VERTEX / "engine/wbj/tito/wheel.py",
         "Su plan de Massive no sirve `last_quote`, y su propio compute.ts lo dice: "
@@ -1988,6 +2016,15 @@ DIFERENCIALES = {
     "diff_series.sh":     "chain/iv/predictionStore — EL ARCHIVO, ida y vuelta",
     "diff_wheel.sh":      "wheel + wheelAfford + wheelUniverse + earnings, 1.072 casos",
     "diff_format.sh":     "format.ts — lo que se LEE en pantalla, 1.870 comparaciones",
+    # `massive.ts` era el módulo suyo que MÁS se usa y el único de los grandes
+    # sin diferencial, por ser el que habla con la red. Lo que decide no es la
+    # red: es qué contrato entra, cuál es el SPOT, cuántas páginas se piden y
+    # con qué fecha se etiqueta cada barra. La red se sustituye en los dos lados
+    # con las mismas páginas y el resto es su código tal cual.
+    "diff_cadena.sh":     "massive.ts — cadena, paginación y barras, 286 comprobaciones",
+    # El otro que hablaba con la red. Lo que decide es CUÁNDO PARA de paginar,
+    # y de ahí sale cuánto flujo ven los sub-agentes 1, 2 y 3.
+    "diff_flujo.sh":      "marketsnack.ts — el feed de flujo y sus cuatro paradas",
     # Este NO es contra `agente-tito-metralleta`: es contra su OTRO repo,
     # `drift-sentiment-agent`. Existe porque el port se rompió una vez sin que
     # nadie lo notara — se «arreglaron» los muros para que miraran el lado del
@@ -2002,7 +2039,8 @@ DIFERENCIALES = {
 #: cuatro que no tienen diferencial propio —occ, conditions, expectedMove y
 #: blackScholes— los llama el motor en CADA caso de `diff_motor.sh` y
 #: `diff_motor2.sh`, basura incluida, así que quedan medidos ahí.
-CON_BASURA = ("diff_motor.sh", "diff_motor2.sh", "diff_motor3.sh", "diff_calib.sh")
+CON_BASURA = ("diff_motor.sh", "diff_motor2.sh", "diff_motor3.sh", "diff_calib.sh",
+              "diff_cadena.sh", "diff_flujo.sh")
 _faltan = [d for d in DIFERENCIALES if not (VERTEX/"engine"/"scripts"/d).exists()]
 chk(not _faltan, f"los {len(DIFERENCIALES)} diferenciales contra su repo existen"
     + (f" · FALTAN: {_faltan}" if _faltan else ""))

@@ -105,6 +105,11 @@ def _max_pages() -> int:
 def _describe(status: int, ticker: str, body: str, ruta: str = "") -> str:
     """El motivo, en palabras y con la ACCIÓN que toca.
 
+    **DIVERGENCIA DECLARADA — la cuarta.** Su `describeStatus` mete 401 y 403
+    en la MISMA rama ("Autenticación rechazada por Massive. Revisa la API key.")
+    y no dice qué endpoint falló. Aquí van separados y con la ruta. No toca
+    ningún número: es el texto que se lee cuando la descarga falla.
+
     401 y 403 iban en la misma rama y son dos problemas distintos que se
     arreglan de forma distinta:
 
@@ -170,7 +175,15 @@ class ChainResult:
 
 
 def _num(v: Any) -> float:
-    return float(v) if isinstance(v, (int, float)) else 0.0
+    """`typeof v === "number" ? v : 0` — con el `bool` fuera, que en Python no lo está.
+
+    `isinstance(True, int)` es `True`: `bool` hereda de `int`. Su `typeof true`
+    es `"boolean"`, así que él nunca lo trata como número. Sin excluirlo aquí,
+    un `"price": true` entraba como **$1.00** — y ese es el SPOT, el ancla del
+    cono, de los niveles y de los tres objetivos: todo lo de abajo se habría
+    calculado contra un dólar, sin lanzar nada.
+    """
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0
 
 
 def fetch_option_chain(
@@ -218,18 +231,47 @@ def fetch_option_chain(
             # La conversión la hace compute.to_row, como en el original: este
             # módulo trae páginas, las fórmulas viven aparte y se prueban solas.
             row = to_row(c)
-            # DIVERGENCIA declarada: Víctor no filtra (su ruta hace
-            # `contracts.map(toRow)` a secas) porque su destino es una tabla,
-            # donde una fila rara solo se ve fea. Aquí el destino son GEX,
-            # niveles y Estructura: un strike 0 mete un nodo imán en cero, y un
-            # vencimiento vacío crea un grupo fantasma en el sub-agente 4.
-            if row.strike <= 0 or not row.expiration:
-                continue
-            rows.append(row)
+            # **DIVERGENCIA DECLARADA — la quinta.** Víctor no filtra (su ruta
+            # hace `contracts.map(toRow)` a secas) porque su destino es una
+            # tabla, donde una fila rara solo se ve fea. Aquí el destino son
+            # GEX, niveles y Estructura: un strike 0 mete un nodo imán en cero,
+            # y un vencimiento vacío crea un grupo fantasma en el sub-agente 4.
+            #
+            # `not (strike > 0)` y no `strike <= 0`: con `NaN` toda comparación
+            # es falsa, así que `<= 0` lo dejaba PASAR. Un strike `NaN` llega
+            # hasta GEX y mete un nodo imán en ninguna parte — no salta, no se
+            # ve, solo desplaza el mapa.
+            descartada = not (row.strike > 0) or not row.expiration
+            # El precio del subyacente se lee ANTES de descartar: es del
+            # SNAPSHOT, no de la fila que lo trae. Leyéndolo después del
+            # `continue`, una primera fila con strike 0 se llevaba por delante
+            # el spot que venía dentro de ella. Él lo coge siempre.
             if underlying is None:
-                px = _num((c.get("underlying_asset") or {}).get("price"))
+                # **DIVERGENCIA DECLARADA — la sexta.** Su condición es
+                # `typeof price === "number"` a secas, que acepta `NaN`, `0` y
+                # los negativos. Aquí se exige además `> 0`. El motivo es que
+                # esto es el SPOT: con `NaN` el cono entero sale `NaN` sin
+                # lanzar nada, y con `0` las distancias a los muros se van a
+                # infinito. Él se queda con el primero que sea número; aquí se
+                # sigue buscando hasta uno utilizable, y si no lo hay el
+                # resultado es `None`, que sí se puede reportar.
+                # `c.underlying_asset?.price`: en JS, si `underlying_asset`
+                # no es objeto el encadenamiento da `undefined` y ya está. El
+                # `or {}` NO bastaba: una cadena no vacía es verdadera, así que
+                # no entraba y el `.get` de después reventaba con un
+                # `AttributeError` crudo — lo único que la cabecera de este
+                # módulo promete que nunca sale de aquí.
+                # `c` tampoco tiene por qué ser un objeto: `results` puede
+                # traer un texto o un número sueltos. Antes lo tapaba el orden
+                # —el filtro descartaba la fila antes de llegar aquí— y al
+                # subir esta lectura por encima del filtro quedó al aire.
+                ua = c.get("underlying_asset") if isinstance(c, dict) else None
+                px = _num(ua.get("price") if isinstance(ua, dict) else None)
                 if px > 0:
                     underlying = px
+            if descartada:
+                continue
+            rows.append(row)
         if on_page:
             on_page(page, len(rows))
 

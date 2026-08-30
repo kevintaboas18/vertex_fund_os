@@ -187,3 +187,96 @@ class TestLaFichaDeEmpresaLlevaSusDieciochoCampos:
         assert f["list_date"] == "1999-01-22"
         assert f["homepage_url"] == "https://x"
         assert f["description"] == "texto"
+
+
+# ── El precio del subyacente: `typeof x === "number"`, ni más ni menos ──────
+#
+# `underlyingPrice` es el SPOT, y el spot ancla el cono, los niveles y los tres
+# objetivos. Su condición es `typeof c.underlying_asset?.price === "number"`.
+# En Python el equivalente ingenuo —`isinstance(v, (int, float))`— dice que sí
+# a `True`, porque `bool` hereda de `int`. `typeof true` es `"boolean"`, así que
+# él lo rechaza. Sin esta guarda, un `"price": true` de una fuente que cambió de
+# esquema entra como **$1.00** y todo lo de abajo se calcula contra un dólar.
+
+
+def _cadena(monkeypatch, precio):
+    _responde(monkeypatch, {"results": [{
+        "details": {"strike_price": 100, "expiration_date": "2026-09-18",
+                    "contract_type": "call"},
+        "underlying_asset": {"price": precio}}]})
+    return fetch_option_chain("AAPL")
+
+
+@pytest.mark.parametrize("precio", [True, False])
+def test_un_booleano_no_es_un_precio(monkeypatch, precio):
+    """`typeof true === "boolean"` — para él no es número, aquí tampoco."""
+    assert _cadena(monkeypatch, precio).underlying_price is None
+
+
+@pytest.mark.parametrize("precio", ["205.5", None, [], {}])
+def test_lo_que_no_es_numero_tampoco_lo_es_aqui(monkeypatch, precio):
+    assert _cadena(monkeypatch, precio).underlying_price is None
+
+
+def test_un_numero_de_verdad_si_entra(monkeypatch):
+    assert _cadena(monkeypatch, 205.5).underlying_price == 205.5
+
+
+def test_underlying_asset_que_no_es_objeto_no_tumba_la_cadena(monkeypatch):
+    """`c.underlying_asset?.price` sobre una CADENA es `undefined` para él.
+
+    Aquí `(c.get("underlying_asset") or {})` no salvaba nada: una cadena no
+    vacía es «verdadera», así que el `or {}` no entraba y el `.get` siguiente
+    reventaba con un `AttributeError` crudo — justo lo que la cabecera de este
+    módulo promete que no pasa. Se sigue buscando en el contrato siguiente.
+    """
+    _responde(monkeypatch, {"results": [
+        {"details": {"strike_price": 100, "expiration_date": "2026-09-18",
+                     "contract_type": "call"},
+         "underlying_asset": "205.5"},
+        {"details": {"strike_price": 105, "expiration_date": "2026-09-18",
+                     "contract_type": "call"},
+         "underlying_asset": {"price": 99.0}},
+    ]})
+    assert fetch_option_chain("AAPL").underlying_price == 99.0
+
+
+@pytest.mark.parametrize("ua", ["205.5", 42, True, [], "  "])
+def test_ningun_underlying_asset_raro_lanza(monkeypatch, ua):
+    _responde(monkeypatch, {"results": [
+        {"details": {"strike_price": 100, "expiration_date": "2026-09-18",
+                     "contract_type": "call"}, "underlying_asset": ua}]})
+    assert fetch_option_chain("AAPL").underlying_price is None
+
+
+# ── El filtro de filas: lo que descarta y lo que NO debe arrastrar ─────────
+
+
+def _fila(strike, exp="2026-09-18", **extra):
+    d = {"details": {"strike_price": strike, "expiration_date": exp,
+                     "contract_type": "call"}}
+    d.update(extra)
+    return d
+
+
+def test_un_strike_no_numerico_no_se_cuela_como_nodo(monkeypatch):
+    """`row.strike <= 0` deja pasar `NaN`, porque toda comparación con `NaN` es
+    falsa. Un strike `NaN` llega hasta GEX y mete un nodo imán en ninguna parte:
+    ni salta ni se ve, solo desplaza el mapa. El filtro tiene que preguntarse si
+    el strike es utilizable, no si es negativo."""
+    _responde(monkeypatch, {"results": [_fila("abc"), _fila(105)]})
+    strikes = [r.strike for r in fetch_option_chain("AAPL").rows]
+    assert strikes == [105.0]
+
+
+def test_descartar_la_fila_no_descarta_el_precio_del_subyacente(monkeypatch):
+    """El precio del subyacente es del SNAPSHOT, no de la fila que lo trae.
+
+    Se leía DESPUÉS del `continue` del filtro, así que una primera fila con
+    strike 0 se llevaba por delante el spot que venía dentro. Él lo coge siempre
+    porque no filtra; aquí hay que cogerlo antes de filtrar."""
+    _responde(monkeypatch, {"results": [
+        _fila(0, underlying_asset={"price": 205.5}), _fila(105)]})
+    r = fetch_option_chain("AAPL")
+    assert [x.strike for x in r.rows] == [105.0]
+    assert r.underlying_price == 205.5

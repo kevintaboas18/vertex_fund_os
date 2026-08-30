@@ -227,6 +227,56 @@ def casos_prediction():
     for v in ({"biasPct": "12", "samples": 9}, {"biasPct": 12}, {"samples": 9},
               {"biasPct": 1e308, "samples": 1e308}, {}, None, "basura"):
         out.append(dict(sano, calibration=v))
+
+    # ── El EMPATE al elegir bull y bear ────────────────────────────────────
+    #
+    # `predictPro` elige el objetivo alcista con
+    # `others.filter(l => l.strike > spot).sort((a,b) => b.magnet - a.magnet)[0]`
+    # — ordenar y quedarse con el primero. El port usa `max(..., key=magnet)`.
+    # Con imanes DISTINTOS las dos dan lo mismo; con imanes IGUALES cada una
+    # depende de una garantía de su lenguaje (el orden estable de `sort` en JS,
+    # el «primer máximo» de `max` en Python), y eso no es algo que se deba dar
+    # por bueno razonándolo: se mide.
+    #
+    # El empate no es rebuscado, es la puerta de al lado. `levelProbabilities`
+    # normaliza con `total > 0 ? l.magnet / total : 0`, así que en cuanto la
+    # probabilidad de toque es cero para todos —iv 0, horizonte 0, spot lejos—
+    # **todos los imanes valen exactamente 0** y el desempate decide solo el
+    # objetivo. Las filas de arriba lo rozan por azar; estas lo buscan.
+    empate = dict(sano, calibration=None)
+    for iv, dias in ((0, 20), (0.45, 0), (0, 0), (1e-9, 1)):
+        out.append(dict(empate, iv=iv, horizonDays=dias, nodes=[
+            {"strike": 104.0, "concentration": 0.4, "side": "call", "netGex": 1e8},
+            {"strike": 108.0, "concentration": 0.4, "side": "put", "netGex": -1e8},
+            {"strike": 96.0, "concentration": 0.4, "side": "put", "netGex": -2e8},
+            {"strike": 92.0, "concentration": 0.4, "side": "call", "netGex": 3e8},
+        ]))
+    # Mismo strike repetido: el filtro `l.strike !== rawBase` los quita a los
+    # DOS, y con ellos puede desaparecer el único candidato de ese lado.
+    out.append(dict(empate, nodes=[
+        {"strike": 105.0, "concentration": 0.9, "side": "call", "netGex": 5e8},
+        {"strike": 105.0, "concentration": 0.9, "side": "put", "netGex": -5e8},
+        {"strike": 95.0, "concentration": 0.3, "side": "put", "netGex": -1e8},
+    ]))
+    # Un nodo EXACTAMENTE en el spot: no es `> spot` ni `< spot`, cae fuera de
+    # los dos lados aunque sea el imán.
+    out.append(dict(empate, nodes=[
+        {"strike": 100.0, "concentration": 1.0, "side": "call", "netGex": 9e8},
+        {"strike": 106.0, "concentration": 0.2, "side": "call", "netGex": 1e8},
+    ]))
+    # `NaN` COMPITIENDO. El corpus de arriba ya mete `NaN` en un nodo, pero
+    # siendo el único de su lado: nadie compara nada. Aquí hay tres arriba y el
+    # comparador tiene que ordenar contra un `NaN`, que en JS devuelve `NaN`
+    # (tratado como 0, orden indefinido) y en Python hace que `max` dependa del
+    # orden de llegada. Es el caso donde los dos lenguajes se pueden separar.
+    for basura in ("NaN", "Infinity", "-Infinity", None, "abc"):
+        out.append(dict(empate, nodes=[
+            {"strike": 103.0, "concentration": basura, "side": "call", "netGex": 1e8},
+            {"strike": 107.0, "concentration": 0.5, "side": "call", "netGex": 2e8},
+            {"strike": 111.0, "concentration": 0.5, "side": "put", "netGex": -1e8},
+            {"strike": 94.0, "concentration": basura, "side": "put", "netGex": -3e8},
+            {"strike": 90.0, "concentration": 0.5, "side": "put", "netGex": -2e8},
+        ]))
     return out
 
 
