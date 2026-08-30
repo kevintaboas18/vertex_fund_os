@@ -7,7 +7,7 @@
 | Spot | $217.55 |
 | Régimen de gamma | positive |
 | Nodo imán | $225.00 |
-| Gamma flip | $217.92 |
+| Gamma flip | $217.93 |
 | Sub-agentes activos | 6 de 6 |
 
 ## Los 6 sub-agentes
@@ -25,26 +25,26 @@
 
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
-| 10 días | $215.00 | $225.00 | $233.23 | 62.0 |
-| 20 días | $200.00 | $225.00 | $240.05 | 59.0 |
-| 30 días | $200.00 | $225.00 | $245.41 | 58.0 |
+| 10 días | $215.00 | $225.00 | $234.73 | 62.0 |
+| 20 días | $200.00 | $225.00 | $242.23 | 59.0 |
+| 30 días | $200.00 | $225.00 | $230.00 | 58.0 |
 
 ## Niveles importantes
 
 | Precio | Tipo | Fuerza | P(toque) | Por qué |
 |---|---|---|---|---|
-| $213.18 | soporte | 84 | 88% | el precio reaccionó 4 veces aquí · 123,476 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $215.30 | soporte | 71 | 96% | el precio reaccionó 2 veces aquí · 109,228 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $208.02 | soporte | 70 | 68% | el precio reaccionó 2 veces aquí · 202,842 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $227.92 | resistencia | 66 | 60% | el precio reaccionó 1 vez aquí · 388,120 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $199.34 | soporte | 61 | 40% | el precio reaccionó 1 vez aquí · 371,418 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $236.54 | resistencia | 61 | 37% | el precio reaccionó 1 vez aquí · 298,072 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $213.18 | soporte | 84 | 89% | el precio reaccionó 4 veces aquí · 123,476 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $215.30 | soporte | 71 | 97% | el precio reaccionó 2 veces aquí · 109,228 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $208.02 | soporte | 70 | 72% | el precio reaccionó 2 veces aquí · 202,842 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $227.92 | resistencia | 66 | 63% | el precio reaccionó 1 vez aquí · 388,120 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $199.34 | soporte | 61 | 45% | el precio reaccionó 1 vez aquí · 371,418 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
+| $236.54 | resistencia | 61 | 40% | el precio reaccionó 1 vez aquí · 298,072 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
 | $216.83 | soporte | 60 | 100% | el precio reaccionó 1 vez aquí · 119,451 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones |
-| $232.28 | resistencia | 58 | 48% | el precio reaccionó 1 vez aquí · 45,790 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
-| $225.00 | resistencia | 47 | 70% | 257,694 contratos abiertos de calls · venta de calls por dinero real |
-| $220.00 | resistencia | 45 | 87% | 383,738 contratos abiertos de calls · venta de calls por dinero real |
-| $205.00 | soporte | 43 | 58% | 140,007 contratos abiertos de puts · venta de puts por dinero real |
-| $222.50 | resistencia | 38 | 78% | 22,518 contratos abiertos de calls · venta de calls por dinero real |
+| $232.28 | resistencia | 58 | 51% | el precio reaccionó 1 vez aquí · 45,790 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones |
+| $225.00 | resistencia | 47 | 71% | 257,694 contratos abiertos de calls · venta de calls por dinero real |
+| $220.00 | resistencia | 45 | 88% | 383,738 contratos abiertos de calls · venta de calls por dinero real |
+| $205.00 | soporte | 43 | 62% | 140,007 contratos abiertos de puts · venta de puts por dinero real |
+| $222.50 | resistencia | 38 | 79% | 22,518 contratos abiertos de calls · venta de calls por dinero real |
 
 ## Los 3 flujos más grandes
 
