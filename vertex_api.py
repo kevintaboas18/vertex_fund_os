@@ -2558,13 +2558,32 @@ def calculate_institutional_targets(ticker: str, info: dict, hist) -> dict:
 #  es el scorecard de los 6 agentes de Victor.)
 
 class TradeProbabilities(BaseModel):
-    p_positive_12m: int = Field(..., description="Probabilidad 0-100 de un retorno positivo (>0%) a 12 meses, anclada en base-rates y la evidencia, no en optimismo.")
-    p_touch_bull_12m: int = Field(..., description="Probabilidad 0-100 de que el precio toque el target Bull a 12m.")
-    p_touch_bear_12m: int = Field(..., description="Probabilidad 0-100 de que el precio toque el target Bear a 12m.")
-    p_up_10pct_3m: int = Field(..., description="Probabilidad 0-100 de un retorno >+10% en los próximos 3 meses.")
-    rationale: str = Field(..., description="Una o dos líneas anclando estas probabilidades en base-rates históricos (cuántas veces movimientos así ocurren) y la evidencia concreta, evitando sobreconfianza.")
+    """El razonamiento sobre probabilidad, en PALABRAS. El número lo pone la
+    muestra medida (`_ancla_probabilidad`), nunca el modelo.
+
+    Aquí había cuatro campos `int` 0-100. Uno de ellos, `p_positive_12m`,
+    alimentaba el Kelly — o sea, cuánto dinero poner. Los otros tres se
+    archivaban en el reporte con la misma pinta que un cálculo y no los pintaba
+    nadie. Quitarlos del esquema es la versión fuerte de la regla: el modelo no
+    es que se corrija después, es que **no puede emitir el número**.
+    """
+
+    rationale: str = Field(..., description="Una o dos líneas sobre qué tan probable parece el movimiento y por qué, ancladas en base-rates históricos y en la evidencia concreta, evitando sobreconfianza. SOLO TEXTO: no escribas porcentajes ni cifras de probabilidad — el número lo calcula el motor con el track record medido.")
 
 class VertexDeepAnalysis(BaseModel):
+    """Lo que el modelo escribe: PALABRAS. Ni un número.
+
+    Aquí había tres campos numéricos —`fair_value`, `upside_pct` y
+    `conviccion_score`— y los tres se sobrescribían después con los de Victor.
+    Funcionaba, pero dependía de que el código de más abajo se acordara de
+    hacerlo: `conviccion_score` sólo se corregía DENTRO de la rama del motor,
+    así que sin motor salía el del modelo.
+    
+    Quitarlos del esquema cambia «se corrige» por «no se puede emitir», que es
+    lo que pidió Kevin. `fair_value` y `upside_pct` los pone el bloque de
+    targets desde los de Victor; `conviccion_score`, el `raw_total` del motor.
+    """
+
     biggest_pro: str = Field(..., description="El pro más grande y determinante para el crecimiento de la empresa.")
     biggest_risk: str = Field(..., description="El riesgo de ejecución o macroeconómico más severo en una oración.")
     watch_for: str = Field(..., description="Métrica, nivel clave o evento específico que se debe monitorear a corto plazo.")
@@ -2575,10 +2594,7 @@ class VertexDeepAnalysis(BaseModel):
     sec_filing_10k: str = Field(..., description="Análisis profundo de los factores de riesgo y estados auditados declarados en el último reporte anual 10-K.")
     sec_filing_10q: str = Field(..., description="Análisis del rendimiento y balances del último reporte trimestral 10-Q.")
     sec_filing_8k: str = Field(..., description="Resumen de eventos materiales o comunicados urgentes reportados recientemente en el 8-K.")
-    fair_value: float = Field(..., description="Valor justo esperado calculado matemáticamente en base al promedio ponderado de los targets a 1 año de Vertex y el precio objetivo medio de Wall Street.")
-    upside_pct: float = Field(..., description="Porcentaje de crecimiento proyectado a 1 año desde el precio spot actual hasta el Fair Value futuro.")
     recommendation: str = Field(..., description="Recomendación (BUY, HOLD, SELL o AVOID). NOTA: la recomendación FINAL la fija el gate determinista de los 6 agentes de Victor y sobrescribe este campo; escríbela coherente con el veredicto que se te dio, nunca lo contradigas.")
-    conviccion_score: int = Field(..., description="Puntuación de convicción 0-100. NOTA: se sobrescribe con el raw score de los 6 agentes de Victor. No existe un motor de convicción ponderado; repite el puntaje que se te dio.")
     conviccion_porque: str = Field(..., description="Justificación del puntaje de convicción, explicando de qué agentes de Victor sale (business, financial, market, technical, risk, valuation) y qué lo sube o lo baja.")
     recomendacion_porque: str = Field(..., description="Explicación detallada de la acción sugerida y la lógica financiera basada en proyecciones futuras.")
     tesis_inversion_completa: str = Field(..., description="Tesis completa de inversión de la AI explicando detalladamente por qué es o no una buena asignación de capital.")
@@ -2593,26 +2609,21 @@ class VertexDeepAnalysis(BaseModel):
     the_bottom_line: str = Field(..., description="Conclusión ejecutiva final en una sola oración.")
     probabilities: TradeProbabilities = Field(..., description="Probabilidades calibradas del trade (positivo 12m, toca bull/bear, +10% en 3m) ancladas en base-rates. Se usan para dimensionar la posición vía Kelly fraccional.")
 
-class BullCase(BaseModel):
-    thesis: str = Field(..., description="La tesis ALCISTA más fuerte posible para esta acción, el steelman del caso comprador.")
-    catalysts: str = Field(..., description="3-5 catalizadores concretos (lista en texto) que impulsarían la acción al alza.")
-    why_underappreciated: str = Field(..., description="Por qué el mercado está subestimando esta oportunidad ahora mismo.")
-    strongest_point: str = Field(..., description="El argumento alcista MÁS fuerte e irrefutable en una oración.")
-
-class BearCase(BaseModel):
-    thesis: str = Field(..., description="La tesis BAJISTA más fuerte posible, el steelman del caso vendedor/escéptico.")
-    risks: str = Field(..., description="3-5 riesgos o señales de alarma concretos (lista en texto) que destruirían la tesis alcista.")
-    what_breaks_it: str = Field(..., description="El escenario específico que rompe la tesis y cuánto downside implica.")
-    strongest_point: str = Field(..., description="El argumento bajista MÁS fuerte e irrefutable en una oración.")
-
-class DebateVerdict(BaseModel):
-    winner: str = Field(..., description="Quién tiene el caso más fuerte: 'TORO', 'OSO' o 'EMPATE'.")
-    lean: str = Field(..., description="Recomendación reconciliada final: BUY, HOLD, SELL o AVOID.")
-    confidence: int = Field(..., description="Confianza 0-100 en el veredicto reconciliado, calibrada y honesta.")
-    key_disagreement: str = Field(..., description="El punto central donde toro y oso discrepan — la verdadera variable que decide el trade.")
-    what_would_flip: str = Field(..., description="La evidencia específica y observable que cambiaría tu recomendación (ej: 'pasa a SELL si el guidance de Q próximo baja >10%').")
-    synthesis: str = Field(..., description="Síntesis equilibrada que reconcilia ambos casos en un veredicto accionable, sin sesgo de confirmación.")
-    p_bull_correct: int = Field(..., description="Probabilidad 0-100 de que el caso TORO resulte correcto a 12 meses, anclada en base-rates.")
+# ── Aquí vivían `BullCase`, `BearCase` y `DebateVerdict` ────────────────────
+#
+# Tres esquemas del debate toro/oso que se definieron y **nunca se usaron**:
+# una sola referencia cada uno, la de su propia definición. Ninguna llamada al
+# modelo los pedía.
+#
+# Se van porque declaraban `confidence` y `p_bull_correct` —dos números 0-100—
+# y un esquema muerto que pide números es una puerta abierta: el día que
+# alguien lo cablee, el modelo empieza a emitir cifras sin que nadie recuerde
+# por qué no debía. «No existe» y «existe y no se usa» no son lo mismo.
+#
+# Si algún día hace falta el debate, se escribe con campos de TEXTO y el
+# número lo pone el motor. El guardián de `test_ningun_numero_del_modelo.py`
+# obliga a ello: recorre los esquemas que se le pasan al modelo y falla si
+# alguno declara un campo numérico.
 
 # Modelos para la sección Explore — «descubrir empresas»
 class DiscoveredCompany(BaseModel):
@@ -16011,13 +16022,10 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
 
         # ── #2 PROBABILIDADES CALIBRADAS + SIZING (Kelly fraccional, acotado por guardrails) ──
         # ── #5 PLAN DE RIESGO (stops según reglas Vertex) ──
+        # El modelo ya no puede emitir probabilidades: `TradeProbabilities`
+        # sólo tiene `rationale`, que es texto. Lo único que se conserva de él
+        # es ese razonamiento en palabras.
         probs = analisis_json.get("probabilities", {}) or {}
-        def _pi(k, d=0):
-            try:
-                return max(0, min(100, int(probs.get(k, d) or d)))
-            except (AttributeError, TypeError, ValueError):
-                return d
-        p_pos = _pi("p_positive_12m", 50)
         # ── #4/#1 — ANCLA la probabilidad al base-rate empírico ANTES del Kelly (el sizing es muy sensible a p).
         # Kelly ADAPTATIVO: usa el edge realizado MÁS ESPECÍFICO con muestra suficiente
         # (ticker → tipo de setup → recomendación → global), con shrinkage por n. Dimensiona por TU edge medido.
@@ -16055,15 +16063,10 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
         # La probabilidad que dimensiona dinero sale de la MUESTRA, no del
         # modelo. La matemática vive en `_ancla_probabilidad`, que se puede
         # medir sola; aquí sólo se le pasan los candidatos ya recogidos.
-        _p_modelo = p_pos
         _overall = ((calib_stats or {}).get("overall_hit_rate"),
                     (calib_stats or {}).get("n"))
         p_pos, prob_anchor = _ancla_probabilidad(
             _cand, ("global", _overall[0], _overall[1]) if _overall[0] is not None else None)
-        if prob_anchor is not None:
-            # Lo que dijo el modelo se GUARDA para poder medir algún día si
-            # acierta, pero no entra en ningún cálculo.
-            prob_anchor["p_del_modelo_no_usada"] = _p_modelo
         analisis_json["prob_anchoring"] = prob_anchor
         bull12 = float(targets['12m']['bull']); bear12 = float(targets['12m']['bear'])
         reward = max(0.0, (bull12 - precio_actual) / precio_actual)

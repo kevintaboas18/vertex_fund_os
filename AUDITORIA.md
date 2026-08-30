@@ -10465,6 +10465,70 @@ directorio con el mismo fallo: `_PERFIL_DIR` lo tuvo, `REPORTES_LOCAL` lo tuvo
 ayer, y `Memoria/` lo tenía hoy. Unificado en `MEMORIA_LOCAL`, con un caso que
 compara las tesis reales antes y después de escribir una.
 
+### El modelo no corrige sus números: no los puede escribir
+
+> «hay que solucionar esto bien y a la perfección […] y esto también, que
+> ningún LLM se invente los números: todo sale de los cálculos ya establecidos
+> y como lo hace exactamente Victor.» — Kevin, 29/08/2026.
+
+La ronda anterior tapó los dos agujeros por los que un número del modelo
+llegaba a pantalla. Pero seguía siendo **disciplina, no estructura**: los
+campos existían en el esquema y el código de más abajo se acordaba de
+sobrescribirlos. `conviccion_score` sólo se corregía DENTRO de la rama del
+motor — y ahí estaba el agujero.
+
+#### Los tres esquemas, sin un solo número
+
+De todo el servidor, sólo **tres** clases se le pasan al modelo como
+`response_schema`. Medido, no supuesto:
+
+| Esquema | Campos numéricos antes | Ahora |
+|---|---|---|
+| `WBJExplanation` (la explicación) | 0 | 0 |
+| `TradeProbabilities` | **4** | **0** |
+| `VertexDeepAnalysis` (el análisis) | **3** | **0** |
+
+Los siete se fueron. `fair_value` y `upside_pct` los pone el bloque de targets
+desde los de Victor; `conviccion_score`, el `raw_total` del motor; y la
+probabilidad, `_ancla_probabilidad` desde la muestra medida. Se comprobó antes
+de quitarlos que **ninguna lectura los usaba** antes de ser sobrescritos: las
+de `fair_value` y `upside_pct` caen después de la línea 15982, que los asigna
+en las dos ramas.
+
+Lo que el modelo sigue escribiendo: **más de diez campos de texto**. Explicar
+en palabras es su trabajo. `TradeProbabilities` conserva su `rationale`, con
+la instrucción explícita de no escribir cifras.
+
+#### Y `ExploreResponse` no cuenta, aunque lleve números
+
+Es un `response_model` de FastAPI —la forma de SALIDA de un endpoint—, no algo
+que se le pida al modelo. Sus `revenue`, `growth` y `score10` salen del
+screener del motor. La diferencia entre `response_schema=` y `response_model=`
+es exactamente la que separa «lo que el modelo escribe» de «lo que la ruta
+devuelve», y hay un caso que ata Explore a `run_screen` y falla si esa ruta
+llegara a llamar a un modelo.
+
+#### Las tres clases muertas, borradas
+
+`BullCase`, `BearCase` y `DebateVerdict`: definidas y **nunca usadas** —una
+sola referencia cada una, la de su propia definición—. Declaraban `confidence`
+y `p_bull_correct`, dos números 0-100.
+
+Un esquema muerto que pide números es una puerta abierta: el día que alguien lo
+cablee, el modelo empieza a emitir cifras sin que nadie recuerde por qué no
+debía. «No existe» y «existe y no se usa» no son lo mismo.
+
+#### El guardián que hace que esto no dependa de nadie
+
+`test_NINGUN_esquema_declara_un_campo_numerico` no comprueba una lista escrita
+a mano: **lee del código** qué clases se pasan como `response_schema`, entra en
+los esquemas anidados y falla si alguna declara un `int` o un `float`.
+
+Verificado en las dos direcciones: rojo con el `vertex_api.py` anterior, y —
+metiendo a propósito un `colado: int` en `TradeProbabilities`— rojo otra vez,
+nombrando el campo. Y hay un caso que comprueba que el barrido **encuentra**
+los esquemas: uno que no mira nada pasa vacío y no protege de nada.
+
 ### El bucle que no se cerraba: la predicción, el track record y el vigilante
 
 > «vamos hacer esto: solucionalo y arreglalo.» — Kevin, 28/08/2026, sobre los

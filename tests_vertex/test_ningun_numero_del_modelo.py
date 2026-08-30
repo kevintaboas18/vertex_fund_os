@@ -33,6 +33,112 @@ if RAIZ not in sys.path:
 import vertex_api as V  # noqa: E402
 
 
+class TestElModeloNoPuedeEmitirUnNUMERO:
+    """La regla, hecha estructura en vez de disciplina.
+
+    Antes los números del modelo se **corregían** después: `fair_value` y
+    `upside_pct` en el bloque de targets, `conviccion_score` con el `raw_total`
+    del motor. Funcionaba mientras alguien se acordara — y `conviccion_score`
+    sólo se corregía DENTRO de la rama del motor, así que sin motor salía el
+    del modelo.
+
+    Ahora los esquemas que se le pasan **no declaran ni un campo numérico**.
+    No es que se corrija: es que no lo puede escribir. Y este caso recorre los
+    esquemas de verdad, así que añadir mañana un `int` a cualquiera de ellos
+    pone la suite en rojo sin que nadie tenga que acordarse de nada.
+    """
+
+    def _esquemas_del_modelo(self):
+        """Los que se le pasan al modelo como `response_schema`.
+
+        Se leen del CÓDIGO, no de una lista escrita a mano: una lista a mano se
+        queda vieja el día que alguien añada una llamada nueva, y entonces el
+        guardián deja de mirar justo lo que hay que mirar.
+
+        `response_model=` NO cuenta, y la diferencia importa: eso es la forma
+        de SALIDA de un endpoint de FastAPI, no lo que se le pide al modelo.
+        `ExploreResponse` lleva números —`revenue`, `growth`, `score10`— y
+        salen del screener del motor (`wbj.screener.screen`), no de ninguna
+        llamada a un modelo. Hay un caso aparte que lo comprueba.
+        """
+        import inspect
+        import re
+
+        src = inspect.getsource(V)
+        nombres = set(re.findall(r"response_schema=([A-Za-z_][A-Za-z_0-9]*)", src))
+        assert nombres, "no se encontró ningún esquema: el guardián no está mirando nada"
+        return {n: getattr(V, n) for n in sorted(nombres) if hasattr(V, n)}
+
+    def _campos(self, modelo, visto=None):
+        """Todos los campos, entrando en los esquemas anidados."""
+        visto = visto if visto is not None else set()
+        if modelo in visto or not hasattr(modelo, "model_fields"):
+            return []
+        visto.add(modelo)
+        salida = []
+        for nombre, campo in modelo.model_fields.items():
+            anot = campo.annotation
+            salida.append((modelo.__name__, nombre, anot))
+            for sub in (getattr(anot, "__args__", ()) or ()) + (anot,):
+                salida += self._campos(sub, visto)
+        return salida
+
+    def test_NINGUN_esquema_declara_un_campo_numerico(self):
+        import typing
+
+        problemas = []
+        for nombre, modelo in self._esquemas_del_modelo().items():
+            for clase, campo, anot in self._campos(modelo):
+                tipos = set(getattr(anot, "__args__", ()) or ()) | {anot}
+                if tipos & {int, float}:
+                    problemas.append(f"{nombre} → {clase}.{campo}: {anot}")
+        assert not problemas, (
+            "el modelo puede emitir números en:\n  " + "\n  ".join(problemas)
+            + "\n\nUn campo numérico en un esquema del modelo es un número "
+              "inventado esperando a que alguien olvide corregirlo. El número "
+              "lo pone el motor.")
+
+    def test_y_el_guardian_esta_MIRANDO_de_verdad(self):
+        """Si el barrido no encuentra esquemas, el caso de arriba pasa vacío y
+        no protege nada. Esto comprueba que sí encuentra los que hay."""
+        esquemas = self._esquemas_del_modelo()
+        assert len(esquemas) >= 2, esquemas
+        assert "VertexDeepAnalysis" in esquemas
+        # Y que sabe entrar en los anidados: `probabilities` es otro esquema.
+        campos = {c for _, c, _ in self._campos(esquemas["VertexDeepAnalysis"])}
+        assert "rationale" in campos, "no entró en TradeProbabilities"
+
+    def test_los_numeros_de_EXPLORE_salen_del_motor_no_de_un_modelo(self):
+        """`ExploreResponse` sí declara números, y está bien: es la forma de
+        salida del endpoint, y quien los calcula es el screener del motor.
+
+        Se comprueba en vez de suponerse — si algún día esa ruta llamara a un
+        modelo, esto lo caza."""
+        import inspect
+
+        src = inspect.getsource(V.get_explore)
+        assert "run_screen" in src, "Explore dejó de usar el screener del motor"
+        for señal in ("generate_content", "client_gemini", "anthropic", "response_schema"):
+            assert señal not in src, f"Explore llama a un modelo: {señal}"
+
+    def test_las_clases_MUERTAS_del_debate_ya_no_existen(self):
+        """`BullCase`, `BearCase` y `DebateVerdict` se definían y no se usaban
+        —una sola referencia cada una, la suya— y declaraban `confidence` y
+        `p_bull_correct`. Un esquema muerto que pide números es una puerta
+        abierta: el día que alguien lo cablee, el modelo empieza a emitir
+        cifras sin que nadie recuerde por qué no debía."""
+        for muerta in ("BullCase", "BearCase", "DebateVerdict"):
+            assert not hasattr(V, muerta), f"{muerta} volvió"
+
+    def test_el_modelo_SIGUE_escribiendo_palabras(self):
+        """Quitar los números no puede dejar mudo al modelo: explicar en
+        palabras es su trabajo, y el reporte se queda sin sentido sin eso."""
+        campos = V.VertexDeepAnalysis.model_fields
+        textos = [k for k, f in campos.items() if f.annotation is str]
+        assert len(textos) >= 10, f"sólo quedan {len(textos)} campos de texto"
+        assert "tesis_inversion_completa" in campos
+
+
 class TestElDineroNoSeDimensionaConUnaAdivinanza:
     """Se mide el RESULTADO, no el código fuente.
 
