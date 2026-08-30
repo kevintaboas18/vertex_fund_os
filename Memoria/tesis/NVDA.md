@@ -14,9 +14,15 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 
 ---
 
-### 2026-08-30 · agente de opciones
+### 2026-08-30 · agente de acciones
 
-**Oportunidad Moderada** · puntaje 61 · precio $217.55
+**ESPECULATIVO** · puntaje 58 · precio $217.55
+
+Niveles: bear $215.37 · base $304.57 · bull $350.26
+
+Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fabricante del motor más potente y eficiente que todos los equipos de carreras quieren usar. No solo hace el motor, sino también las herramientas y el software para que funcione a la perfección. Por eso, es una pieza fundamental en la carrera de la IA.
+
+**Lo que la invalidaría:** {'risk': [], 'business': [], 'market': [], 'source': None, 'unavailable_reason': 'Los thesis killers son judgment-only por diseño: el motor determinista no inventa riesgos. Requieren el juez cualitativo (ANTHROPIC_API_KEY con saldo). Sin él quedan NOT_SCORABLE, no vacíos por error.'}
 
 ---
 
@@ -25,6 +31,18 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 ### 2026-08-30 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 61 · precio $217.55
+
+---
+
+---
+
+---
+
+### 2026-08-30 · agente de opciones
+
+**Oportunidad Moderada** · puntaje 61 · precio $217.55
+
+---
 
 ---
 
@@ -44,9 +62,13 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 
 ---
 
+---
+
 ### 2026-08-28 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 63 · precio $227.00
+
+---
 
 ---
 
@@ -74,9 +96,13 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 
 ---
 
+---
+
 ### 2026-08-27 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 68 · precio $225.72
+
+---
 
 ---
 
@@ -112,9 +138,13 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 
 ---
 
+---
+
 ### 2026-08-26 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 66 · precio $213.05
+
+---
 
 ---
 
@@ -158,35 +188,11 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 
 ---
 
+---
+
 ### 2026-08-25 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 66 · precio $211.47
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
-### 2026-08-25 · agente de opciones
-
-**Oportunidad Moderada** · puntaje 66 · precio $211.31
 
 ---
 
