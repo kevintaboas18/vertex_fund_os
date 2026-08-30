@@ -234,20 +234,6 @@
         "bueno": true
       },
       {
-        "evento": "Initial Jobless Claims (Aug/22)",
-        "fecha": "2026-08-27 12:30",
-        "salio": 203.0,
-        "esperado": 208.0,
-        "anterior": 207.0,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": -5.0,
-        "bueno": true
-      },
-      {
         "evento": "Jobless Claims 4-Week Average (Aug/22)",
         "fecha": "2026-08-27 12:30",
         "salio": 205.5,
@@ -260,6 +246,20 @@
         "hora_et": "08:30",
         "sorpresa": 2.5,
         "bueno": null
+      },
+      {
+        "evento": "Initial Jobless Claims (Aug/22)",
+        "fecha": "2026-08-27 12:30",
+        "salio": 203.0,
+        "esperado": 208.0,
+        "anterior": 207.0,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": -5.0,
+        "bueno": true
       },
       {
         "evento": "Durable Goods Orders MoM (Jul)",
@@ -276,6 +276,20 @@
         "bueno": true
       },
       {
+        "evento": "GDP Growth Rate QoQ (Q2)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 1.5,
+        "esperado": 1.5,
+        "anterior": 2.1,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
         "evento": "PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 3.7,
@@ -288,6 +302,20 @@
         "hora_et": "08:30",
         "sorpresa": 0.10000000000000009,
         "bueno": false
+      },
+      {
+        "evento": "Personal Income MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 0.4,
+        "esperado": 0.2,
+        "anterior": 0.2,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "08:30",
+        "sorpresa": 0.2,
+        "bueno": true
       },
       {
         "evento": "Core PCE Price Index YoY (Jul)",
@@ -318,43 +346,15 @@
         "bueno": true
       },
       {
-        "evento": "Personal Income MoM (Jul)",
+        "evento": "Core PCE Price Index MoM (Jul)",
         "fecha": "2026-08-26 12:30",
-        "salio": 0.4,
+        "salio": 0.2,
         "esperado": 0.2,
-        "anterior": 0.2,
+        "anterior": 0.1,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "08:30",
-        "sorpresa": 0.2,
-        "bueno": true
-      },
-      {
-        "evento": "GDP Growth Rate QoQ (Q2)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 1.5,
-        "esperado": 1.5,
-        "anterior": 2.1,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
-        "evento": "Gross Domestic Product QoQ (Q2)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 1.5,
-        "esperado": 1.5,
-        "anterior": 2.1,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": null,
+        "mejor": "bajo",
         "hora_et": "08:30",
         "sorpresa": 0.0,
         "bueno": null
@@ -374,15 +374,15 @@
         "bueno": false
       },
       {
-        "evento": "Core PCE Price Index MoM (Jul)",
+        "evento": "Gross Domestic Product QoQ (Q2)",
         "fecha": "2026-08-26 12:30",
-        "salio": 0.2,
-        "esperado": 0.2,
-        "anterior": 0.1,
+        "salio": 1.5,
+        "esperado": 1.5,
+        "anterior": 2.1,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
-        "mejor": "bajo",
+        "mejor": null,
         "hora_et": "08:30",
         "sorpresa": 0.0,
         "bueno": null
@@ -480,21 +480,6 @@
         "retrasado": false
       },
       {
-        "evento": "ISM Non-Manufacturing Prices (Aug)",
-        "fecha": "2026-09-03 14:00",
-        "salio": null,
-        "esperado": null,
-        "anterior": 70.3,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": null,
-        "hora_et": "10:00",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "ISM Non-Manufacturing PMI (Aug)",
         "fecha": "2026-09-03 14:00",
         "salio": null,
@@ -510,16 +495,16 @@
         "retrasado": false
       },
       {
-        "evento": "Non Farm Payrolls (Aug)",
-        "fecha": "2026-09-04 12:30",
+        "evento": "ISM Non-Manufacturing Prices (Aug)",
+        "fecha": "2026-09-03 14:00",
         "salio": null,
-        "esperado": 45.0,
-        "anterior": -23.0,
+        "esperado": null,
+        "anterior": 70.3,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "08:30",
+        "mejor": null,
+        "hora_et": "10:00",
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
@@ -555,6 +540,21 @@
         "retrasado": false
       },
       {
+        "evento": "Non Farm Payrolls (Aug)",
+        "fecha": "2026-09-04 12:30",
+        "salio": null,
+        "esperado": 45.0,
+        "anterior": -23.0,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
         "evento": "Average Hourly Earnings YoY (Aug)",
         "fecha": "2026-09-04 12:30",
         "salio": null,
@@ -575,6 +575,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-08-30T14:47:21.339231+00:00",
-  "generado_macro": "2026-08-30T16:33:33.653351+00:00",
-  "generado": "2026-08-30T16:33:33.653351+00:00"
+  "generado_macro": "2026-08-30T18:13:32.485025+00:00",
+  "generado": "2026-08-30T18:13:32.485025+00:00"
 }
