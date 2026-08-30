@@ -2,11 +2,12 @@
 
 Scorecard de flujo 0-100: 6 sub-agentes sobre la cadena de opciones y la cinta, con escenarios a 10 / 20 / 30 días.
 
-Generado por `vertex_archivo.reconstruye_indice` · 123 análisis · 2026-08-30 14:50 UTC
+Generado por `vertex_archivo.reconstruye_indice` · 124 análisis · 2026-08-30 15:21 UTC
 
 | Fecha | Ticker | Veredicto | Archivo |
 |---|---|---|---|
 | 2026-08-30 | **GOOGL** | Oportunidad Moderada · 57.0/100 | [`Proyecciones/GOOGL/2026-08-30/scorecard.json`](GOOGL/2026-08-30/scorecard.json) |
+| 2026-08-30 | **GOOG** | Oportunidad Moderada · 62.0/100 | [`Proyecciones/GOOG/2026-08-30/scorecard.json`](GOOG/2026-08-30/scorecard.json) |
 | 2026-08-28 | **SPY** | Oportunidad Moderada · 62.0/100 | [`Proyecciones/SPY/2026-08-28/scorecard.json`](SPY/2026-08-28/scorecard.json) |
 | 2026-08-28 | **NVDA** | Oportunidad Moderada · 63.0/100 | [`Proyecciones/NVDA/2026-08-28/scorecard.json`](NVDA/2026-08-28/scorecard.json) |
 | 2026-08-28 | **MSFT** | Oportunidad Moderada · 56.0/100 | [`Proyecciones/MSFT/2026-08-28/scorecard.json`](MSFT/2026-08-28/scorecard.json) |
