@@ -4220,7 +4220,7 @@
     "flows_corruptos": 0,
     "flows_sin_id": 0,
     "escrituras_fallidas": null,
-    "flows_nuevos": 47,
+    "flows_nuevos": 0,
     "memoria_desde": "2026-07-09T17:46:43.748Z",
     "predicciones_vencidas": 0,
     "error_medio_pct": null,
@@ -4231,22 +4231,33 @@
     "motivo": null,
     "evals": [
       {
-        "date": "2026-08-28",
+        "date": "2026-08-30",
         "horizon_days": 10,
         "matured": false,
-        "spot": 228.57,
-        "base": 230.0,
+        "spot": 217.55,
+        "base": 225.0,
         "actual_close": null,
         "error_pct": null,
         "best": null,
         "direction_hit": null
       },
       {
-        "date": "2026-08-28",
+        "date": "2026-08-30",
         "horizon_days": 20,
         "matured": false,
-        "spot": 228.57,
-        "base": 230.0,
+        "spot": 217.55,
+        "base": 225.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-08-30",
+        "horizon_days": 30,
+        "matured": false,
+        "spot": 217.55,
+        "base": 225.0,
         "actual_close": null,
         "error_pct": null,
         "best": null,
@@ -4349,17 +4360,6 @@
         "actual_close": 227.0,
         "error_pct": 3.19,
         "best": "bull",
-        "direction_hit": null
-      },
-      {
-        "date": "2026-08-17",
-        "horizon_days": 30,
-        "matured": false,
-        "spot": 225.01,
-        "base": 230.0,
-        "actual_close": 227.0,
-        "error_pct": -1.33,
-        "best": "bear",
         "direction_hit": null
       }
     ]
@@ -4762,5 +4762,5 @@
   ],
   "fecha": "2026-08-30",
   "agente": "opciones",
-  "guardado_en": "2026-08-30T15:27:24+00:00"
+  "guardado_en": "2026-08-30T16:33:21+00:00"
 }
