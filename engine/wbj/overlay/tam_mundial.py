@@ -762,8 +762,36 @@ def _validar(datos: dict, industria: str) -> tuple[dict | None, str]:
     return fuera, ""
 
 
+def _sin_contradiccion(contenido: dict) -> dict:
+    """Una empresa no puede competir ENTERA y a la vez tener patrones que
+    eligen un trozo de ella.
+
+    Si `_ingreso_relevante` es `total`, el numerador es toda la facturacion y
+    los patrones no eligen nada: sobran. Y si eligen algo, entonces la empresa
+    no compite entera. Declarar las dos cosas deja el numerador ambiguo, que es
+    justo lo que no puede quedar a interpretacion.
+
+    Podia pasar porque los juicios de la capa se CONSERVAN de la resolucion
+    anterior —para que revisar la cifra no borre el numerador— mientras
+    `_validar` anade los patrones nuevos que devuelve el modelo. Las dos cosas
+    son correctas por separado y juntas se contradicen. Paso el 29/08/2026 con
+    `drug-manufacturers-general`: el archivo decia «la facturacion de una
+    farmaceutica general son ventas de medicamentos, que es la capa del TAM» y
+    ademas traia cuatro patrones. Lo cazo el guardian del motor.
+
+    Manda `_ingreso_relevante`, que es el juicio explicito y viene con su
+    `_porque` escrito; los patrones son el mecanismo, y un mecanismo que no
+    elige nada es ruido.
+    """
+    if contenido.get("_ingreso_relevante") == "total" and contenido.get("_segmento_patrones"):
+        contenido = dict(contenido)
+        contenido.pop("_segmento_patrones", None)
+    return contenido
+
+
 def _escribir(path: Path, contenido: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    contenido = _sin_contradiccion(contenido)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         tmp.write_text(json.dumps(contenido, ensure_ascii=False, indent=2) + "\n",

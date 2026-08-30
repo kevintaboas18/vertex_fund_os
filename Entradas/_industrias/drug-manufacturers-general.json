@@ -18,12 +18,6 @@
     1545000000000,
     1700000000000
   ],
-  "_segmento_patrones": [
-    "pharmaceuticals",
-    "medicines",
-    "drugs",
-    "biologics"
-  ],
   "_capa_juzgada": "La cifra mide las ventas mundiales de medicamentos de prescripción a precios de lista, que es el eslabón de la cadena de valor donde Eli Lilly and Company (LLY) factura sus productos.",
   "_ingreso_relevante": "total",
   "_ingreso_relevante_porque": "La facturacion de una farmaceutica general son ventas de medicamentos a precio de lista, que es la capa del TAM."

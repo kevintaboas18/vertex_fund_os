@@ -107,3 +107,45 @@ def test_an_unresolved_industry_says_why():
         assert (d.get("_sin_tam") or d.get("_que_hacer")
                 or d.get("_sugerencia_sin_verificar")), (
             f"{path.stem}: sin TAM y sin explicar por que")
+
+
+# ── La contradiccion no se arregla a mano: se hace imposible ────────────────
+
+def test_al_escribir_se_quitan_los_patrones_si_compite_entera():
+    """`drug-manufacturers-general` salio del generador con las dos cosas.
+
+    Los juicios de la capa se CONSERVAN de la resolucion anterior —para que
+    revisar la cifra no borre el numerador— mientras `_validar` anade los
+    patrones nuevos que devuelve el modelo. Cada mitad es correcta y juntas se
+    contradicen, asi que arreglar el archivo a mano no basta: el barrido
+    volveria a escribirlo igual dentro de 90 dias.
+    """
+    from wbj.overlay.tam_mundial import _sin_contradiccion
+
+    salida = _sin_contradiccion({
+        "tam": 1_700_000_000_000, "_ingreso_relevante": "total",
+        "_ingreso_relevante_porque": "compite entera",
+        "_segmento_patrones": ["pharmaceuticals", "drugs"]})
+    assert "_segmento_patrones" not in salida
+    assert salida["_ingreso_relevante"] == "total", "manda el juicio explicito"
+
+
+def test_pero_si_NO_compite_entera_los_patrones_se_quedan():
+    """La invariante no puede llevarse por delante el caso normal: un archivo
+    de segmento necesita sus patrones para elegir el numerador."""
+    from wbj.overlay.tam_mundial import _sin_contradiccion
+
+    salida = _sin_contradiccion({
+        "tam": 5_000_000_000, "_ingreso_relevante": "segmento",
+        "_segmento_patrones": ["gaming", "datacenter"]})
+    assert salida["_segmento_patrones"] == ["gaming", "datacenter"]
+
+
+def test_y_no_muta_lo_que_le_pasan():
+    """Escribe una copia. Mutar el diccionario del llamador haria que el
+    archivo en memoria y el del disco dejaran de coincidir."""
+    from wbj.overlay.tam_mundial import _sin_contradiccion
+
+    entrada = {"_ingreso_relevante": "total", "_segmento_patrones": ["x"]}
+    _sin_contradiccion(entrada)
+    assert entrada["_segmento_patrones"] == ["x"]
