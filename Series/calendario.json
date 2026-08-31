@@ -262,6 +262,48 @@
         "bueno": true
       },
       {
+        "evento": "Durable Goods Orders MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 1.1,
+        "esperado": 0.5,
+        "anterior": 0.5,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "08:30",
+        "sorpresa": 0.6000000000000001,
+        "bueno": true
+      },
+      {
+        "evento": "PCE Price Index YoY (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 3.7,
+        "esperado": 3.6,
+        "anterior": 3.7,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.10000000000000009,
+        "bueno": false
+      },
+      {
+        "evento": "Personal Spending MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 0.2,
+        "esperado": 0.1,
+        "anterior": 0.3,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "08:30",
+        "sorpresa": 0.1,
+        "bueno": true
+      },
+      {
         "evento": "Core PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 3.3,
@@ -304,60 +346,18 @@
         "bueno": null
       },
       {
-        "evento": "Personal Spending MoM (Jul)",
+        "evento": "Gross Domestic Product QoQ (Q2)",
         "fecha": "2026-08-26 12:30",
-        "salio": 0.2,
-        "esperado": 0.1,
-        "anterior": 0.3,
+        "salio": 1.5,
+        "esperado": 1.5,
+        "anterior": 2.1,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
-        "mejor": "alto",
+        "mejor": null,
         "hora_et": "08:30",
-        "sorpresa": 0.1,
-        "bueno": true
-      },
-      {
-        "evento": "Durable Goods Orders MoM (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 1.1,
-        "esperado": 0.5,
-        "anterior": 0.5,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "08:30",
-        "sorpresa": 0.6000000000000001,
-        "bueno": true
-      },
-      {
-        "evento": "PCE Price Index YoY (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 3.7,
-        "esperado": 3.6,
-        "anterior": 3.7,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.10000000000000009,
-        "bueno": false
-      },
-      {
-        "evento": "PCE Price Index MoM (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 0.2,
-        "esperado": 0.1,
-        "anterior": -0.1,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.1,
-        "bueno": false
+        "sorpresa": 0.0,
+        "bueno": null
       },
       {
         "evento": "Core PCE Price Index MoM (Jul)",
@@ -374,18 +374,18 @@
         "bueno": null
       },
       {
-        "evento": "Gross Domestic Product QoQ (Q2)",
+        "evento": "PCE Price Index MoM (Jul)",
         "fecha": "2026-08-26 12:30",
-        "salio": 1.5,
-        "esperado": 1.5,
-        "anterior": 2.1,
+        "salio": 0.2,
+        "esperado": 0.1,
+        "anterior": -0.1,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "medium",
         "nivel": 1,
-        "mejor": null,
+        "mejor": "bajo",
         "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
+        "sorpresa": 0.1,
+        "bueno": false
       }
     ],
     "proximos": [
@@ -435,21 +435,6 @@
         "retrasado": false
       },
       {
-        "evento": "Jobless Claims 4-Week Average (Aug/29)",
-        "fecha": "2026-09-03 12:30",
-        "salio": null,
-        "esperado": 205.0,
-        "anterior": 205.5,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": null,
-        "hora_et": "08:30",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "Initial Jobless Claims (Aug/29)",
         "fecha": "2026-09-03 12:30",
         "salio": null,
@@ -459,6 +444,21 @@
         "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "Jobless Claims 4-Week Average (Aug/29)",
+        "fecha": "2026-09-03 12:30",
+        "salio": null,
+        "esperado": 205.0,
+        "anterior": 205.5,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": null,
         "hora_et": "08:30",
         "sorpresa": null,
         "bueno": null,
@@ -510,13 +510,13 @@
         "retrasado": false
       },
       {
-        "evento": "Average Hourly Earnings MoM (Aug)",
+        "evento": "Unemployment Rate (Aug)",
         "fecha": "2026-09-04 12:30",
         "salio": null,
-        "esperado": 0.2,
-        "anterior": 0.1,
+        "esperado": 4.2,
+        "anterior": 4.1,
         "unidad": "",
-        "impacto": "medium",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -525,13 +525,13 @@
         "retrasado": false
       },
       {
-        "evento": "Unemployment Rate (Aug)",
+        "evento": "Average Hourly Earnings MoM (Aug)",
         "fecha": "2026-09-04 12:30",
         "salio": null,
-        "esperado": 4.2,
-        "anterior": 4.1,
+        "esperado": 0.2,
+        "anterior": 0.1,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -575,6 +575,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-08-30T14:47:21.339231+00:00",
-  "generado_macro": "2026-08-31T01:20:44.541357+00:00",
-  "generado": "2026-08-31T01:20:44.541357+00:00"
+  "generado_macro": "2026-08-31T03:05:43.389001+00:00",
+  "generado": "2026-08-31T03:05:43.389001+00:00"
 }
