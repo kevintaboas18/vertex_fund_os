@@ -1681,19 +1681,28 @@ class TestLaPerdidaMAXIMAEsDeLaPOSICION_NoDeLaCuenta:
         assert "P.perdida_max" in f, "la tarjeta sigue pintando el % de la cuenta"
         assert "de la posición" in f, "no dice sobre qué se aplica el %"
 
-    def test_la_tarjeta_ENSEÑA_los_dos_techos_que_uso_el_motor(self):
-        """La tarjeta tiene que explicar por qué una fila cabe o no.
+    def test_el_numero_de_contratos_SALE_DEL_MOTOR_no_del_navegador(self):
+        """Lo que decide si una fila cabe lo calcula el motor, no la pantalla.
 
-        Nació midiendo el hueco: el panel prometía posiciones de hasta $800 y
+        Nació midiendo un hueco: el panel prometía posiciones de hasta $800 y
         la tabla decía «no cabe» porque `size_flow` dimensionaba con el 30% de
-        la cuenta. Ese hueco se cerró —la banda ya manda—, así que lo que se
-        vigila ahora es otra cosa: que los dos techos que se pintan sean los
-        que el motor **acaba de usar**, no una copia escrita a mano. Con dos
-        modelos de riesgo posibles, una copia se separa de la buena en cuanto
-        un perfil cambie de uno al otro.
+        la cuenta. Ese hueco se cerró y la tarjeta pasó a IMPRIMIR los dos
+        techos para que se viera por qué.
+
+        Ya no los imprime —Kevin pidió quitar el texto que los explicaba— y con
+        ellos se fue el caso que los vigilaba ahí. Lo que NO se fue es la regla,
+        que era la de siempre: el número que el usuario lee sale del motor y
+        nunca de una cuenta hecha en el navegador. Así que el guardián se mueve
+        a donde ese número se pinta ahora, en vez de borrarse: los techos
+        siguen mandando, solo que a través de `sizing`.
         """
         h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        f = h.split("function vcRiesgoHTML(P) {", 1)[1].split("\n}\n", 1)[0]
-        assert "te cabe" in f, "no se ata la tarjeta con la columna de la tabla"
-        assert "P.budget_premium" in f and "P.budget_theta" in f, (
-            "los techos se recalculan en el navegador en vez de venir del motor")
+        f = h.split("function renderProjIdeas(", 1)[1].split("\nfunction ", 1)[0]
+        for campo in ("max_contracts", "total_cost", "cost_pct_of_account"):
+            assert f"s.{campo}" in f, (
+                f"la columna «te cabe» ya no lee `sizing.{campo}` del motor")
+        # Y la tarjeta no puede volver a inventarse un techo por su cuenta.
+        r = h.split("function vcRiesgoHTML(P) {", 1)[1].split("\n}\n", 1)[0]
+        assert "budget_premium" not in r and "budget_theta" not in r, (
+            "los techos volvieron a la tarjeta: si se pintan, que sea con el "
+            "valor del motor y declarándolo en el guardián de cableado")

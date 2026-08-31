@@ -8976,6 +8976,18 @@ function wlUnderlyings() { return [...new Set(wlLocalCarga().map(e => e.ticker))
 function wlTickerList(entries) { return [...new Set(entries.map(e => e.ticker))].sort().join(', '); }
 function wlBrokerPorId(id) { return wlBrokers.find(b => b.id === id) || null; }
 
+/** El nombre del broker TAL Y COMO SE LEE en pantalla.
+ *
+ *  `BROKERS` es un port literal de su `watchlist.ts` y `diff_watchlist.sh`
+ *  compara los nombres uno a uno (734 casos), así que la lista no se toca: el
+ *  día que cambie ahí, cambia aquí sola. Lo que cambia es la ETIQUETA, que es
+ *  de este panel y no del suyo — aquí el agente no se llama Tito.
+ */
+function wlNombreBroker(b) {
+    if (!b || !b.name) return '';
+    return b.id === 'none' ? 'Solo en el Agente' : b.name;
+}
+
 /** `upsert`: volver a marcar un contrato NO pisa la foto original —esa es la
  *  que da valor al histórico— pero conserva el estado de sincronización. */
 function wlUpsert(entries, entry) {
@@ -9105,14 +9117,14 @@ function renderProjWatchlist() {
         catch (err) { return e.expiration; }
     };
     const marcada = iso => { try { return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }); } catch (e) { return ''; } };
-    const opciones = (wlBrokers.length ? wlBrokers : [{ id: 'none', name: 'Solo en Tito' }])
-        .map(x => `<option value="${_vcEsc(x.id)}" ${x.id === brokerId ? 'selected' : ''}>${_vcEsc(x.name)}</option>`).join('');
+    const opciones = (wlBrokers.length ? wlBrokers : [{ id: 'none', name: 'Solo en el Agente' }])
+        .map(x => `<option value="${_vcEsc(x.id)}" ${x.id === brokerId ? 'selected' : ''}>${_vcEsc(wlNombreBroker(x))}</option>`).join('');
 
     const aviso = (cls, cuerpo) => `<div class="rounded-xl p-2.5 mt-2 text-[10px] leading-snug ${cls}">${cuerpo}</div>`;
     let bloques = '';
     if (b && b.caveat) bloques += `<p class="text-[10px] text-amber-400 leading-snug mt-1.5">⚠️ ${_vcEsc(b.caveat)}</p>`;
     if (wlConectar && b && b.kind === 'mcp') bloques += aviso('bg-blue-500/[0.06] border border-blue-500/20 text-gray-300',
-        `<p class="font-bold text-blue-300 mb-1">Conectar ${_vcEsc(b.name)} a tu Claude</p>
+        `<p class="font-bold text-blue-300 mb-1">Conectar ${_vcEsc(wlNombreBroker(b))} a tu Claude</p>
          <p class="text-gray-400">La conexión se autoriza con OAuth dentro de Claude, no en esta página — <b>tu contraseña nunca pasa por aquí</b>.
            Pega este comando en tu terminal y luego escribe <code class="text-gray-300">/mcp</code> para autenticarte:</p>
          <div class="flex items-center gap-2 mt-1.5 flex-wrap"><code class="text-[9px] text-gray-300 bg-black/40 rounded px-1.5 py-1 break-all">${_vcEsc(WL_MCP_CMD)}</code>
@@ -9120,7 +9132,7 @@ function renderProjWatchlist() {
          <p class="text-gray-400 mt-1.5">Autorizar da a tu agente lectura de tus cuentas, posiciones e historial de órdenes.
            <b>No es un permiso menor</b> — léelo antes de aceptar. Solo se usa para añadir contratos a tu watchlist: <b>nunca coloca una orden</b>.</p>`);
     if (b && b.kind === 'mcp' && wlPendientes.length) bloques += aviso('bg-amber-500/[0.06] border border-amber-500/20 text-amber-200/80',
-        `<b class="text-amber-300">Pendiente de sincronizar con ${_vcEsc(b.name)}:</b>
+        `<b class="text-amber-300">Pendiente de sincronizar con ${_vcEsc(wlNombreBroker(b))}:</b>
          <code class="text-gray-300">${wlPendientes.map(x => _vcEsc(wlEtiquetaCola(x))).join(' · ')}</code>
          <p class="mt-1">${b.granularity === 'contracts'
             ? 'Son los contratos completos, tal cual entrarán en tu watchlist de opciones.'
@@ -9132,7 +9144,7 @@ function renderProjWatchlist() {
          <p class="mt-1">${_vcEsc((wlFallidos[0] || {}).failReason || 'No se pudo resolver el contrato en el broker.')}
            No se reintentan solos. Desmarca y vuelve a marcar ⭐ para reencolarlos con el contrato completo.</p>`);
     if (b && b.kind === 'copy' && entries.length) bloques += aviso('bg-white/[0.03] border border-gray-800 text-gray-400',
-        `<b class="text-gray-200">Para ${_vcEsc(b.name)}:</b> <code class="text-gray-300">${_vcEsc(wlTickerList(entries))}</code>
+        `<b class="text-gray-200">Para ${_vcEsc(wlNombreBroker(b))}:</b> <code class="text-gray-300">${_vcEsc(wlTickerList(entries))}</code>
          <button onclick="wlCopia(${JSON.stringify(wlTickerList(entries)).replace(/"/g, '&quot;')}, this)" class="ml-2 text-blue-400 hover:text-blue-300 font-bold">copiar</button>`);
 
     const tabla = !entries.length ? '' : `<div class="vc-scroll overflow-x-auto mt-3"><table class="vc-t w-full text-[11px] min-w-[720px]">
@@ -9145,7 +9157,7 @@ function renderProjWatchlist() {
       <tbody>${entries.map(e => {
         const enlace = (b && b.quoteUrl) ? b.quoteUrl.replace('__T__', encodeURIComponent(e.ticker)) : null;
         const sync = (b && b.kind === 'link' && enlace)
-            ? `<a href="${_vcEsc(enlace)}" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 font-bold">${_vcEsc(b.name)} ↗</a>`
+            ? `<a href="${_vcEsc(enlace)}" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 font-bold">${_vcEsc(wlNombreBroker(b))} ↗</a>`
             : (e.brokerSync && e.brokerSync.status === 'sincronizado')
                 ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/10 text-emerald-400">✓ ${_vcEsc(e.brokerSync.broker)}</span>`
                 : `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-white/5 text-gray-400">solo aquí</span>`;
@@ -9173,7 +9185,7 @@ function renderProjWatchlist() {
           <select onchange="wlCambiaBroker(this.value)" aria-label="Broker donde sincronizar el watchlist"
             class="bg-[#0B0E14] border border-gray-800 text-gray-200 text-[11px] rounded-lg px-2 py-1 outline-none focus:border-blue-500">${opciones}</select></label>
         ${b && b.kind === 'mcp' ? `<button onclick="wlAlternaConectar()" class="text-[10px] font-bold text-blue-400 hover:text-blue-300">${
-          wlConectar ? 'Ocultar' : '🔗 Conectar ' + _vcEsc(b.name)}</button>` : ''}</div>
+          wlConectar ? 'Ocultar' : '🔗 Conectar ' + _vcEsc(wlNombreBroker(b))}</button>` : ''}</div>
       ${bloques}
       ${tabla}
       ${entries.length ? `<p class="text-[9px] text-gray-600 mt-2 leading-relaxed">Tu watchlist se guarda en este navegador, no en el servidor — igual que tu saldo.
@@ -9200,8 +9212,7 @@ function vcRiesgoHTML(P) {
     const theta = P.theta_budget_pct != null ? P.theta_budget_pct : 5;
     return `<section class="bg-panel border border-panel rounded-2xl p-4 mb-3">
       <div class="flex items-baseline justify-between flex-wrap gap-2">
-        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Tu perfil de riesgo</h3>
-        <span class="text-[10px] text-gray-500">Sale de tu cuenta, no de este navegador — el mismo que usan los seis sub-agentes.</span></div>
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Tu perfil de riesgo</h3></div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3">
         <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
           <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Tamaño de cuenta</div>
@@ -9246,26 +9257,7 @@ function vcRiesgoHTML(P) {
           <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Máxima quema de theta (${theta}%)</div>
           <div class="text-sm font-black text-amber-400">${fmtMoney(P.theta_budget != null ? P.theta_budget : P.capital * theta / 100)}</div></div>
       </div>
-      <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">Estos números son un <b>techo</b>, no una sugerencia de compra. El límite de theta sale de la banda del
-        documento de Inusualidad: un contrato que pierde más del ${theta}% de su valor al día se descarta por lotería.
-        <button onclick="switchView('perfilView')" class="text-blue-400 hover:text-blue-300 font-bold ml-1">Editar perfil &rsaquo;</button></p>
-      <!-- La advertencia que no se puede omitir sin que la tarjeta mienta: un
-           stop no sobrevive a un hueco. Y debajo, los DOS presupuestos con los
-           que el motor acaba de dimensionar, que son los que explican por qué
-           una fila cabe o no. Vienen calculados del motor, no escritos aquí. -->
-      <p class="text-[9px] text-amber-600/80 mt-1 leading-relaxed">
-        <!-- Sin NEGRITA dentro: el barrido del idioma traduce nodos de texto,
-             y una negrita en medio parte la frase en tres trozos sueltos que
-             hay que declarar uno a uno. Va entera y se traduce entera.
-
-             Y sin acentos graves en este comentario, que es lo que rompió la
-             pestaña entera: vive DENTRO de una plantilla de JavaScript, el
-             primero la CIERRA, y lo que sigue se evalúa como código. Un
-             ReferenceError aquí deja la rueda del escaneo girando para
-             siempre, porque loadProjIdeas ya la había pintado. -->
-        <span>En una opción larga ese porcentaje es una disciplina de salida, no un suelo: un hueco a la baja se lleva la prima entera, así que lo que puedes perder de verdad es la posición completa.</span></p>
-      ${P.budget_premium != null ? `<p class="text-[9px] text-gray-600 mt-1 leading-relaxed">
-        <span>La columna «te cabe» de abajo dimensiona con estos dos techos: ${fmtMoney(P.budget_premium)} de prima y ${fmtMoney(P.budget_theta)} de quema de theta en tu horizonte. Manda el más estricto de los dos.</span></p>` : ''}
+      <p class="mt-2"><button onclick="switchView('perfilView')" class="text-[9px] text-blue-400 hover:text-blue-300 font-bold">Editar perfil &rsaquo;</button></p>
     </section>`;
 }
 
@@ -12517,7 +12509,6 @@ function analyzeTickerNow(tk) {
             <span id="projVivo" class="flex items-center gap-1.5 text-[10px] text-gray-500"></span>
         </div>
     </div>
-    <p class="text-xs text-gray-500 -mt-3">Seis sub-agentes sobre la cadena de Massive y la cinta de MarketSnack: agresi&oacute;n, convicci&oacute;n, inusualidad, estructura, contexto IV y confirmaci&oacute;n de precio.</p>
 
     <div id="projPaneTicker">
     <div id="projEmpty" class="text-center py-20 px-4">
@@ -14325,7 +14316,6 @@ const VX_ES2EN = {
     "Cada cifra con LA FECHA en que se publicó: el IPC de hoy es el del mes pasado. La flecha compara con la lectura anterior. Fuente: FRED.": "Every figure with THE DATE it was published: today's CPI is last month's. The arrow compares against the previous reading. Source: FRED.",
     "Falta FMP_API_KEY: sin ella no hay fechas de resultados.": "FMP_API_KEY is missing: without it there are no earnings dates.",
     "Dentro de cada día van de mayor a menor; pasa el cursor para ver el tamaño y si reporta antes de abrir o tras el cierre.": "Within each day they go largest to smallest; hover to see the size and whether it reports before the open or after the close.",
-    "En una opción larga ese porcentaje es una disciplina de salida, no un suelo: un hueco a la baja se lleva la prima entera, así que lo que puedes perder de verdad es la posición completa.": "On a long option that percentage is an exit discipline, not a floor: a gap down takes the whole premium, so what you can really lose is the entire position.",
     "El listado de capitalizaciones vino vacío: salen todas las que reportan.": "The market-capitalisation listing came back empty: every company reporting is shown.",
     "El listado de capitalizaciones no traía el campo `marketCap`: salen todas las que reportan.": "The market-capitalisation listing did not carry the `marketCap` field: every company reporting is shown.",
     "No se pudo medir el tamaño: salen todas las que reportan.": "The size could not be measured: every company reporting is shown.",
@@ -14591,7 +14581,6 @@ const VX_ES2EN = {
     "precio al que se ejecutó cada flow": "price at which each flow was executed",
     "Guardar en tu watchlist con el sizing de ahora": "Save to your watchlist with your current sizing",
     "no cabe: el colateral supera tu tope por posición": "does not fit: the collateral exceeds your per-position cap",
-    ", no una sugerencia de compra. El límite de theta sale de la banda del documento de Inusualidad: un contrato que pierde más del 5% de su valor al día se descarta por lotería.": ", not a buy suggestion. The theta limit comes from the band in the Unusualness document: a contract losing more than 5% of its value per day is discarded as a lottery ticket.",
     ": ▲ Compra = pagaron el precio del vendedor (agresivo) · ▼ Venta = aceptaron el precio del comprador. ↑ ejecutado sobre el ask · ↓ bajo el bid · 🔁 ×N = veces que se repitió ese contrato.": ": ▲ Buy = they paid the seller's price (aggressive) · ▼ Sell = they accepted the buyer's price. ↑ filled above the ask · ↓ below the bid · 🔁 ×N = how many times that contract repeated.",
     ", no sobre la cotización viva del contrato — el feed no la entrega. Los flows son del día, así que la diferencia es pequeña, pero el número es una referencia, no una orden. Material educativo:": ", not on the contract's live quote — the feed does not provide it. The flows are same-day, so the difference is small, but the number is a reference, not an order. Educational material:",
     "10d / 20d / 30d, los horizontes de su Prediction Pro. El puntaje que los mueve es el de sus 6 sub-agentes (agresión 20 · convicción 20 · inusualidad 20 · estructura 15 · contexto IV 10 · validación 15) y el ancho sale del movimiento esperado. Bear / Base / Bull — nunca un solo precio.": "10d / 20d / 30d, the horizons of his Prediction Pro. The score that moves them is that of his 6 sub-agents (aggression 20 · conviction 20 · unusualness 20 · structure 15 · IV context 10 · validation 15) and the width comes from the expected move. Bear / base / bull — never a single price.",
@@ -14610,7 +14599,6 @@ const VX_ES2EN = {
     "Un dato material (acciones, deuda, caja o precio) difiere entre EDGAR y FMP. El valor por acción se suprime hasta resolverlo — mejor sin número que con uno dudoso.": "A material figure (shares, debt, cash or price) differs between EDGAR and FMP. The per-share value is suppressed until it is resolved — better no number than a doubtful one.",
     "Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de yfinance.": "Net delta · gamma · theta · vega of the book · expiration ladder · total directional exposure (options + shares) · Black-Scholes with yfinance IV.",
     "Si el motivo es la fuente en TODOS, no es el mercado: mira el ejemplo — dice si es la credencial (401), el plan (403), el límite de tasa (429) o los filtros.": "If the reason is the source in ALL of them, it is not the market: look at the example — it says whether it is the credential (401), the plan (403), the rate limit (429) or the filters.",
-    "Seis sub-agentes sobre la cadena de Massive y la cinta de MarketSnack: agresión, convicción, inusualidad, estructura, contexto IV y confirmación de precio.": "Six sub-agents over the Massive chain and the MarketSnack tape: aggression, conviction, unusualness, structure, IV context and price confirmation.",
     "Elige un ticker arriba (o búscalo) y el agente armará el sentiment score, el flujo inusual, los muros de strikes y el detalle completo de cada sub-agente.": "Pick a ticker above (or search for one) and the agent will build the sentiment score, the unusual flow, the strike walls and the full breakdown of every sub-agent.",
     "Carga tus posiciones a mano cuando no quieras conectar un broker. Escribe el mismo snapshot que usa Plaid, así que el dashboard de análisis corre igual.": "Load your positions by hand when you do not want to connect a broker. It writes the same snapshot Plaid uses, so the analysis dashboard runs just the same.",
     "Tu email es lo único tuyo que el sistema necesita además del perfil. No se envía a ninguna fuente de datos: Massive y MarketSnack solo reciben símbolos.": "Your email is the only personal detail the system needs besides the profile. It is never sent to a data source: Massive and MarketSnack only ever receive symbols.",
@@ -14723,7 +14711,6 @@ const VX_ES2EN = {
     "¿Tu capital está donde tienes ventaja? Cruza tu libro con tu expectancy por ticker.": "Is your capital where your edge is? Cross your book with your expectancy per ticker.",
     "El agente recuerda su análisis previo y explica su evolución en la tesis completa.": "The agent remembers its previous analysis and explains how it evolved in the full thesis.",
     "A medida que tus análisis maduren, aquí verás la tasa de acierto real del agente.": "As your analyses mature, you will see the agent's real hit rate here.",
-    "Sale de tu cuenta, no de este navegador — el mismo que usan los seis sub-agentes.": "It comes from your account, not from this browser — the same one the six sub-agents use.",
     "Zonas donde el precio suele frenar. La probabilidad es qué tan factible es que lo": "Zones where price tends to stall. The probability is how feasible it is that it",
     "de Victor (pestaña Full Research — regla \"sin evidencia, no hay número\"). Aquí el": "of Victor's (Full Research tab — the \"no evidence, no number\" rule). Here the",
     "La barra de dinero sigue siendo real; lo que falta es la línea de precio encima.": "The money bar is still real; what is missing is the price line on top.",
@@ -15155,7 +15142,6 @@ const VX_ES2EN = {
     "Código de invitación": "Invitation code",
     "Detalle por Posición": "Breakdown by position",
     "Deuda y rentabilidad": "Debt and profitability",
-    "Estos números son un": "These numbers are a",
     "No se pudo calcular.": "Could not compute.",
     "No se pudo escanear.": "Could not scan.",
     "Respaldo con errores": "Backup with errors",
@@ -15446,7 +15432,7 @@ const VX_ES2EN = {
     "Sin contexto": "No context",
     "Sin respaldo": "No backup",
     "Sobre el ask": "Above the ask",
-    "Solo en Tito": "Tito only",
+    "Solo en el Agente": "Agent only",
     "Tipo de idea": "Idea type",
     "Un solo lado": "One-sided",
     "Venta al bid": "Sold at the bid",
@@ -15675,8 +15661,6 @@ const VX_PAT = [
      '$1 ticker(s) did not get history in time on this scan.'],
     [/^El escaneo pasó de (\d+) segundos sin contestar\. En Render el servicio se duerme y el primer escaneo tras despertarlo es el más lento: vuelve a intentarlo\.$/,
      'The scan went past $1 seconds without answering. On Render the service goes to sleep, and the first scan after waking it is the slowest: try again.'],
-    [/^La columna «te cabe» de abajo dimensiona con estos dos techos: (\S+) de prima y (\S+) de quema de theta en tu horizonte\. Manda el más estricto de los dos\.$/,
-     'The «fits you» column below sizes with these two ceilings: $1 of premium and $2 of theta burn over your horizon. The stricter of the two wins.'],
     [/^No se pudo medir el tamaño \((.+)\): salen todas las que reportan\.$/,
      'The size could not be measured ($1): every company reporting is shown.'],
     [/^Ninguna empresa de más de (\d+) mil millones reporta en los próximos (\d+) días\.$/,

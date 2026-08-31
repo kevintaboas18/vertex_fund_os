@@ -3099,6 +3099,15 @@ class TestIdeasYWheelTampocoTiranNada:
                                        "en pantalla va `blocked`, que es la frase",
         "perfil.riesgo_pct": "se pinta dentro de la franja como el % del riesgo "
                              "por operación",
+        # Los dos techos con los que el motor dimensiona. SE SIGUEN USANDO —son
+        # los que deciden la columna «te caben»— pero ya no se imprimen: Kevin
+        # pidió quitar el texto que los explicaba. Que no se pinten no los
+        # desconecta de nada; el número que sale de ellos (`sizing.contracts`)
+        # sí se pinta, y es el que importa.
+        "perfil.budget_premium": "techo de prima del motor; alimenta «te caben», "
+                                 "que es lo que se pinta",
+        "perfil.budget_theta": "techo de quema de theta del motor; alimenta "
+                               "«te caben», que es lo que se pinta",
         # ── Wheel ──
         "preset_id": "el id del preset elegido; en pantalla va su etiqueta",
         "candidates.metrics.return_pct": "el retorno del periodo; la columna es el "
