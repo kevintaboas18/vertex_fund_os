@@ -10,3 +10,4 @@ _Cada vuelta de veredicto sobre el mismo ticker queda aquí. No es un castigo: e
 - **META** · 2026-08-16 → 2026-08-25: de **ESPECULATIVO** a **Oportunidad Moderada** · el precio se movió -4.15% en ese tramo.
 - **NVDA** · 2026-08-30 → 2026-08-30: de **Oportunidad Moderada** a **ESPECULATIVO** · el precio se movió +0.00% en ese tramo.
 - **NVDA** · 2026-08-30 → 2026-08-30: de **ESPECULATIVO** a **Oportunidad Moderada** · el precio se movió +0.00% en ese tramo.
+- **DELL** · 2026-08-31 → 2026-08-31: de **DESFAVORABLE** a **Oportunidad Moderada** · el precio se movió +0.00% en ese tramo.
