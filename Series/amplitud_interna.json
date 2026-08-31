@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-30T14:36:05.649186+00:00",
+  "generado": "2026-08-31T14:37:52.295160+00:00",
   "sectores": {
     "XLK": {
       "pct": 58.3,
@@ -49,12 +49,13 @@
       "motivo": null
     },
     "XLY": {
-      "pct": 30.0,
+      "pct": 40.0,
       "n": 10,
       "encima": [
         "AMZN",
         "BKNG",
-        "SBUX"
+        "SBUX",
+        "TSLA"
       ],
       "miembros": 10,
       "motivo": null
@@ -127,17 +128,16 @@
       "motivo": null
     },
     "XLRE": {
-      "pct": 20.0,
+      "pct": 10.0,
       "n": 10,
       "encima": [
-        "AMT",
-        "WELL"
+        "AMT"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLB": {
-      "pct": 70.0,
+      "pct": 60.0,
       "n": 10,
       "encima": [
         "APD",
@@ -145,8 +145,7 @@
         "ECL",
         "FCX",
         "NEM",
-        "NUE",
-        "SHW"
+        "NUE"
       ],
       "miembros": 10,
       "motivo": null
