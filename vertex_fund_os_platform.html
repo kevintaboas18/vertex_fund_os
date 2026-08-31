@@ -1192,7 +1192,6 @@
                         <p id="qtMemPriceChange" class="text-sm font-mono font-black">—</p>
                     </div>
                 </div>
-                <p class="text-[10px] text-gray-500 italic">El agente recuerda su análisis previo y explica su evolución en la tesis completa.</p>
             </div>
             <!-- ══ PORTFOLIO FIT CARD (portfolio-aware agent) ══ -->
             <div id="qtPortfolioFitCard" class="hidden bg-gradient-to-br from-emerald-500/10 to-blue-500/5 border border-emerald-500/25 rounded-xl p-4">
@@ -3539,7 +3538,7 @@ function pintaRotacion(rot) {
       ${(rot.dia_rojo || []).length ? `<div class="border-t border-gray-800 pt-2">
         <p class="text-[10px] text-gray-500 uppercase tracking-wide">Aguantan el d&iacute;a rojo</p>
         <p class="text-xs text-gray-300 mt-0.5">${rot.dia_rojo.map(x => `${_vcEsc(x.ticker)} ${vxPct(x.cambio_pct)}`).join(' &middot; ')}</p>
-        <p class="text-[9px] text-gray-600">El sector que no cae cuando todo cae es el que tiene demanda debajo.</p></div>` : ''}
+</div>` : ''}
 
       ${(rot.diagnostico || []).length ? `<div class="border-t border-gray-800 pt-2">
         <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Diagn&oacute;stico</p>
@@ -5664,14 +5663,12 @@ function renderProjSalud(d) {
           <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="activity" class="w-4 h-4"></i> Cobertura de los sub-agentes &mdash; ${_vcEsc(d.ticker || '')}</h3>
           <span class="text-[10px] ${malos ? 'text-amber-400' : 'text-emerald-400'} font-bold">${checks.length - malos} de ${checks.length} en verde</span>
         </div>
-        <p class="text-[10px] text-gray-600 italic mb-3 leading-snug">La pregunta que el scorecard no contesta: <b>&iquest;con qu&eacute; dato sali&oacute; ese n&uacute;mero?</b> Un 62/100 sostenido por dos categor&iacute;as de seis se ve igual que uno sostenido por las seis. Las dos series que se acumulan &mdash;IV y flows&mdash; empiezan vac&iacute;as y crecen solas: <b>mirar un ticker ya es aportar</b>.</p>
         <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[720px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
             <th class="pb-1.5 pr-2">&nbsp;</th><th class="text-left pb-1.5 pr-2">Qu&eacute;</th>
             <th class="text-left pb-1.5 pr-2">Estado</th><th class="text-left pb-1.5 pr-2">A qui&eacute;n afecta</th>
             <th class="text-left pb-1.5">Si falta</th></tr></thead><tbody>${filas}</tbody></table></div>
         <button onclick="loadProjSalud()" class="mt-2 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white transition">&#8635; Volver a comprobar</button>
-        <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">Los sub-agentes 1 a 4 puntúan sobre el dato de HOY: si la fuente responde, tienen cobertura completa. Los que necesitan historia son el <b>5</b> (60 días de IV para el rank real; mientras tanto usa el proxy de volatilidad realizada, que no es peor, es otra cosa) y el <b>6</b> (flujo pasado con precio del subyacente, para medir qué hizo el precio después). Nada de esto se puede comprar hecho: se acumula.</p>
       </div>`;
     if (window.lucide) vcIconos();
     vcTablaResponsive('projSalud');
@@ -8018,7 +8015,7 @@ function renderProjections(d) {
         : `<div class="flex items-start gap-2"><span class="text-red-400 font-bold text-xs mt-0.5">▸ Régimen γ−:</span><span class="text-xs text-gray-300">Gamma de dealer negativo → los movimientos se <b>amplifican</b>. Mayor riesgo de tramos direccionales rápidos; el rango es menos confiable.</span></div>`);
     if (cw) S.push(`<div class="flex items-start gap-2"><span class="text-red-400 font-bold text-xs mt-0.5">▸ Ruptura alcista:</span><span class="text-xs text-gray-300">Cierre confirmado sobre <b>$${Number(cw).toFixed(2)}</b> suele soltar el siguiente tramo al alza.</span></div>`);
     if (pw) S.push(`<div class="flex items-start gap-2"><span class="text-emerald-400 font-bold text-xs mt-0.5">▸ Ruptura bajista:</span><span class="text-xs text-gray-300">Pérdida de <b>$${Number(pw).toFixed(2)}</b> abre caída acelerada${flip ? ` (sobre todo si se pierde el gamma flip $${Number(flip).toFixed(2)})` : ''}.</span></div>`);
-    if (iman != null) S.push(`<div class="flex items-start gap-2"><span class="text-blue-300 font-bold text-xs mt-0.5">▸ Nodo imán $${Number(iman).toFixed(2)}:</span><span class="text-xs text-gray-300">Es el nivel al que tira la concentración de gamma; el escenario base de los targets se ancla ahí.</span></div>`);
+    if (iman != null) S.push(`<div class="flex items-start gap-2"><span class="text-blue-300 font-bold text-xs mt-0.5">▸ Nodo imán $${Number(iman).toFixed(2)}:</span></div>`);
     if (g.low_liquidity) S.push(`<div class="flex items-start gap-2"><span class="text-amber-400 font-bold text-xs mt-0.5">▸ Liquidez:</span><span class="text-xs text-amber-300">Cadena ilíquida: la lectura de gamma se marca <b>NO FIABLE</b>.</span></div>`);
     const esc = document.getElementById('projScenarios');
     if (esc) esc.innerHTML = S.join('');
@@ -11181,7 +11178,6 @@ function renderPortfolioStress(d) {
         <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-widest flex items-center gap-2 mb-1">
             <i data-lucide="history" class="w-3.5 h-3.5"></i> Replay de Crisis Históricas (sobre tu book actual)
         </h4>
-        <p class="text-[10px] text-gray-500 italic mb-3">Qué le pasaría a tu portafolio actual si estos episodios se repitieran hoy, con tus pesos exactos.</p>
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">${scen}</div>
     </div>`;
 
@@ -11207,7 +11203,6 @@ function renderPortfolioStress(d) {
         <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-widest flex items-center gap-2 mb-1">
             <i data-lucide="dices" class="w-3.5 h-3.5"></i> Monte Carlo (5,000 simulaciones · bootstrap histórico)
         </h4>
-        <p class="text-[10px] text-gray-500 italic mb-3">Distribución de resultados posibles remuestreando tus retornos diarios reales.</p>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${mcCard(mc.h21,'Horizonte 1 mes (21d)')}${mcCard(mc.h252,'Horizonte 1 año (252d)')}</div>
     </div>`;
 
@@ -12572,7 +12567,6 @@ function analyzeTickerNow(tk) {
             <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
                 <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="goal" class="w-4 h-4"></i> Targets Proyectados por Horizonte</h3>
             </div>
-            <p class="text-[11px] text-gray-500 italic mb-3">10d / 20d / 30d, los horizontes de su Prediction Pro. El puntaje que los mueve es el de sus 6 sub-agentes (agresi&oacute;n 20 &middot; convicci&oacute;n 20 &middot; inusualidad 20 &middot; estructura 15 &middot; contexto IV 10 &middot; validaci&oacute;n 15) y el ancho sale del movimiento esperado. Bear / Base / Bull &mdash; nunca un solo precio.</p>
             <div id="projTargets"></div>
         </div>
 
@@ -12633,7 +12627,6 @@ function analyzeTickerNow(tk) {
         <h2 class="text-xl font-bold text-white flex items-center gap-2">
             <i data-lucide="user-circle" class="w-5 h-5 text-blue-500"></i> <span data-i18n="perfil.titulo">Mi perfil</span>
         </h2>
-        <p class="text-xs text-gray-500 mt-1" data-i18n="perfil.sub">Tu capital, tu tolerancia y tus palabras. Los tres agentes leen esto antes de recomendarte nada.</p>
     </div>
 
     <div class="flex gap-1 mb-4 p-1 rounded-xl bg-[#0B0E14] border border-panel w-fit max-w-full overflow-x-auto">
@@ -12879,7 +12872,6 @@ function analyzeTickerNow(tk) {
             <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2 mb-1">
                 <i data-lucide="brain" class="w-4 h-4"></i> AI Portfolio Analysis — Gemini CIO
             </h3>
-            <p class="text-xs text-gray-500 italic mb-4">Estrategia 30/70 · Growth exponencial (no-Mag7) + Estables · Lista maestra de oportunidades · Tesis AI por sector · Proyecciones 1/3/5 años · Google Search en tiempo real.</p>
             <div id="pfAiContent" class="space-y-3"></div>
         </div>
 
@@ -12924,7 +12916,6 @@ function analyzeTickerNow(tk) {
                     <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
                         <i data-lucide="shield-alert" class="w-4 h-4"></i> Motor de Riesgo de Portafolio
                     </h3>
-                    <p class="text-[11px] text-gray-500 italic mt-0.5">Volatilidad anualizada · Value-at-Risk · Beta de mercado · Exposición por factor · Concentración · Contribución de riesgo por posición.</p>
                 </div>
                 <button onclick="loadPortfolioRisk(true)" class="text-[10px] font-bold px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition flex items-center gap-1.5 flex-shrink-0">
                     <i data-lucide="refresh-cw" class="w-3 h-3"></i> Recalcular
@@ -12940,7 +12931,6 @@ function analyzeTickerNow(tk) {
                     <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
                         <i data-lucide="flask-conical" class="w-4 h-4"></i> Stress Test & Escenarios
                     </h3>
-                    <p class="text-[11px] text-gray-500 italic mt-0.5">Replay de crisis históricas · Monte Carlo · Expected Shortfall (CVaR) · Métricas ajustadas por riesgo · Shocks hipotéticos.</p>
                 </div>
                 <button onclick="loadPortfolioStress(true)" class="text-[10px] font-bold px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition flex items-center gap-1.5 flex-shrink-0">
                     <i data-lucide="refresh-cw" class="w-3 h-3"></i> Recalcular
@@ -13005,7 +12995,6 @@ function analyzeTickerNow(tk) {
                     <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
                         <i data-lucide="shield-check" class="w-4 h-4"></i> Guardrails — Tus Reglas
                     </h3>
-                    <p class="text-[11px] text-gray-500 italic mt-0.5">Audita tu book contra tus reglas: concentración, mandato 30/70, stop-loss y correlación. Te alerta cuando las violas.</p>
                 </div>
                 <button onclick="loadPortfolioGuardrails(true)" class="text-[10px] font-bold px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition flex items-center gap-1.5 flex-shrink-0">
                     <i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-auditar
@@ -13021,7 +13010,6 @@ function analyzeTickerNow(tk) {
                     <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
                         <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Optimizador Media-Varianza
                     </h3>
-                    <p class="text-[11px] text-gray-500 italic mt-0.5">Frontera eficiente por Monte Carlo: la cartera de máximo Sharpe y mínima volatilidad dado tu universo, con sugerencia de rebalanceo.</p>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
                     <select id="pfOptMaxW" onchange="loadPortfolioOptimizer(true)" class="bg-[#0B0E14] border border-gray-800 text-gray-300 text-[10px] rounded-lg px-2 py-1.5">
@@ -13049,14 +13037,12 @@ function analyzeTickerNow(tk) {
                         <i data-lucide="refresh-cw" class="w-3 h-3"></i> Recalcular
                     </button>
                 </div>
-                <p class="text-xs text-gray-500 italic mb-4">Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de la cadena.</p>
                 <div id="pfGreeksBody"></div>
             </div>
             <div class="bg-panel border border-panel rounded-2xl p-5">
                 <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2 mb-1">
                     <i data-lucide="target" class="w-4 h-4"></i> Edge medido del agente de opciones
                 </h3>
-                <p class="text-xs text-gray-500 italic mb-4">Cuántas de sus predicciones han vencido en cada subyacente que tienes, y con qué frecuencia acertó. Solo cuentan las vencidas: juzgar una a mitad de su horizonte mediría ruido.</p>
                 <div id="pfEdgeOpcBody"></div>
             </div>
         </div>
@@ -13096,7 +13082,6 @@ function analyzeTickerNow(tk) {
             <h2 class="text-xl font-bold text-white flex items-center gap-2">
                 <i data-lucide="award" class="w-5 h-5 text-blue-500"></i> Track Record del Agente
             </h2>
-            <p class="text-xs text-gray-500 mt-0.5">Tasa de acierto histórica de las tesis del agente, medida contra el precio real a 30 / 90 / 180 días.</p>
         </div>
         <button onclick="loadTrackRecord()" id="trkRefreshBtn"
             class="bg-[#11141D] hover:bg-[#1a1f2e] border border-gray-800 text-gray-400 hover:text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 transition">
@@ -13255,7 +13240,6 @@ function analyzeTickerNow(tk) {
             </h3>
             <span id="regimeVix" class="text-[10px] font-mono text-gray-500"></span>
         </div>
-        <p class="text-[10px] text-gray-500 italic mb-3">Clasifica el entorno de mercado (VIX, SPY vs medias 50/200, amplitud RSP, tasas TLT). El track record agrupa los resultados por r&eacute;gimen.</p>
         <div id="regimeBody"><p class="text-xs text-gray-500 italic p-3 text-center">Cargando&hellip;</p></div>
     </div>
 
@@ -14336,7 +14320,6 @@ const VX_ES2EN = {
     "Flujo de capital": "Capital flow",
     "— con volumen sobre su media de 20 sesiones": "— with volume above its 20-session average",
     "Aguantan el día rojo": "Holding up on the red day",
-    "El sector que no cae cuando todo cae es el que tiene demanda debajo.": "The sector that does not fall when everything falls is the one with demand underneath.",
     "Diagnóstico": "Diagnosis",
     "Liderando": "Leading",
     "Despertando": "Waking up",
@@ -14583,14 +14566,12 @@ const VX_ES2EN = {
     "no cabe: el colateral supera tu tope por posición": "does not fit: the collateral exceeds your per-position cap",
     ": ▲ Compra = pagaron el precio del vendedor (agresivo) · ▼ Venta = aceptaron el precio del comprador. ↑ ejecutado sobre el ask · ↓ bajo el bid · 🔁 ×N = veces que se repitió ese contrato.": ": ▲ Buy = they paid the seller's price (aggressive) · ▼ Sell = they accepted the buyer's price. ↑ filled above the ask · ↓ below the bid · 🔁 ×N = how many times that contract repeated.",
     ", no sobre la cotización viva del contrato — el feed no la entrega. Los flows son del día, así que la diferencia es pequeña, pero el número es una referencia, no una orden. Material educativo:": ", not on the contract's live quote — the feed does not provide it. The flows are same-day, so the difference is small, but the number is a reference, not an order. Educational material:",
-    "10d / 20d / 30d, los horizontes de su Prediction Pro. El puntaje que los mueve es el de sus 6 sub-agentes (agresión 20 · convicción 20 · inusualidad 20 · estructura 15 · contexto IV 10 · validación 15) y el ancho sale del movimiento esperado. Bear / Base / Bull — nunca un solo precio.": "10d / 20d / 30d, the horizons of his Prediction Pro. The score that moves them is that of his 6 sub-agents (aggression 20 · conviction 20 · unusualness 20 · structure 15 · IV context 10 · validation 15) and the width comes from the expected move. Bear / base / bull — never a single price.",
     ". La IV histórica, las cadenas y el flujo pasado no los vende ninguna fuente: se juntan una foto por día de mercado. Mirar un ticker YA aporta, aunque no salga ningún reporte — la foto de hoy es la que hará posible el IV Rank real más adelante.": ". No source sells historical IV, the chains or past flow: they are gathered one snapshot per market day. Looking at a ticker ALREADY contributes, even if no report comes out — today's snapshot is what will make the real IV rank possible later on.",
     ". Cada reporte guarda su convicción y sus objetivos. Cuando pasa el horizonte, el precio real dice si acertó. Con más reportes de más gente, la curva de fiabilidad tiene más puntos — y se puede comprobar si un «70%» acierta el 70%.": ". Every report stores its conviction and its targets. When the horizon passes, the real price says whether it was right. With more reports from more people the reliability curve has more points — and you can check whether a \"70%\" really hits 70%.",
     "Se regenera cada vez que guardas. Es el archivo que lee el agente de acciones (Analyze, Explore) y del que sale el sizing del agente de opciones (Proyecciones): tu perfil llega a los tres por el mismo camino.": "It is regenerated every time you save. It is the file the stock agent reads (Analyze, Explore) and the one the options agent's sizing comes from (Projections): your profile reaches all three by the same path.",
     "Se muestran los niveles dentro de ±3 ATR — los que están en juego al precio actual. Los demás (incluidos los valores intrínsecos) están en la lista completa. Fuente: síntesis de niveles de Victor.": "Only levels within ±3 ATR are shown — the ones in play at the current price. The rest (including the intrinsic values) are in the full list. Source: Victor's level synthesis.",
     "responde lo cualitativo que el código no puede medir (moat, catalizadores, concentración, thesis-killers) y se re-corre la MISMA agregación de Victor, para comparar el mismo tablero": "answers the qualitative part the code cannot measure (moat, catalysts, concentration, thesis killers) and Victor's SAME aggregation is re-run, so you compare the same board",
     "Análisis corriendo sobre el snapshot guardado en el servidor — sin llamar a Plaid. Si las posiciones se cargaron sin costo base, la regla de stop-loss en Guardrails queda inactiva.": "Analysis running on the snapshot stored on the server — without calling Plaid. If the positions were loaded without a cost basis, the stop-loss rule in Guardrails stays inactive.",
-    "Estrategia 30/70 · Growth exponencial (no-Mag7) + Estables · Lista maestra de oportunidades · Tesis AI por sector · Proyecciones 1/3/5 años · Google Search en tiempo real.": "30/70 strategy · exponential growth (non-Mag7) + stables · master opportunity list · AI thesis by sector · 1/3/5-year projections · real-time Google Search.",
     "Una categoría quedó por debajo del 70% de cobertura, así que no se puede evaluar de verdad. Techo: especulativa. No es que la empresa esté mal — es que falta información.": "One category came in below 70% coverage, so it cannot really be evaluated. Ceiling: speculative. It is not that the company is bad — it is that information is missing.",
     "Esta cuenta NO se está respaldando: falta VERTEX_GIT_TOKEN. Si el servidor se reinicia o se duerme, tendrás que volver a registrarte — y el email quedará libre otra vez.": "This account is NOT being backed up: VERTEX_GIT_TOKEN is missing. If the server restarts or goes to sleep you will have to register again — and the email will be free once more.",
     "Lo que gana sobre el capital invertido (ROIC) es menor que lo que ese capital le cuesta (WACC). Cada dólar reinvertido vale menos. No puede calificar como calidad élite.": "What it earns on invested capital (ROIC) is less than what that capital costs it (WACC). Every reinvested dollar is worth less. It cannot qualify as elite quality.",
@@ -14608,14 +14589,11 @@ const VX_ES2EN = {
     "= tamaño de la orden + momento del día + cuántas veces se repite el contrato (máximo 30; pasa el cursor sobre el número para ver el desglose). Las": "= order size + time of day + how many times the contract repeats (maximum 30; hover the number to see the breakdown). The",
     "los números; no los calcula. El score, los gates y los niveles salen de la matemática del Cerebro y no cambian por lo que diga este texto.": "the numbers; it does not compute them. The score, the gates and the levels come from the Brain's maths and do not change because of what this text says.",
     "Flujo inusual de TODO el mercado, ya filtrado por lo que se puede operar: theta sano, no vencido, inusualidad ≥5/30 y strike dentro del ±": "Unusual flow from the WHOLE market, already filtered down to what is tradable: healthy theta, not expired, unusualness ≥5/30 and strike within ±",
-    "Clasifica el entorno de mercado (VIX, SPY vs medias 50/200, amplitud RSP, tasas TLT). El track record agrupa los resultados por régimen.": "Classifies the market environment (VIX, SPY vs 50/200 averages, RSP breadth, TLT rates). The track record groups results by regime.",
     "El analisis de Victor (6 especialistas, gates, targets y niveles) esta completo y es valido. Lo unico que falta es la narrativa del LLM.": "Victor's analysis (6 specialists, gates, targets and levels) is complete and valid. The only thing missing is the LLM's narrative.",
     "Los sub-agentes 1 a 4 puntúan sobre el dato de HOY: si la fuente responde, tienen cobertura completa. Los que necesitan historia son el": "Sub-agents 1 to 4 score on TODAY's data: if the source responds, they have full coverage. The ones that need history are",
-    "Volatilidad anualizada · Value-at-Risk · Beta de mercado · Exposición por factor · Concentración · Contribución de riesgo por posición.": "Annualised volatility · value-at-risk · market beta · exposure by factor · concentration · risk contribution by position.",
     "US$/acción · histórico sólido · proyección punteada dentro del cono 1σ/2σ · simulación ilustrativa, no exacta — motor de Víctor (Tito)": "US$/share · solid history · dashed projection inside the 1σ/2σ cone · illustrative simulation, not exact — Victor's engine (Tito)",
     "VAL-SCEN-036: suma de probabilidad x valor de los tres escenarios. El Cerebro exige mostrarlo junto a cada escenario, no solo el base.": "VAL-SCEN-036: sum of probability × value across the three scenarios. The Brain requires showing it next to every scenario, not just the base one.",
     "el rendimiento anualizado por encima del 60%: un screener que ordena por prima pone arriba justo las acciones a punto de desplomarse.": "annualised yield above 60%: a screener sorted by premium puts exactly the stocks about to collapse at the top.",
-    "Frontera eficiente por Monte Carlo: la cartera de máximo Sharpe y mínima volatilidad dado tu universo, con sugerencia de rebalanceo.": "Efficient frontier by Monte Carlo: the maximum-Sharpe and minimum-volatility portfolio given your universe, with a rebalance suggestion.",
     "en ese horizonte. Es lo que de verdad mide tu edge (un BUY que sube +3% mientras SPY sube +9% acierta dirección pero pierde alpha).": "over that horizon. That is what really measures your edge (a BUY that rises +3% while SPY rises +9% gets the direction right but loses alpha).",
     "(flujo pasado con precio del subyacente, para medir qué hizo el precio después). Nada de esto se puede comprar hecho: se acumula.": "(past flow with the underlying's price, to measure what price did afterwards). None of this can be bought ready-made: it accumulates.",
     "El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta. Sin el efectivo, el optimizador solo sabe proponer ventas y no se puede calcular tu apalancamiento real.": "Cost basis is optional, but without it the Guardrails stop-loss rule stays inactive. Negative contracts = short position. Without cash, the optimiser can only propose sales and your real leverage cannot be computed.",
@@ -14634,7 +14612,6 @@ const VX_ES2EN = {
     "Contestó": "Answered",
     "de exposición": "of exposure",
     "de valor": "of value",
-    "Cuántas de sus predicciones han vencido en cada subyacente que tienes, y con qué frecuencia acertó. Solo cuentan las vencidas: juzgar una a mitad de su horizonte mediría ruido.": "How many of its predictions have matured on each underlying you hold, and how often it was right. Only matured ones count: judging one halfway through its horizon would measure noise.",
     "Dónde está tu exposición": "Where your exposure sits",
     "con ventaja medida": "with measured edge",
     "donde el agente falla": "where the agent fails",
@@ -14661,13 +14638,11 @@ const VX_ES2EN = {
     "Cada análisis que hace cualquiera mejora al agente para todos. Tus reportes, en cambio, son tuyos: nadie más ve qué analizaste.": "Every analysis anyone runs makes the agent better for everyone. Your reports, though, are yours: nobody else sees what you analysed.",
     "Precio = último trade / cierre (Massive no expone bid en este plan). Open Premium = OI × precio · Notional = OI × 100 × strike.": "Price = last trade / close (Massive does not expose the bid on this plan). Open premium = OI × price · notional = OI × 100 × strike.",
     "Vuelve a escanear el mismo preset. Las cotizaciones cambian: un candidato de hace veinte minutos puede haber dejado de serlo.": "Re-scan the same preset. Quotes change: a candidate from twenty minutes ago may no longer be one.",
-    "Replay de crisis históricas · Monte Carlo · Expected Shortfall (CVaR) · Métricas ajustadas por riesgo · Shocks hipotéticos.": "Historical crisis replay · Monte Carlo · expected shortfall (CVaR) · risk-adjusted metrics · hypothetical shocks.",
     "«Te cabe» compara el colateral con el capital de tu perfil — lo que no cabe no se esconde, se baja. Research, no una orden.": "\"Fits you\" compares the collateral with your profile's capital — what does not fit is not hidden, it is lowered. Research, not an order.",
     "(60 días de IV para el rank real; mientras tanto usa el proxy de volatilidad realizada, que no es peor, es otra cosa) y el": "(60 days of IV for the real rank; meanwhile it uses the realised-volatility proxy, which is not worse, it is a different thing) and the",
     "La prima que cobrarías ES el bid: sin horquilla no se puede saber, y tampoco se puede despejar la IV para medir el delta.": "The premium you would collect IS the bid: without a spread it cannot be known, and IV cannot be solved for to measure delta either.",
     "Valuación ≤4/10 Y técnico ≤8/20 a la vez: el precio no lo justifica ni el valor ni la estructura de precio. Fuerza AVOID.": "Valuation ≤4/10 AND technicals ≤8/20 at the same time: neither value nor price structure justifies the price. Forces AVOID.",
     "Análisis psicológico y conductual del sentimiento colectivo — xAI Grok con acceso en tiempo real a X/Twitter y la web.": "Psychological and behavioural analysis of collective sentiment — xAI Grok with real-time access to X/Twitter and the web.",
-    "Audita tu book contra tus reglas: concentración, mandato 30/70, stop-loss y correlación. Te alerta cuando las violas.": "Audits your book against your rules: concentration, 30/70 mandate, stop-loss and correlation. It alerts you when you break them.",
     "que usa la Wheel: capital, tolerancia y quema de theta hasta tu horizonte. Esto sigue siendo un screener de research.": "that the Wheel uses: capital, tolerance and theta burn out to your horizon. This is still a research screener.",
     "Victor (targets.py): EPS × (1+crecimiento) × (P/E actual × factor) · horizonte único 12M · Fair Value = target Base": "Victor (targets.py): EPS × (1+growth) × (current P/E × factor) · single 12M horizon · fair value = base target",
     "con crédito disponible. El score determinista de Victor (Full Research) no depende de esto y se muestra siempre.": "with credit available. Victor's deterministic score (Full Research) does not depend on this and is always shown.",
@@ -14679,16 +14654,12 @@ const VX_ES2EN = {
     "Contestas el cuestionario y los tres agentes recomiendan con tu capital, tu tolerancia y tu horizonte.": "You answer the questionnaire and all three agents recommend using your capital, your tolerance and your horizon.",
     "ATR). Es donde el riesgo se define mejor: perder el nivel invalida la lectura alcista de corto plazo.": "ATR). This is where risk is best defined: losing the level invalidates the short-term bullish read.",
     "Gamma neto del dealer por strike (call − put). Verde = el dealer estabiliza ahí; rojo = amplifica. El": "Net dealer gamma per strike (call − put). Green = the dealer stabilises there; red = it amplifies. The",
-    "Tasa de acierto histórica de las tesis del agente, medida contra el precio real a 30 / 90 / 180 días.": "Historical hit rate of the agent's theses, measured against the real price at 30 / 90 / 180 days.",
-    "Qué le pasaría a tu portafolio actual si estos episodios se repitieran hoy, con tus pesos exactos.": "What would happen to your current portfolio if these episodes repeated today, with your exact weights.",
     "Corriendo stress test, Monte Carlo y replay de crisis sobre tu book… (puede tardar unos segundos)": "Running stress test, Monte Carlo and crisis replay on your book… (this can take a few seconds)",
-    "Es el nivel al que tira la concentración de gamma; el escenario base de los targets se ancla ahí.": "It is the level the gamma concentration pulls toward; the targets' base scenario anchors there.",
     "Valuación por acción suprimida (Override 7: conflicto no resuelto de acciones/deuda/caja/precio).": "Per-share valuation suppressed (Override 7: unresolved conflict in shares/debt/cash/price).",
     "«Te cabe» es el TECHO de contratos que tu perfil aguanta — no una orden de compra. Sale del mismo": "\"Fits you\" is the CEILING of contracts your profile can take — not a buy order. It comes from the same",
     "ATR). Aquí es donde la subida se frena o se confirma: sin ruptura sostenida, es zona de rechazo.": "ATR). This is where the rally stalls or confirms: without a sustained break, it is a rejection zone.",
     "Dinero grande detectado cada día. Verde = apuestas a que sube (calls), rojo = a que baja (puts).": "Big money detected each day. Green = bets it goes up (calls), red = bets it goes down (puts).",
     "No se reintentan solos. Desmarca y vuelve a marcar ⭐ para reencolarlos con el contrato completo.": "They do not retry on their own. Unstar and re-star ⭐ to requeue them with the full contract.",
-    "Tu capital, tu tolerancia y tus palabras. Los tres agentes leen esto antes de recomendarte nada.": "Your capital, your tolerance and your own words. All three agents read this before recommending anything.",
     "El CVaR mide cuánto pierdes EN PROMEDIO cuando el VaR se rompe — la severidad real de la cola.": "CVaR measures how much you lose ON AVERAGE when VaR breaks — the tail's real severity.",
     "Simula añadir o recortar una posición y mira cómo cambia tu riesgo ANTES de ejecutar el trade.": "Simulate adding or trimming a position and see how your risk changes BEFORE you place the trade.",
     "Conecta tu broker a través de Plaid para ver análisis en tiempo real de tu portafolio con AI.": "Connect your broker through Plaid to see real-time AI analysis of your portfolio.",
@@ -14709,7 +14680,6 @@ const VX_ES2EN = {
     "No has iniciado sesión. Puedes ver el cuestionario, pero no guardar tus respuestas.": "You are not signed in. You can view the questionnaire, but not save your answers.",
     "No se pudo contactar al servidor. Revisa que el backend este corriendo y accesible.": "Could not reach the server. Check that the backend is running and reachable.",
     "¿Tu capital está donde tienes ventaja? Cruza tu libro con tu expectancy por ticker.": "Is your capital where your edge is? Cross your book with your expectancy per ticker.",
-    "El agente recuerda su análisis previo y explica su evolución en la tesis completa.": "The agent remembers its previous analysis and explains how it evolved in the full thesis.",
     "A medida que tus análisis maduren, aquí verás la tasa de acierto real del agente.": "As your analyses mature, you will see the agent's real hit rate here.",
     "Zonas donde el precio suele frenar. La probabilidad es qué tan factible es que lo": "Zones where price tends to stall. The probability is how feasible it is that it",
     "de Victor (pestaña Full Research — regla \"sin evidencia, no hay número\"). Aquí el": "of Victor's (Full Research tab — the \"no evidence, no number\" rule). Here the",
@@ -14717,7 +14687,6 @@ const VX_ES2EN = {
     "Escribe un símbolo arriba (o usa los botones rápidos) para ver su Time & Sales.": "Type a symbol above (or use the quick buttons) to see its Time & Sales.",
     "Probabilidad de que el precio LLEGUE a este nivel en 20 días, con la IV del GEX": "Probability that price REACHES this level within 20 days, using the GEX IV",
     "= γ− amplifica (lo acelera). Pasa el cursor por una celda para ver el detalle.": "= γ− amplifies (speeds it up). Hover a cell to see the detail.",
-    "Distribución de resultados posibles remuestreando tus retornos diarios reales.": "Distribution of possible outcomes by resampling your real daily returns.",
     "[vertex] Chart.js no cargó: las gráficas no se dibujan, el resto del panel sí.": "[vertex] Chart.js did not load: the charts are not drawn, the rest of the panel is.",
     "horquilla ancha — La horquilla es demasiado ancha: perderías dinero al entrar.": "wide spread — the spread is too wide: you would lose money just getting in.",
     "Aún no hay reportes con suficiente antigüedad (30+ días) para medir aciertos.": "There are no reports old enough (30+ days) yet to measure hit rates.",
@@ -14972,7 +14941,6 @@ const VX_ES2EN = {
     "Vencimiento largo (90+ días)": "Long expiry (90+ days)",
     "análisis completo del agente": "the agent's full analysis",
     "macro · tasa libre de riesgo": "macro · risk-free rate",
-    "Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de la cadena.": "Net delta · gamma · theta · vega of the book · Expiry ladder · Total directional exposure (options + stock) · Black-Scholes with chain IV.",
     "Los tres niveles de Drift del agente de opciones —muro de puts, imán y muro de calls— para cada contrato que tienes. Solo los plazos de 90/120/320 días, que son las posiciones que se aguantan semanas o meses. Es contexto de posicionamiento, no una recomendación.": "The options agent\u2019s three Drift levels — put wall, magnet and call wall — for every contract you hold. Only the 90/120/320-day horizons, the positions held for weeks or months. Positioning context, not a recommendation.",
     "Drift sobre tus contratos": "Drift on your contracts",
     "El umbral sale de tu cuestionario": "The threshold comes from your questionnaire",
