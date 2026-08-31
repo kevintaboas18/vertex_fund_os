@@ -1,0 +1,31 @@
+{
+  "report_id": "20260831_012843_DELL",
+  "ticker": "DELL",
+  "fecha": "2026-08-31",
+  "price_at_analysis": 456.24,
+  "fair_value": 460.75,
+  "profile": "Avoid / Wait",
+  "raw_total": 49.3,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 556.1,
+    "base": 460.75,
+    "bear": 318.19
+  },
+  "framework": "WBJ v2.0.0",
+  "invalidacion": {
+    "lado": "soporte",
+    "zona_baja": 128.51139587823317,
+    "zona_alta": 133.86860412176682,
+    "etiqueta": "Nearest support zone (daily-support-131.19)",
+    "regla": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C)."
+  },
+  "date": "2026-08-31",
+  "price": 456.24,
+  "bear": 318.19,
+  "base": 460.75,
+  "bull": 556.1,
+  "horizon_days": 365,
+  "source": "cerebro",
+  "score10": 4.93
+}
