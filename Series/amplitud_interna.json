@@ -1,5 +1,5 @@
 {
-  "generado": "2026-09-01T15:26:21.809548+00:00",
+  "generado": "2026-09-02T20:39:14.702459+00:00",
   "sectores": {
     "XLK": {
       "pct": 58.3,
@@ -75,23 +75,20 @@
       "motivo": null
     },
     "XLI": {
-      "pct": 20.0,
+      "pct": 10.0,
       "n": 10,
       "encima": [
-        "DE",
-        "UNP"
+        "DE"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLP": {
-      "pct": 80.0,
+      "pct": 60.0,
       "n": 10,
       "encima": [
-        "COST",
         "KO",
         "MDLZ",
-        "MO",
         "PEP",
         "PG",
         "PM",
