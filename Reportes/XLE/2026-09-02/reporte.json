@@ -1,0 +1,1619 @@
+{
+  "report_id": "20260902_204532_XLE",
+  "ticker": "XLE",
+  "nombre_completo": "State Street Energy Select Sector SPDR ETF",
+  "precio_actual": 65.1,
+  "precio_fuente": "yfinance",
+  "precio_as_of": "09/02/2026, 08:46:28 PM",
+  "pe_ratio": "N/A",
+  "logo_url": "https://logo.clearbit.com/ssga.com",
+  "fecha_analisis": "09/02/2026, 08:45:32 PM",
+  "historial_precios": [
+    58.79,
+    58.52,
+    57.31,
+    58.16,
+    57.5,
+    60.18,
+    60.93,
+    61.03,
+    61.06,
+    61.91,
+    62.58,
+    63.68,
+    63.58,
+    63.75,
+    63.64,
+    63.11,
+    62.06,
+    62.43,
+    62.29,
+    62.68,
+    63.96,
+    64.77,
+    65.1
+  ],
+  "historial_fechas": [
+    "Aug 03",
+    "Aug 04",
+    "Aug 05",
+    "Aug 06",
+    "Aug 07",
+    "Aug 10",
+    "Aug 11",
+    "Aug 12",
+    "Aug 13",
+    "Aug 14",
+    "Aug 17",
+    "Aug 18",
+    "Aug 19",
+    "Aug 20",
+    "Aug 21",
+    "Aug 24",
+    "Aug 25",
+    "Aug 26",
+    "Aug 27",
+    "Aug 28",
+    "Aug 31",
+    "Sep 01",
+    "Sep 02"
+  ],
+  "historial_ohlc": [
+    {
+      "time": "2026-08-03",
+      "open": 58.69,
+      "high": 59.33,
+      "low": 58.16,
+      "close": 58.79
+    },
+    {
+      "time": "2026-08-04",
+      "open": 57.7,
+      "high": 58.72,
+      "low": 57.13,
+      "close": 58.52
+    },
+    {
+      "time": "2026-08-05",
+      "open": 58.77,
+      "high": 58.98,
+      "low": 57.21,
+      "close": 57.31
+    },
+    {
+      "time": "2026-08-06",
+      "open": 58.39,
+      "high": 58.56,
+      "low": 57.58,
+      "close": 58.16
+    },
+    {
+      "time": "2026-08-07",
+      "open": 57.53,
+      "high": 58.05,
+      "low": 57.11,
+      "close": 57.5
+    },
+    {
+      "time": "2026-08-10",
+      "open": 58.19,
+      "high": 60.21,
+      "low": 58.1,
+      "close": 60.18
+    },
+    {
+      "time": "2026-08-11",
+      "open": 59.99,
+      "high": 61.08,
+      "low": 59.99,
+      "close": 60.93
+    },
+    {
+      "time": "2026-08-12",
+      "open": 60.47,
+      "high": 61.17,
+      "low": 60.34,
+      "close": 61.03
+    },
+    {
+      "time": "2026-08-13",
+      "open": 60.52,
+      "high": 61.13,
+      "low": 60.23,
+      "close": 61.06
+    },
+    {
+      "time": "2026-08-14",
+      "open": 61.37,
+      "high": 62.11,
+      "low": 61.25,
+      "close": 61.91
+    },
+    {
+      "time": "2026-08-17",
+      "open": 62.22,
+      "high": 62.69,
+      "low": 61.79,
+      "close": 62.58
+    },
+    {
+      "time": "2026-08-18",
+      "open": 63.41,
+      "high": 63.71,
+      "low": 63.12,
+      "close": 63.68
+    },
+    {
+      "time": "2026-08-19",
+      "open": 63.85,
+      "high": 64.25,
+      "low": 63.4,
+      "close": 63.58
+    },
+    {
+      "time": "2026-08-20",
+      "open": 64.25,
+      "high": 64.7,
+      "low": 63.69,
+      "close": 63.75
+    },
+    {
+      "time": "2026-08-21",
+      "open": 63.91,
+      "high": 64.3,
+      "low": 63.35,
+      "close": 63.64
+    },
+    {
+      "time": "2026-08-24",
+      "open": 63.24,
+      "high": 63.72,
+      "low": 62.56,
+      "close": 63.11
+    },
+    {
+      "time": "2026-08-25",
+      "open": 62.2,
+      "high": 62.79,
+      "low": 62.04,
+      "close": 62.06
+    },
+    {
+      "time": "2026-08-26",
+      "open": 61.43,
+      "high": 63.02,
+      "low": 61.31,
+      "close": 62.43
+    },
+    {
+      "time": "2026-08-27",
+      "open": 62.23,
+      "high": 62.72,
+      "low": 61.55,
+      "close": 62.29
+    },
+    {
+      "time": "2026-08-28",
+      "open": 62.35,
+      "high": 62.74,
+      "low": 62.12,
+      "close": 62.68
+    },
+    {
+      "time": "2026-08-31",
+      "open": 63.8,
+      "high": 64.44,
+      "low": 63.14,
+      "close": 63.96
+    },
+    {
+      "time": "2026-09-01",
+      "open": 64.87,
+      "high": 64.95,
+      "low": 64.05,
+      "close": 64.77
+    },
+    {
+      "time": "2026-09-02",
+      "open": 64.27,
+      "high": 65.35,
+      "low": 64.25,
+      "close": 65.1
+    }
+  ],
+  "chart_history": [
+    {
+      "time": "2025-09-02",
+      "value": 45.26
+    },
+    {
+      "time": "2025-09-03",
+      "value": 44.25
+    },
+    {
+      "time": "2025-09-04",
+      "value": 44.54
+    },
+    {
+      "time": "2025-09-05",
+      "value": 43.68
+    },
+    {
+      "time": "2025-09-08",
+      "value": 43.58
+    },
+    {
+      "time": "2025-09-09",
+      "value": 43.79
+    },
+    {
+      "time": "2025-09-10",
+      "value": 44.56
+    },
+    {
+      "time": "2025-09-11",
+      "value": 44.57
+    },
+    {
+      "time": "2025-09-12",
+      "value": 44.3
+    },
+    {
+      "time": "2025-09-15",
+      "value": 44.15
+    },
+    {
+      "time": "2025-09-16",
+      "value": 44.89
+    },
+    {
+      "time": "2025-09-17",
+      "value": 45.0
+    },
+    {
+      "time": "2025-09-18",
+      "value": 44.86
+    },
+    {
+      "time": "2025-09-19",
+      "value": 44.26
+    },
+    {
+      "time": "2025-09-22",
+      "value": 43.84
+    },
+    {
+      "time": "2025-09-23",
+      "value": 44.59
+    },
+    {
+      "time": "2025-09-24",
+      "value": 45.17
+    },
+    {
+      "time": "2025-09-25",
+      "value": 45.58
+    },
+    {
+      "time": "2025-09-26",
+      "value": 46.0
+    },
+    {
+      "time": "2025-09-29",
+      "value": 45.15
+    },
+    {
+      "time": "2025-09-30",
+      "value": 44.67
+    },
+    {
+      "time": "2025-10-01",
+      "value": 44.67
+    },
+    {
+      "time": "2025-10-02",
+      "value": 44.22
+    },
+    {
+      "time": "2025-10-03",
+      "value": 44.46
+    },
+    {
+      "time": "2025-10-06",
+      "value": 44.68
+    },
+    {
+      "time": "2025-10-07",
+      "value": 44.75
+    },
+    {
+      "time": "2025-10-08",
+      "value": 44.49
+    },
+    {
+      "time": "2025-10-09",
+      "value": 43.88
+    },
+    {
+      "time": "2025-10-10",
+      "value": 42.61
+    },
+    {
+      "time": "2025-10-13",
+      "value": 43.19
+    },
+    {
+      "time": "2025-10-14",
+      "value": 43.19
+    },
+    {
+      "time": "2025-10-15",
+      "value": 43.16
+    },
+    {
+      "time": "2025-10-16",
+      "value": 42.64
+    },
+    {
+      "time": "2025-10-17",
+      "value": 42.99
+    },
+    {
+      "time": "2025-10-20",
+      "value": 43.45
+    },
+    {
+      "time": "2025-10-21",
+      "value": 43.35
+    },
+    {
+      "time": "2025-10-22",
+      "value": 43.9
+    },
+    {
+      "time": "2025-10-23",
+      "value": 44.49
+    },
+    {
+      "time": "2025-10-24",
+      "value": 44.04
+    },
+    {
+      "time": "2025-10-27",
+      "value": 44.14
+    },
+    {
+      "time": "2025-10-28",
+      "value": 43.68
+    },
+    {
+      "time": "2025-10-29",
+      "value": 44.01
+    },
+    {
+      "time": "2025-10-30",
+      "value": 43.75
+    },
+    {
+      "time": "2025-10-31",
+      "value": 44.07
+    },
+    {
+      "time": "2025-11-03",
+      "value": 44.07
+    },
+    {
+      "time": "2025-11-04",
+      "value": 43.6
+    },
+    {
+      "time": "2025-11-05",
+      "value": 43.71
+    },
+    {
+      "time": "2025-11-06",
+      "value": 44.14
+    },
+    {
+      "time": "2025-11-07",
+      "value": 44.77
+    },
+    {
+      "time": "2025-11-10",
+      "value": 45.18
+    },
+    {
+      "time": "2025-11-11",
+      "value": 45.77
+    },
+    {
+      "time": "2025-11-12",
+      "value": 45.13
+    },
+    {
+      "time": "2025-11-13",
+      "value": 45.24
+    },
+    {
+      "time": "2025-11-14",
+      "value": 46.01
+    },
+    {
+      "time": "2025-11-17",
+      "value": 45.17
+    },
+    {
+      "time": "2025-11-18",
+      "value": 45.53
+    },
+    {
+      "time": "2025-11-19",
+      "value": 44.94
+    },
+    {
+      "time": "2025-11-20",
+      "value": 44.43
+    },
+    {
+      "time": "2025-11-21",
+      "value": 44.71
+    },
+    {
+      "time": "2025-11-24",
+      "value": 44.59
+    },
+    {
+      "time": "2025-11-25",
+      "value": 44.31
+    },
+    {
+      "time": "2025-11-26",
+      "value": 44.64
+    },
+    {
+      "time": "2025-11-28",
+      "value": 45.23
+    },
+    {
+      "time": "2025-12-01",
+      "value": 45.66
+    },
+    {
+      "time": "2025-12-02",
+      "value": 45.07
+    },
+    {
+      "time": "2025-12-03",
+      "value": 45.92
+    },
+    {
+      "time": "2025-12-04",
+      "value": 46.11
+    },
+    {
+      "time": "2025-12-05",
+      "value": 45.92
+    },
+    {
+      "time": "2025-12-08",
+      "value": 45.42
+    },
+    {
+      "time": "2025-12-09",
+      "value": 45.7
+    },
+    {
+      "time": "2025-12-10",
+      "value": 46.18
+    },
+    {
+      "time": "2025-12-11",
+      "value": 45.96
+    },
+    {
+      "time": "2025-12-12",
+      "value": 45.51
+    },
+    {
+      "time": "2025-12-15",
+      "value": 45.19
+    },
+    {
+      "time": "2025-12-16",
+      "value": 43.81
+    },
+    {
+      "time": "2025-12-17",
+      "value": 44.78
+    },
+    {
+      "time": "2025-12-18",
+      "value": 44.13
+    },
+    {
+      "time": "2025-12-19",
+      "value": 44.13
+    },
+    {
+      "time": "2025-12-22",
+      "value": 44.21
+    },
+    {
+      "time": "2025-12-23",
+      "value": 44.5
+    },
+    {
+      "time": "2025-12-24",
+      "value": 44.37
+    },
+    {
+      "time": "2025-12-26",
+      "value": 44.2
+    },
+    {
+      "time": "2025-12-29",
+      "value": 44.62
+    },
+    {
+      "time": "2025-12-30",
+      "value": 44.96
+    },
+    {
+      "time": "2025-12-31",
+      "value": 44.71
+    },
+    {
+      "time": "2026-01-02",
+      "value": 45.65
+    },
+    {
+      "time": "2026-01-05",
+      "value": 46.89
+    },
+    {
+      "time": "2026-01-06",
+      "value": 45.64
+    },
+    {
+      "time": "2026-01-07",
+      "value": 45.13
+    },
+    {
+      "time": "2026-01-08",
+      "value": 46.55
+    },
+    {
+      "time": "2026-01-09",
+      "value": 46.67
+    },
+    {
+      "time": "2026-01-12",
+      "value": 46.34
+    },
+    {
+      "time": "2026-01-13",
+      "value": 47.0
+    },
+    {
+      "time": "2026-01-14",
+      "value": 48.06
+    },
+    {
+      "time": "2026-01-15",
+      "value": 47.61
+    },
+    {
+      "time": "2026-01-16",
+      "value": 47.69
+    },
+    {
+      "time": "2026-01-20",
+      "value": 47.6
+    },
+    {
+      "time": "2026-01-21",
+      "value": 48.75
+    },
+    {
+      "time": "2026-01-22",
+      "value": 48.91
+    },
+    {
+      "time": "2026-01-23",
+      "value": 49.19
+    },
+    {
+      "time": "2026-01-26",
+      "value": 49.22
+    },
+    {
+      "time": "2026-01-27",
+      "value": 49.67
+    },
+    {
+      "time": "2026-01-28",
+      "value": 50.05
+    },
+    {
+      "time": "2026-01-29",
+      "value": 50.51
+    },
+    {
+      "time": "2026-01-30",
+      "value": 51.05
+    },
+    {
+      "time": "2026-02-02",
+      "value": 50.05
+    },
+    {
+      "time": "2026-02-03",
+      "value": 51.67
+    },
+    {
+      "time": "2026-02-04",
+      "value": 52.83
+    },
+    {
+      "time": "2026-02-05",
+      "value": 52.21
+    },
+    {
+      "time": "2026-02-06",
+      "value": 53.25
+    },
+    {
+      "time": "2026-02-09",
+      "value": 53.64
+    },
+    {
+      "time": "2026-02-10",
+      "value": 53.58
+    },
+    {
+      "time": "2026-02-11",
+      "value": 54.98
+    },
+    {
+      "time": "2026-02-12",
+      "value": 53.98
+    },
+    {
+      "time": "2026-02-13",
+      "value": 54.35
+    },
+    {
+      "time": "2026-02-17",
+      "value": 53.75
+    },
+    {
+      "time": "2026-02-18",
+      "value": 54.78
+    },
+    {
+      "time": "2026-02-19",
+      "value": 55.18
+    },
+    {
+      "time": "2026-02-20",
+      "value": 54.88
+    },
+    {
+      "time": "2026-02-23",
+      "value": 55.15
+    },
+    {
+      "time": "2026-02-24",
+      "value": 55.1
+    },
+    {
+      "time": "2026-02-25",
+      "value": 54.87
+    },
+    {
+      "time": "2026-02-26",
+      "value": 55.05
+    },
+    {
+      "time": "2026-02-27",
+      "value": 55.92
+    },
+    {
+      "time": "2026-03-02",
+      "value": 57.04
+    },
+    {
+      "time": "2026-03-03",
+      "value": 56.52
+    },
+    {
+      "time": "2026-03-04",
+      "value": 56.19
+    },
+    {
+      "time": "2026-03-05",
+      "value": 56.48
+    },
+    {
+      "time": "2026-03-06",
+      "value": 56.57
+    },
+    {
+      "time": "2026-03-09",
+      "value": 56.32
+    },
+    {
+      "time": "2026-03-10",
+      "value": 55.6
+    },
+    {
+      "time": "2026-03-11",
+      "value": 56.98
+    },
+    {
+      "time": "2026-03-12",
+      "value": 57.51
+    },
+    {
+      "time": "2026-03-13",
+      "value": 57.7
+    },
+    {
+      "time": "2026-03-16",
+      "value": 57.9
+    },
+    {
+      "time": "2026-03-17",
+      "value": 58.51
+    },
+    {
+      "time": "2026-03-18",
+      "value": 58.43
+    },
+    {
+      "time": "2026-03-19",
+      "value": 59.36
+    },
+    {
+      "time": "2026-03-20",
+      "value": 59.31
+    },
+    {
+      "time": "2026-03-23",
+      "value": 59.63
+    },
+    {
+      "time": "2026-03-24",
+      "value": 60.84
+    },
+    {
+      "time": "2026-03-25",
+      "value": 60.57
+    },
+    {
+      "time": "2026-03-26",
+      "value": 61.52
+    },
+    {
+      "time": "2026-03-27",
+      "value": 62.56
+    },
+    {
+      "time": "2026-03-30",
+      "value": 61.96
+    },
+    {
+      "time": "2026-03-31",
+      "value": 61.26
+    },
+    {
+      "time": "2026-04-01",
+      "value": 58.97
+    },
+    {
+      "time": "2026-04-02",
+      "value": 59.25
+    },
+    {
+      "time": "2026-04-06",
+      "value": 59.68
+    },
+    {
+      "time": "2026-04-07",
+      "value": 60.16
+    },
+    {
+      "time": "2026-04-08",
+      "value": 58.05
+    },
+    {
+      "time": "2026-04-09",
+      "value": 57.33
+    },
+    {
+      "time": "2026-04-10",
+      "value": 56.94
+    },
+    {
+      "time": "2026-04-13",
+      "value": 57.11
+    },
+    {
+      "time": "2026-04-14",
+      "value": 55.95
+    },
+    {
+      "time": "2026-04-15",
+      "value": 55.76
+    },
+    {
+      "time": "2026-04-16",
+      "value": 56.58
+    },
+    {
+      "time": "2026-04-17",
+      "value": 55.02
+    },
+    {
+      "time": "2026-04-20",
+      "value": 55.07
+    },
+    {
+      "time": "2026-04-21",
+      "value": 55.87
+    },
+    {
+      "time": "2026-04-22",
+      "value": 56.54
+    },
+    {
+      "time": "2026-04-23",
+      "value": 56.98
+    },
+    {
+      "time": "2026-04-24",
+      "value": 56.87
+    },
+    {
+      "time": "2026-04-27",
+      "value": 56.77
+    },
+    {
+      "time": "2026-04-28",
+      "value": 57.71
+    },
+    {
+      "time": "2026-04-29",
+      "value": 59.03
+    },
+    {
+      "time": "2026-04-30",
+      "value": 59.65
+    },
+    {
+      "time": "2026-05-01",
+      "value": 58.85
+    },
+    {
+      "time": "2026-05-04",
+      "value": 59.39
+    },
+    {
+      "time": "2026-05-05",
+      "value": 59.45
+    },
+    {
+      "time": "2026-05-06",
+      "value": 57.0
+    },
+    {
+      "time": "2026-05-07",
+      "value": 55.95
+    },
+    {
+      "time": "2026-05-08",
+      "value": 55.7
+    },
+    {
+      "time": "2026-05-11",
+      "value": 57.17
+    },
+    {
+      "time": "2026-05-12",
+      "value": 57.57
+    },
+    {
+      "time": "2026-05-13",
+      "value": 57.63
+    },
+    {
+      "time": "2026-05-14",
+      "value": 58.07
+    },
+    {
+      "time": "2026-05-15",
+      "value": 59.44
+    },
+    {
+      "time": "2026-05-18",
+      "value": 60.58
+    },
+    {
+      "time": "2026-05-19",
+      "value": 61.29
+    },
+    {
+      "time": "2026-05-20",
+      "value": 59.8
+    },
+    {
+      "time": "2026-05-21",
+      "value": 59.13
+    },
+    {
+      "time": "2026-05-22",
+      "value": 59.49
+    },
+    {
+      "time": "2026-05-26",
+      "value": 57.85
+    },
+    {
+      "time": "2026-05-27",
+      "value": 56.99
+    },
+    {
+      "time": "2026-05-28",
+      "value": 56.95
+    },
+    {
+      "time": "2026-05-29",
+      "value": 56.29
+    },
+    {
+      "time": "2026-06-01",
+      "value": 57.3
+    },
+    {
+      "time": "2026-06-02",
+      "value": 57.96
+    },
+    {
+      "time": "2026-06-03",
+      "value": 58.71
+    },
+    {
+      "time": "2026-06-04",
+      "value": 58.75
+    },
+    {
+      "time": "2026-06-05",
+      "value": 57.67
+    },
+    {
+      "time": "2026-06-08",
+      "value": 58.33
+    },
+    {
+      "time": "2026-06-09",
+      "value": 57.39
+    },
+    {
+      "time": "2026-06-10",
+      "value": 58.25
+    },
+    {
+      "time": "2026-06-11",
+      "value": 57.12
+    },
+    {
+      "time": "2026-06-12",
+      "value": 57.55
+    },
+    {
+      "time": "2026-06-15",
+      "value": 55.55
+    },
+    {
+      "time": "2026-06-16",
+      "value": 55.36
+    },
+    {
+      "time": "2026-06-17",
+      "value": 54.67
+    },
+    {
+      "time": "2026-06-18",
+      "value": 53.77
+    },
+    {
+      "time": "2026-06-22",
+      "value": 54.06
+    },
+    {
+      "time": "2026-06-23",
+      "value": 54.46
+    },
+    {
+      "time": "2026-06-24",
+      "value": 53.57
+    },
+    {
+      "time": "2026-06-25",
+      "value": 54.09
+    },
+    {
+      "time": "2026-06-26",
+      "value": 53.84
+    },
+    {
+      "time": "2026-06-29",
+      "value": 53.58
+    },
+    {
+      "time": "2026-06-30",
+      "value": 53.11
+    },
+    {
+      "time": "2026-07-01",
+      "value": 52.81
+    },
+    {
+      "time": "2026-07-02",
+      "value": 53.22
+    },
+    {
+      "time": "2026-07-06",
+      "value": 53.13
+    },
+    {
+      "time": "2026-07-07",
+      "value": 54.64
+    },
+    {
+      "time": "2026-07-08",
+      "value": 55.6
+    },
+    {
+      "time": "2026-07-09",
+      "value": 54.82
+    },
+    {
+      "time": "2026-07-10",
+      "value": 55.08
+    },
+    {
+      "time": "2026-07-13",
+      "value": 56.74
+    },
+    {
+      "time": "2026-07-14",
+      "value": 56.95
+    },
+    {
+      "time": "2026-07-15",
+      "value": 56.5
+    },
+    {
+      "time": "2026-07-16",
+      "value": 57.02
+    },
+    {
+      "time": "2026-07-17",
+      "value": 57.68
+    },
+    {
+      "time": "2026-07-20",
+      "value": 57.94
+    },
+    {
+      "time": "2026-07-21",
+      "value": 58.5
+    },
+    {
+      "time": "2026-07-22",
+      "value": 59.2
+    },
+    {
+      "time": "2026-07-23",
+      "value": 59.38
+    },
+    {
+      "time": "2026-07-24",
+      "value": 59.62
+    },
+    {
+      "time": "2026-07-27",
+      "value": 58.36
+    },
+    {
+      "time": "2026-07-28",
+      "value": 57.57
+    },
+    {
+      "time": "2026-07-29",
+      "value": 58.65
+    },
+    {
+      "time": "2026-07-30",
+      "value": 58.96
+    },
+    {
+      "time": "2026-07-31",
+      "value": 59.55
+    },
+    {
+      "time": "2026-08-03",
+      "value": 58.79
+    },
+    {
+      "time": "2026-08-04",
+      "value": 58.52
+    },
+    {
+      "time": "2026-08-05",
+      "value": 57.31
+    },
+    {
+      "time": "2026-08-06",
+      "value": 58.16
+    },
+    {
+      "time": "2026-08-07",
+      "value": 57.5
+    },
+    {
+      "time": "2026-08-10",
+      "value": 60.18
+    },
+    {
+      "time": "2026-08-11",
+      "value": 60.93
+    },
+    {
+      "time": "2026-08-12",
+      "value": 61.03
+    },
+    {
+      "time": "2026-08-13",
+      "value": 61.06
+    },
+    {
+      "time": "2026-08-14",
+      "value": 61.91
+    },
+    {
+      "time": "2026-08-17",
+      "value": 62.58
+    },
+    {
+      "time": "2026-08-18",
+      "value": 63.68
+    },
+    {
+      "time": "2026-08-19",
+      "value": 63.58
+    },
+    {
+      "time": "2026-08-20",
+      "value": 63.75
+    },
+    {
+      "time": "2026-08-21",
+      "value": 63.64
+    },
+    {
+      "time": "2026-08-24",
+      "value": 63.11
+    },
+    {
+      "time": "2026-08-25",
+      "value": 62.06
+    },
+    {
+      "time": "2026-08-26",
+      "value": 62.43
+    },
+    {
+      "time": "2026-08-27",
+      "value": 62.29
+    },
+    {
+      "time": "2026-08-28",
+      "value": 62.68
+    },
+    {
+      "time": "2026-08-31",
+      "value": 63.96
+    },
+    {
+      "time": "2026-09-01",
+      "value": 64.77
+    },
+    {
+      "time": "2026-09-02",
+      "value": 65.1
+    }
+  ],
+  "historial_volumen": [
+    {
+      "time": "2026-08-03",
+      "value": 26038400,
+      "up": true
+    },
+    {
+      "time": "2026-08-04",
+      "value": 37661542,
+      "up": true
+    },
+    {
+      "time": "2026-08-05",
+      "value": 33213538,
+      "up": false
+    },
+    {
+      "time": "2026-08-06",
+      "value": 25084300,
+      "up": false
+    },
+    {
+      "time": "2026-08-07",
+      "value": 21092719,
+      "up": false
+    },
+    {
+      "time": "2026-08-10",
+      "value": 33677848,
+      "up": true
+    },
+    {
+      "time": "2026-08-11",
+      "value": 22400839,
+      "up": true
+    },
+    {
+      "time": "2026-08-12",
+      "value": 22584200,
+      "up": true
+    },
+    {
+      "time": "2026-08-13",
+      "value": 20703600,
+      "up": true
+    },
+    {
+      "time": "2026-08-14",
+      "value": 22777742,
+      "up": true
+    },
+    {
+      "time": "2026-08-17",
+      "value": 23550300,
+      "up": true
+    },
+    {
+      "time": "2026-08-18",
+      "value": 27280522,
+      "up": true
+    },
+    {
+      "time": "2026-08-19",
+      "value": 25537822,
+      "up": false
+    },
+    {
+      "time": "2026-08-20",
+      "value": 24304126,
+      "up": false
+    },
+    {
+      "time": "2026-08-21",
+      "value": 27798587,
+      "up": false
+    },
+    {
+      "time": "2026-08-24",
+      "value": 23010358,
+      "up": false
+    },
+    {
+      "time": "2026-08-25",
+      "value": 27426442,
+      "up": false
+    },
+    {
+      "time": "2026-08-26",
+      "value": 24398571,
+      "up": true
+    },
+    {
+      "time": "2026-08-27",
+      "value": 29603990,
+      "up": true
+    },
+    {
+      "time": "2026-08-28",
+      "value": 20624540,
+      "up": true
+    },
+    {
+      "time": "2026-08-31",
+      "value": 27148838,
+      "up": true
+    },
+    {
+      "time": "2026-09-01",
+      "value": 33275948,
+      "up": false
+    },
+    {
+      "time": "2026-09-02",
+      "value": 27052661,
+      "up": true
+    }
+  ],
+  "earnings_info": {
+    "next_date": null,
+    "days_until": null,
+    "eps_estimate": null,
+    "label": "N/A"
+  },
+  "insiders_snapshot": {
+    "transactions": [],
+    "summary": {
+      "buys_count": 0,
+      "sells_count": 0,
+      "buys_value": 0.0,
+      "sells_value": 0.0,
+      "net_value": 0.0,
+      "signal": "NEUTRAL",
+      "source": "SEC Form 4 (FMP) via motor"
+    },
+    "institutional": [],
+    "major_holders": {},
+    "edgar": {
+      "cik": null,
+      "form4": [],
+      "form13f": [],
+      "holders_5pct": [],
+      "holders_source": null
+    },
+    "important_trades": []
+  },
+  "memory_comparison": {
+    "has_prior": false
+  },
+  "deep_memory": null,
+  "open_options": [],
+  "portfolio_fit": null,
+  "noticias_reales": [
+    {
+      "title": "European refiners reaping near-record profits on gasoline",
+      "publisher": "Reuters",
+      "publish_time": "2026-09-02 11:01 AM",
+      "summary": "European gasoline refinery profit margins passed $62 a ​barrel on Wednesday, according to trade ‌data reviewed by Reuters, driven higher as conflicts in the Middle East and Ukraine ​tighten fuel supplies globally."
+    },
+    {
+      "title": "XLE Tops August Sector Rankings as Energy Stocks Surge",
+      "publisher": "ETF Trends",
+      "publish_time": "2026-09-02 08:59 AM",
+      "summary": "The State Street Energy Select Sector SPDR ETF (XLE) gained 7.4% in August, according to State Street. That was the best performance among the 11 Select Sector SPDR funds that track the S&P 500."
+    },
+    {
+      "title": "Energy ETFs to Watch as US-Venezuela Sign Historic Oil Deal",
+      "publisher": "Zacks Investment Research",
+      "publish_time": "2026-09-01 03:30 PM",
+      "summary": "Energy ETFs could benefit as the U.S.-Venezuela oil deal drives long-term investment in Venezuela's oil infrastructure."
+    },
+    {
+      "title": "ETF Asset Flow of August: S&P 500 Tops",
+      "publisher": "Zacks Investment Research",
+      "publish_time": "2026-09-01 09:01 AM",
+      "summary": "August ETF flows highlighted strong investor demand for S&P 500, Nasdaq-100, short-term Treasury, gold and bitcoin ETFs, while some major funds saw outflows."
+    },
+    {
+      "title": "Oil Stocks Don't Need to Double for This ETF to Explode. Here's How 2X Energy Leverage Works",
+      "publisher": "24/7 Wall Street",
+      "publish_time": "2026-08-31 02:07 PM",
+      "summary": "Energy stocks have already had a strong 2026, but investors looking at the Direxion Daily Energy Bull 2X Shares (NYSEARCA:ERX) do not necessarily need Exxon Mobil, Chevron, or the broader energy sector to double from here for the ETF to"
+    },
+    {
+      "title": "Chevron and Exxon Mobil Rise 3% as U.S. Strikes on Iran Push WTI Crude Oil to $86",
+      "publisher": "24/7 Wall Street",
+      "publish_time": "2026-08-31 10:07 AM",
+      "summary": "Shares of Chevron (NYSE:CVX | CVX Price Prediction) and Exxon Mobil (NYSE:XOM) are climbing in Monday morning trading after the United States and Iran resumed military strikes over the weekend, with shipping through the Strait of Hormuz still constrained."
+    }
+  ],
+  "targets": {
+    "7d": {
+      "bull": 68.13,
+      "base": 65.86,
+      "bear": 62.07
+    },
+    "30d": {
+      "bull": 71.66,
+      "base": 66.85,
+      "bear": 58.54
+    },
+    "3m": {
+      "bull": 77.22,
+      "base": 68.41,
+      "bear": 52.98
+    },
+    "6m": {
+      "bull": 84.39,
+      "base": 68.64,
+      "bear": 46.38
+    },
+    "12m": {
+      "bull": 91.65,
+      "base": 66.82,
+      "bear": 45.6
+    }
+  },
+  "targets_source": "vertex",
+  "targets_horizon_note": "Respaldo Vertex: volatilidad histórica / ATR / DCF simplificado / consenso.",
+  "methodology": {
+    "annual_volatility_pct": 23.28,
+    "daily_vol_pct": 1.466,
+    "atr_14": 1.12,
+    "analyst_high": 87.89,
+    "analyst_low": 48.82,
+    "analyst_mean": 72.91,
+    "analyst_median": 72.91
+  },
+  "analisis": {
+    "biggest_pro": "El principal catalizador para XLE es el resurgimiento del sector energético, impulsado por acuerdos geopolíticos como el pacto petrolero entre EE. UU. y Venezuela, los márgenes récord de las refinerías europeas y el aumento de los precios del crudo WTI debido a tensiones en Medio Oriente, lo que ha llevado a un rendimiento superior del ETF en los rankings sectoriales recientes.",
+    "biggest_risk": "El riesgo más severo es la alta sensibilidad del sector energético a la volatilidad geopolítica y a los cambios macroeconómicos que podrían afectar la demanda global de energía, además de la naturaleza cíclica de la industria que puede revertir rápidamente las ganancias actuales.",
+    "watch_for": "Se debe monitorear de cerca la evolución de los precios del petróleo crudo WTI, los desarrollos geopolíticos en regiones clave como Medio Oriente y Venezuela, y cualquier cambio en la regulación energética global que pueda impactar los márgenes de refinación o la producción.",
+    "company_summary_simple": "XLE es un fondo cotizado en bolsa (ETF) que invierte en las principales empresas del sector energético de EE. UU., como Exxon Mobil y Chevron. Gana dinero al replicar el rendimiento de estas compañías, beneficiándose de los aumentos en los precios del petróleo y gas, la demanda energética y la rentabilidad de la exploración, producción y refinación. Importa al inversor promedio como una forma diversificada de obtener exposición al sector energético sin tener que elegir acciones individuales, ideal para capitalizar tendencias alcistas en la energía.",
+    "analisis_numeros_actuales": "XLE presenta una capitalización de mercado de aproximadamente 42.86 mil millones de USD. Sin embargo, métricas financieras tradicionales como el P/E actual, P/E forward, márgenes brutos, márgenes EBITDA y flujo de caja libre no están disponibles directamente para el ETF, lo que limita un análisis fundamental profundo basado en estas cifras específicas del fondo.",
+    "crecimiento_yoy": "El crecimiento de ingresos año tras año no está disponible para el ETF en su conjunto. Sin embargo, el historial de ganancias de las compañías subyacentes ha sido positivo, con dos de dos beats en los últimos reportes, lo que sugiere un entorno favorable para el sector energético.",
+    "crecimiento_proyectado": "Se proyecta un crecimiento continuo para el sector energético en los próximos años, impulsado por catalizadores como el acuerdo petrolero entre EE. UU. y Venezuela que podría desbloquear nuevas inversiones, la fuerte demanda de gasolina que mantiene altos los márgenes de refinación, y la resiliencia de los precios del petróleo ante la oferta y la demanda global, todo ello en un régimen de mercado de tendencia alcista.",
+    "sec_filing_10k": "Como ETF, XLE no presenta un reporte 10-K individual. Sin embargo, los factores de riesgo para el fondo se derivan de los reportes 10-K de sus participaciones subyacentes, que típicamente incluyen riesgos relacionados con la volatilidad de los precios de las materias primas, regulaciones ambientales, riesgos geopolíticos, interrupciones en la cadena de suministro y la transición energética global.",
+    "sec_filing_10q": "Al ser un ETF, XLE no emite un 10-Q trimestral propio. El rendimiento y los balances del fondo se reflejan en el desempeño agregado de las empresas energéticas que lo componen, las cuales sí publican sus propios reportes 10-Q, mostrando resultados que han contribuido al reciente ascenso del sector.",
+    "sec_filing_8k": "XLE no reporta eventos materiales en un 8-K. No obstante, las noticias recientes, como el acuerdo petrolero entre EE. UU. y Venezuela, el aumento de los márgenes de refinación en Europa y las tensiones en Medio Oriente que impulsan los precios del crudo, actúan como comunicados urgentes que impactan directamente el valor del ETF.",
+    "recommendation": null,
+    "conviccion_porque": "La convicción se ve impulsada positivamente por el agente de Negocio, debido a los sólidos catalizadores sectoriales y los márgenes de refinación. El agente de Mercado y Técnico también contribuyen positivamente, reflejando la tendencia alcista general y el buen desempeño reciente de XLE. Sin embargo, el agente de Flujo Institucional puntúa con cautela debido a la ausencia de flujo calificado hoy. Los agentes Financiero y de Valoración se mantienen neutrales por la falta de métricas directas del ETF, mientras que el agente de Riesgo es neutral a ligeramente cauteloso por la volatilidad inherente al sector.",
+    "recomendacion_porque": "La recomendación de COMPRA se fundamenta en el potencial alcista significativo que sugieren los targets a 12 meses de Victor, con un target base de 66.82 USD y un target bull de 91.65 USD, superando el precio spot actual. Este potencial se ve reforzado por un régimen de mercado en tendencia alcista, catalizadores positivos como acuerdos energéticos y márgenes de refinación elevados, y un historial consistente de beats en los reportes de ganancias de las compañías subyacentes. Aunque el flujo institucional actual es cauteloso, la perspectiva a futuro y el momentum del sector son favorables.",
+    "tesis_inversion_completa": "La tesis de inversión para XLE se centra en la capitalización de un entorno macroeconómico y geopolítico favorable para el sector energético. Los precios del petróleo están siendo impulsados por la demanda y las tensiones geopolíticas, mientras que los márgenes de refinación alcanzan niveles récord. Acuerdos estratégicos como el de EE. UU. y Venezuela abren nuevas oportunidades de inversión y suministro. El ETF ofrece una exposición diversificada a las principales empresas del sector, que han demostrado resiliencia y capacidad para superar las expectativas de ganancias. A pesar de la naturaleza cíclica y volátil del sector, el régimen de mercado actual de tendencia alcista y los targets de precio a 12 meses de Victor sugieren un potencial de revalorización considerable, haciendo de XLE una asignación de capital atractiva para inversores con apetito por el riesgo en el sector energético.",
+    "tesis_riesgos": "Los riesgos inherentes a esta tesis incluyen la extrema sensibilidad a los precios de las materias primas, donde una caída inesperada en el petróleo o el gas podría erosionar rápidamente las ganancias. La volatilidad geopolítica, aunque actualmente es un catalizador, también puede revertirse y generar inestabilidad. Los cambios regulatorios, especialmente en políticas ambientales o fiscales, podrían impactar negativamente la rentabilidad de las empresas subyacentes. La falta de métricas financieras directas para el ETF dificulta una evaluación intrínseca detallada, y la dependencia de un flujo institucional cauteloso podría limitar el soporte en caso de correcciones. Finalmente, una desaceleración económica global podría reducir drásticamente la demanda de energía, afectando el rendimiento del fondo.",
+    "analistas_consenso": "El consenso de Wall Street, con un precio objetivo medio de 72.91 USD, muestra una perspectiva más optimista que el target base a 12 meses de Victor, que se sitúa en 66.82 USD. Esta divergencia podría explicarse por la metodología de Victor, que se ancla estrictamente en sus propios cálculos y agentes, mientras que el consenso de analistas de Wall Street podría incorporar una mayor ponderación a las expectativas de crecimiento a largo plazo o a un optimismo sectorial más pronunciado, especialmente en un régimen de mercado alcista. Ambos coinciden en un potencial alcista desde el precio actual, pero difieren en la magnitud de esa proyección.",
+    "calculos_y_crecimiento_ai": "La aritmética de este reporte se basa en los targets de Victor a 12 meses. El Fair Value se establece como el target base de Victor a 12 meses, que es de 66.82 USD. Los targets de Victor para XLE a 12 meses son: Bull 91.65 USD, Base 66.82 USD y Bear 45.6 USD. La fórmula general para los targets de Victor es EPS × (1+crecimiento) × (P/E actual × factor del escenario). Sin embargo, los valores específicos para el EPS, el crecimiento (CAGR de utilidades a 5 años), el P/E actual y el factor del escenario no fueron proporcionados en los datos de entrada para XLE, por lo que no se puede detallar el cálculo paso a paso de esta fórmula. El DCF (FCFF) del especialista de valuación no es puntuable ya que no hay un DCF publicable disponible. En cuanto a los agentes que empujan el puntaje, el agente de Negocio y el agente Técnico impulsan el puntaje hacia arriba debido a los catalizadores positivos y la tendencia alcista. El agente de Mercado, específicamente en lo que respecta al flujo institucional, puntúa con cautela, lo que podría moderar el puntaje general. Los agentes Financiero y de Valoración se mantienen neutrales debido a la falta de datos específicos para el ETF, y el agente de Riesgo es neutral a ligeramente cauteloso por la volatilidad del sector.",
+    "posicion_competitiva": "El sector energético, al que XLE ofrece exposición, se caracteriza por barreras de entrada significativas debido a la intensidad de capital y la necesidad de infraestructura compleja. Las empresas subyacentes en XLE, como Exxon Mobil y Chevron, poseen ventajas competitivas (moats) derivadas de su escala, integración vertical, acceso a vastas reservas y experiencia tecnológica, lo que les permite mantener una posición dominante frente a rivales más pequeños.",
+    "principales_competidores": "Los principales competidores de XLE son otros ETFs que invierten en el sector energético, como Vanguard Energy ETF (VDE), iShares U.S. Energy ETF (IYE) y Fidelity MSCI Energy Index ETF (FENY). A nivel de las empresas subyacentes, los competidores incluyen otras grandes compañías petroleras y de gas integradas a nivel mundial.",
+    "porque_mejor_peor_inversion": "La evaluación de XLE como mejor o peor inversión en comparación con otras opciones es compleja debido a la falta de datos directos de márgenes, retornos de capital y múltiplos para el ETF en sí. Sin embargo, el sector energético en general ha demostrado recientemente una mejora en los márgenes operativos y retornos de capital, impulsado por precios de energía más altos. La justificación de su atractivo como inversión se basa en la expectativa de que las empresas subyacentes continuarán generando fuertes flujos de caja y retornos, lo que se reflejará en el rendimiento del ETF, especialmente en un entorno de múltiplos potencialmente atractivos en comparación con otros sectores de crecimiento.",
+    "in_simple_terms": "Imagina que XLE es como una canasta grande llena de acciones de las empresas más grandes que extraen petróleo, refinan gasolina y distribuyen energía. Si el precio del petróleo sube, o si la gente usa más energía, o si estas empresas ganan mucho dinero, entonces el valor de tu canasta (XLE) también sube. Es una forma sencilla de apostar por el éxito de toda la industria energética sin tener que elegir una sola empresa.",
+    "should_you_buy_now": "Considerando el régimen de mercado de tendencia alcista, los catalizadores positivos en el sector energético y el potencial alcista que sugieren los targets a 12 meses de Victor y el consenso de analistas, la situación actual favorece una compra agresiva para inversores con convicción en el sector. Sin embargo, la ausencia de flujo institucional calificado hoy y la volatilidad inherente al sector requieren una gestión de riesgo prudente.",
+    "the_bottom_line": "XLE presenta una oportunidad de compra agresiva en el sector energético, impulsada por catalizadores macroeconómicos y geopolíticos favorables, con un potencial alcista significativo según las proyecciones a 12 meses, aunque con la necesidad de monitorear la volatilidad y el flujo institucional.",
+    "probabilities": {
+      "rationale": "La probabilidad de un movimiento positivo significativo parece elevada, anclada en la fuerte tendencia alcista del régimen de mercado y los catalizadores sectoriales recientes. Históricamente, ETFs con esta volatilidad anual (23.28%) en un entorno de noticias positivas y beats de ganancias tienden a seguir su momentum, aunque la ausencia de flujo institucional calificado hoy sugiere que la magnitud del movimiento podría ser más gradual de lo que un optimismo desmedido podría implicar."
+    },
+    "fair_value": null,
+    "upside_pct": null,
+    "regime": {
+      "vol": "normal",
+      "trend": "alcista",
+      "breadth": "neutral",
+      "rates": "estable",
+      "vix": 15.2,
+      "spy_vs_200d_pct": 7.6,
+      "detail": {
+        "spy_20d_pct": -0.6,
+        "rsp_minus_spy_20d_pct": 0.1,
+        "tlt_20d_pct": -1.3
+      },
+      "label": "Tendencia alcista · vol normal · amplitud neutral · tasas estable"
+    },
+    "conviction_source": "engine de Victor no disponible",
+    "prob_anchoring": null,
+    "trade_plan": {
+      "probabilities": {
+        "p_positive_12m": null,
+        "rationale": "La probabilidad de un movimiento positivo significativo parece elevada, anclada en la fuerte tendencia alcista del régimen de mercado y los catalizadores sectoriales recientes. Históricamente, ETFs con esta volatilidad anual (23.28%) en un entorno de noticias positivas y beats de ganancias tienden a seguir su momentum, aunque la ausencia de flujo institucional calificado hoy sugiere que la magnitud del movimiento podría ser más gradual de lo que un optimismo desmedido podría implicar.",
+        "fuente": "sin muestra medida: no se publica probabilidad"
+      },
+      "reward_pct": 40.8,
+      "risk_pct": 30.0,
+      "reward_risk": 1.36,
+      "kelly_full_pct": null,
+      "kelly_half_pct": null,
+      "suggested_pct": null,
+      "cap_reason": "Sin dimensionar: hace falta al menos una predicción VENCIDA para medir la probabilidad. La del modelo no se usa — sin evidencia no hay número.",
+      "factor_haircut_pct": 0.0,
+      "already_held_pct": 0.0,
+      "risk_plan": {
+        "is_a_grade": false,
+        "equity_stop": 62.86,
+        "equity_stop_note": "No A-grade: stop sugerido en $62.86 (2×ATR-14 bajo el spot).",
+        "thesis_break_level": 45.6,
+        "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada."
+      },
+      "targets_r": {
+        "entry": 65.1,
+        "stop": 45.6,
+        "r_unit": 19.5,
+        "bull_r": 1.36,
+        "base_r": 0.09,
+        "bear_r": -1.0
+      },
+      "thesis_invalidation": [
+        {
+          "factor": "Precio",
+          "kind": "price",
+          "trigger": "Cierre bajo $45.6 (quiebre de tesis = −1R)"
+        }
+      ]
+    },
+    "coherence_flags": [],
+    "coherence_ok": true,
+    "model_source": "gemini",
+    "earnings_history": {
+      "n": 2,
+      "beats": 2,
+      "misses": 0,
+      "avg_surprise_pct": null,
+      "avg_abs_move_pct": null,
+      "avg_move_pct": null,
+      "rows": [
+        {
+          "date": "2005-05-16",
+          "reported": 0.89,
+          "estimate": 0.86,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": null
+        },
+        {
+          "date": "2005-02-15",
+          "reported": 0.93,
+          "estimate": 0.76,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": null
+        }
+      ]
+    },
+    "integrity": {
+      "checks": [
+        {
+          "name": "Fuente de datos",
+          "status": "ok",
+          "detail": "Quant Data",
+          "value": null
+        },
+        {
+          "name": "Spot",
+          "status": "fail",
+          "detail": "sin precio de referencia",
+          "value": null
+        }
+      ],
+      "ok": 0,
+      "warn": 0,
+      "fail": 1,
+      "status": "fail"
+    },
+    "ai_concentration": {
+      "proxy": "SMH",
+      "rho": -0.29,
+      "level": "baja",
+      "note": "ρ=-0.29 con el complejo IA/semis (SMH): baja correlación con IA/semis — aporta diversificación real al libro."
+    },
+    "news_catalysts": [
+      "deal",
+      "regulatory"
+    ],
+    "sec_8k": [],
+    "scores_source": "SIN MOTOR — no se publican números",
+    "motor_ausente": true,
+    "conviccion_score": null,
+    "confidence": null,
+    "p_bull_correct": null,
+    "wbj": null,
+    "aviso_sin_motor": "El motor determinista no pudo calcular este análisis, así que NO hay puntaje, ni recomendación, ni valor justo. Lo que se muestra es contexto en palabras. Revisa el servidor antes de usar esto para decidir nada."
+  },
+  "fecha": "2026-09-02",
+  "agente": "acciones",
+  "guardado_en": "2026-09-02T20:46:29+00:00"
+}
