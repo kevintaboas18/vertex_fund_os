@@ -9,7 +9,7 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [AMZN](tesis/AMZN.md) | 2026-08-25 | Oportunidad Moderada | 60 | opciones |
 | [APH](tesis/APH.md) | 2026-08-13 | ESPECULATIVO | 56 | acciones |
 | [DELL](tesis/DELL.md) | 2026-09-02 | DESFAVORABLE | 49 | acciones |
-| [GOOGL](tesis/GOOGL.md) | 2026-08-30 | Oportunidad Moderada | 57 | opciones |
+| [GOOGL](tesis/GOOGL.md) | 2026-09-03 | Oportunidad Fuerte | 75 | opciones |
 | [GOOG](tesis/GOOG.md) | 2026-08-30 | Oportunidad Moderada | 62 | opciones |
 | [META](tesis/META.md) | 2026-08-28 | Oportunidad Moderada | 59 | opciones |
 | [MSFT](tesis/MSFT.md) | 2026-08-28 | Oportunidad Moderada | 56 | opciones |
