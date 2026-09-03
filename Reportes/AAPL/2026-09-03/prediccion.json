@@ -1,0 +1,31 @@
+{
+  "report_id": "20260903_144303_AAPL",
+  "ticker": "AAPL",
+  "fecha": "2026-09-03",
+  "price_at_analysis": 328.26,
+  "fair_value": 338.91,
+  "profile": "Avoid / Wait",
+  "raw_total": 43.9,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 408.43,
+    "base": 338.91,
+    "bear": 234.68
+  },
+  "framework": "WBJ v2.0.0",
+  "invalidacion": {
+    "lado": "soporte",
+    "zona_baja": 298.91394009049037,
+    "zona_alta": 305.92605990950966,
+    "etiqueta": "Nearest support zone (daily-support-302.42)",
+    "regla": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C)."
+  },
+  "date": "2026-09-03",
+  "price": 328.26,
+  "bear": 234.68,
+  "base": 338.91,
+  "bull": 408.43,
+  "horizon_days": 365,
+  "source": "cerebro",
+  "score10": 4.39
+}
