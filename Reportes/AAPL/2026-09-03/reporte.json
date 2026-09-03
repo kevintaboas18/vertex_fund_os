@@ -1,0 +1,4567 @@
+{
+  "report_id": "20260903_144303_AAPL",
+  "ticker": "AAPL",
+  "nombre_completo": "Apple Inc.",
+  "precio_actual": 328.26,
+  "precio_fuente": "yfinance",
+  "precio_as_of": "09/03/2026, 02:44:21 PM",
+  "pe_ratio": 37.46232876712329,
+  "logo_url": "https://logo.clearbit.com/apple.com",
+  "fecha_analisis": "09/03/2026, 02:43:03 PM",
+  "historial_precios": [
+    303.42,
+    309.38,
+    311.0,
+    312.41,
+    313.33,
+    308.26,
+    304.91,
+    302.25,
+    305.26,
+    305.93,
+    305.59,
+    310.03,
+    316.83,
+    311.3,
+    309.35,
+    310.34,
+    309.9,
+    313.45,
+    314.58,
+    319.7,
+    316.85,
+    325.13,
+    324.96,
+    328.26
+  ],
+  "historial_fechas": [
+    "Aug 03",
+    "Aug 04",
+    "Aug 05",
+    "Aug 06",
+    "Aug 07",
+    "Aug 10",
+    "Aug 11",
+    "Aug 12",
+    "Aug 13",
+    "Aug 14",
+    "Aug 17",
+    "Aug 18",
+    "Aug 19",
+    "Aug 20",
+    "Aug 21",
+    "Aug 24",
+    "Aug 25",
+    "Aug 26",
+    "Aug 27",
+    "Aug 28",
+    "Aug 31",
+    "Sep 01",
+    "Sep 02",
+    "Sep 03"
+  ],
+  "historial_ohlc": [
+    {
+      "time": "2026-08-03",
+      "open": 309.58,
+      "high": 311.8,
+      "low": 302.56,
+      "close": 303.42
+    },
+    {
+      "time": "2026-08-04",
+      "open": 302.73,
+      "high": 310.42,
+      "low": 301.32,
+      "close": 309.38
+    },
+    {
+      "time": "2026-08-05",
+      "open": 309.36,
+      "high": 311.71,
+      "low": 305.67,
+      "close": 311.0
+    },
+    {
+      "time": "2026-08-06",
+      "open": 314.34,
+      "high": 316.29,
+      "low": 309.23,
+      "close": 312.41
+    },
+    {
+      "time": "2026-08-07",
+      "open": 311.45,
+      "high": 314.81,
+      "low": 310.74,
+      "close": 313.33
+    },
+    {
+      "time": "2026-08-10",
+      "open": 306.83,
+      "high": 308.26,
+      "low": 304.61,
+      "close": 308.26
+    },
+    {
+      "time": "2026-08-11",
+      "open": 307.75,
+      "high": 309.97,
+      "low": 302.79,
+      "close": 304.91
+    },
+    {
+      "time": "2026-08-12",
+      "open": 305.1,
+      "high": 305.66,
+      "low": 300.57,
+      "close": 302.25
+    },
+    {
+      "time": "2026-08-13",
+      "open": 304.21,
+      "high": 306.0,
+      "low": 302.05,
+      "close": 305.26
+    },
+    {
+      "time": "2026-08-14",
+      "open": 306.0,
+      "high": 307.49,
+      "low": 304.3,
+      "close": 305.93
+    },
+    {
+      "time": "2026-08-17",
+      "open": 306.21,
+      "high": 307.66,
+      "low": 302.94,
+      "close": 305.59
+    },
+    {
+      "time": "2026-08-18",
+      "open": 307.58,
+      "high": 311.49,
+      "low": 305.74,
+      "close": 310.03
+    },
+    {
+      "time": "2026-08-19",
+      "open": 310.14,
+      "high": 319.28,
+      "low": 309.6,
+      "close": 316.83
+    },
+    {
+      "time": "2026-08-20",
+      "open": 317.46,
+      "high": 320.28,
+      "low": 310.65,
+      "close": 311.3
+    },
+    {
+      "time": "2026-08-21",
+      "open": 312.05,
+      "high": 312.38,
+      "low": 307.01,
+      "close": 309.35
+    },
+    {
+      "time": "2026-08-24",
+      "open": 311.47,
+      "high": 313.36,
+      "low": 309.97,
+      "close": 310.34
+    },
+    {
+      "time": "2026-08-25",
+      "open": 310.79,
+      "high": 313.59,
+      "low": 308.21,
+      "close": 309.9
+    },
+    {
+      "time": "2026-08-26",
+      "open": 310.3,
+      "high": 315.43,
+      "low": 308.8,
+      "close": 313.45
+    },
+    {
+      "time": "2026-08-27",
+      "open": 310.55,
+      "high": 315.4,
+      "low": 309.4,
+      "close": 314.58
+    },
+    {
+      "time": "2026-08-28",
+      "open": 316.85,
+      "high": 322.37,
+      "low": 315.45,
+      "close": 319.7
+    },
+    {
+      "time": "2026-08-31",
+      "open": 319.6,
+      "high": 321.24,
+      "low": 312.8,
+      "close": 316.85
+    },
+    {
+      "time": "2026-09-01",
+      "open": 316.98,
+      "high": 327.3,
+      "low": 314.73,
+      "close": 325.13
+    },
+    {
+      "time": "2026-09-02",
+      "open": 326.87,
+      "high": 328.4,
+      "low": 323.53,
+      "close": 324.96
+    },
+    {
+      "time": "2026-09-03",
+      "open": 324.95,
+      "high": 330.63,
+      "low": 324.11,
+      "close": 328.26
+    }
+  ],
+  "chart_history": [
+    {
+      "time": "2025-09-02",
+      "value": 229.72
+    },
+    {
+      "time": "2025-09-03",
+      "value": 238.47
+    },
+    {
+      "time": "2025-09-04",
+      "value": 239.78
+    },
+    {
+      "time": "2025-09-05",
+      "value": 239.69
+    },
+    {
+      "time": "2025-09-08",
+      "value": 237.88
+    },
+    {
+      "time": "2025-09-09",
+      "value": 234.35
+    },
+    {
+      "time": "2025-09-10",
+      "value": 226.79
+    },
+    {
+      "time": "2025-09-11",
+      "value": 230.03
+    },
+    {
+      "time": "2025-09-12",
+      "value": 234.07
+    },
+    {
+      "time": "2025-09-15",
+      "value": 236.7
+    },
+    {
+      "time": "2025-09-16",
+      "value": 238.15
+    },
+    {
+      "time": "2025-09-17",
+      "value": 238.99
+    },
+    {
+      "time": "2025-09-18",
+      "value": 237.88
+    },
+    {
+      "time": "2025-09-19",
+      "value": 245.5
+    },
+    {
+      "time": "2025-09-22",
+      "value": 256.08
+    },
+    {
+      "time": "2025-09-23",
+      "value": 254.43
+    },
+    {
+      "time": "2025-09-24",
+      "value": 252.31
+    },
+    {
+      "time": "2025-09-25",
+      "value": 256.87
+    },
+    {
+      "time": "2025-09-26",
+      "value": 255.46
+    },
+    {
+      "time": "2025-09-29",
+      "value": 254.43
+    },
+    {
+      "time": "2025-09-30",
+      "value": 254.63
+    },
+    {
+      "time": "2025-10-01",
+      "value": 255.45
+    },
+    {
+      "time": "2025-10-02",
+      "value": 257.13
+    },
+    {
+      "time": "2025-10-03",
+      "value": 258.02
+    },
+    {
+      "time": "2025-10-06",
+      "value": 256.69
+    },
+    {
+      "time": "2025-10-07",
+      "value": 256.48
+    },
+    {
+      "time": "2025-10-08",
+      "value": 258.06
+    },
+    {
+      "time": "2025-10-09",
+      "value": 254.04
+    },
+    {
+      "time": "2025-10-10",
+      "value": 245.27
+    },
+    {
+      "time": "2025-10-13",
+      "value": 247.66
+    },
+    {
+      "time": "2025-10-14",
+      "value": 247.77
+    },
+    {
+      "time": "2025-10-15",
+      "value": 249.34
+    },
+    {
+      "time": "2025-10-16",
+      "value": 247.45
+    },
+    {
+      "time": "2025-10-17",
+      "value": 252.29
+    },
+    {
+      "time": "2025-10-20",
+      "value": 262.24
+    },
+    {
+      "time": "2025-10-21",
+      "value": 262.77
+    },
+    {
+      "time": "2025-10-22",
+      "value": 258.45
+    },
+    {
+      "time": "2025-10-23",
+      "value": 259.58
+    },
+    {
+      "time": "2025-10-24",
+      "value": 262.82
+    },
+    {
+      "time": "2025-10-27",
+      "value": 268.81
+    },
+    {
+      "time": "2025-10-28",
+      "value": 269.0
+    },
+    {
+      "time": "2025-10-29",
+      "value": 269.7
+    },
+    {
+      "time": "2025-10-30",
+      "value": 271.4
+    },
+    {
+      "time": "2025-10-31",
+      "value": 270.37
+    },
+    {
+      "time": "2025-11-03",
+      "value": 269.05
+    },
+    {
+      "time": "2025-11-04",
+      "value": 270.04
+    },
+    {
+      "time": "2025-11-05",
+      "value": 270.14
+    },
+    {
+      "time": "2025-11-06",
+      "value": 269.77
+    },
+    {
+      "time": "2025-11-07",
+      "value": 268.47
+    },
+    {
+      "time": "2025-11-10",
+      "value": 269.43
+    },
+    {
+      "time": "2025-11-11",
+      "value": 275.25
+    },
+    {
+      "time": "2025-11-12",
+      "value": 273.47
+    },
+    {
+      "time": "2025-11-13",
+      "value": 272.95
+    },
+    {
+      "time": "2025-11-14",
+      "value": 272.41
+    },
+    {
+      "time": "2025-11-17",
+      "value": 267.46
+    },
+    {
+      "time": "2025-11-18",
+      "value": 267.44
+    },
+    {
+      "time": "2025-11-19",
+      "value": 268.56
+    },
+    {
+      "time": "2025-11-20",
+      "value": 266.25
+    },
+    {
+      "time": "2025-11-21",
+      "value": 271.49
+    },
+    {
+      "time": "2025-11-24",
+      "value": 275.92
+    },
+    {
+      "time": "2025-11-25",
+      "value": 276.97
+    },
+    {
+      "time": "2025-11-26",
+      "value": 277.55
+    },
+    {
+      "time": "2025-11-28",
+      "value": 278.85
+    },
+    {
+      "time": "2025-12-01",
+      "value": 283.1
+    },
+    {
+      "time": "2025-12-02",
+      "value": 286.19
+    },
+    {
+      "time": "2025-12-03",
+      "value": 284.15
+    },
+    {
+      "time": "2025-12-04",
+      "value": 280.7
+    },
+    {
+      "time": "2025-12-05",
+      "value": 278.78
+    },
+    {
+      "time": "2025-12-08",
+      "value": 277.89
+    },
+    {
+      "time": "2025-12-09",
+      "value": 277.18
+    },
+    {
+      "time": "2025-12-10",
+      "value": 278.78
+    },
+    {
+      "time": "2025-12-11",
+      "value": 278.03
+    },
+    {
+      "time": "2025-12-12",
+      "value": 278.28
+    },
+    {
+      "time": "2025-12-15",
+      "value": 274.11
+    },
+    {
+      "time": "2025-12-16",
+      "value": 274.61
+    },
+    {
+      "time": "2025-12-17",
+      "value": 271.84
+    },
+    {
+      "time": "2025-12-18",
+      "value": 272.19
+    },
+    {
+      "time": "2025-12-19",
+      "value": 273.67
+    },
+    {
+      "time": "2025-12-22",
+      "value": 270.97
+    },
+    {
+      "time": "2025-12-23",
+      "value": 272.36
+    },
+    {
+      "time": "2025-12-24",
+      "value": 273.81
+    },
+    {
+      "time": "2025-12-26",
+      "value": 273.4
+    },
+    {
+      "time": "2025-12-29",
+      "value": 273.76
+    },
+    {
+      "time": "2025-12-30",
+      "value": 273.08
+    },
+    {
+      "time": "2025-12-31",
+      "value": 271.86
+    },
+    {
+      "time": "2026-01-02",
+      "value": 271.01
+    },
+    {
+      "time": "2026-01-05",
+      "value": 267.26
+    },
+    {
+      "time": "2026-01-06",
+      "value": 262.36
+    },
+    {
+      "time": "2026-01-07",
+      "value": 260.33
+    },
+    {
+      "time": "2026-01-08",
+      "value": 259.04
+    },
+    {
+      "time": "2026-01-09",
+      "value": 259.37
+    },
+    {
+      "time": "2026-01-12",
+      "value": 260.25
+    },
+    {
+      "time": "2026-01-13",
+      "value": 261.05
+    },
+    {
+      "time": "2026-01-14",
+      "value": 259.96
+    },
+    {
+      "time": "2026-01-15",
+      "value": 258.21
+    },
+    {
+      "time": "2026-01-16",
+      "value": 255.53
+    },
+    {
+      "time": "2026-01-20",
+      "value": 246.7
+    },
+    {
+      "time": "2026-01-21",
+      "value": 247.65
+    },
+    {
+      "time": "2026-01-22",
+      "value": 248.35
+    },
+    {
+      "time": "2026-01-23",
+      "value": 248.04
+    },
+    {
+      "time": "2026-01-26",
+      "value": 255.41
+    },
+    {
+      "time": "2026-01-27",
+      "value": 258.27
+    },
+    {
+      "time": "2026-01-28",
+      "value": 256.44
+    },
+    {
+      "time": "2026-01-29",
+      "value": 258.28
+    },
+    {
+      "time": "2026-01-30",
+      "value": 259.48
+    },
+    {
+      "time": "2026-02-02",
+      "value": 270.01
+    },
+    {
+      "time": "2026-02-03",
+      "value": 269.48
+    },
+    {
+      "time": "2026-02-04",
+      "value": 276.49
+    },
+    {
+      "time": "2026-02-05",
+      "value": 275.91
+    },
+    {
+      "time": "2026-02-06",
+      "value": 278.12
+    },
+    {
+      "time": "2026-02-09",
+      "value": 274.62
+    },
+    {
+      "time": "2026-02-10",
+      "value": 273.68
+    },
+    {
+      "time": "2026-02-11",
+      "value": 275.5
+    },
+    {
+      "time": "2026-02-12",
+      "value": 261.73
+    },
+    {
+      "time": "2026-02-13",
+      "value": 255.78
+    },
+    {
+      "time": "2026-02-17",
+      "value": 263.88
+    },
+    {
+      "time": "2026-02-18",
+      "value": 264.35
+    },
+    {
+      "time": "2026-02-19",
+      "value": 260.58
+    },
+    {
+      "time": "2026-02-20",
+      "value": 264.58
+    },
+    {
+      "time": "2026-02-23",
+      "value": 266.18
+    },
+    {
+      "time": "2026-02-24",
+      "value": 272.14
+    },
+    {
+      "time": "2026-02-25",
+      "value": 274.23
+    },
+    {
+      "time": "2026-02-26",
+      "value": 272.95
+    },
+    {
+      "time": "2026-02-27",
+      "value": 264.18
+    },
+    {
+      "time": "2026-03-02",
+      "value": 264.72
+    },
+    {
+      "time": "2026-03-03",
+      "value": 263.75
+    },
+    {
+      "time": "2026-03-04",
+      "value": 262.52
+    },
+    {
+      "time": "2026-03-05",
+      "value": 260.29
+    },
+    {
+      "time": "2026-03-06",
+      "value": 257.46
+    },
+    {
+      "time": "2026-03-09",
+      "value": 259.88
+    },
+    {
+      "time": "2026-03-10",
+      "value": 260.83
+    },
+    {
+      "time": "2026-03-11",
+      "value": 260.81
+    },
+    {
+      "time": "2026-03-12",
+      "value": 255.76
+    },
+    {
+      "time": "2026-03-13",
+      "value": 250.12
+    },
+    {
+      "time": "2026-03-16",
+      "value": 252.82
+    },
+    {
+      "time": "2026-03-17",
+      "value": 254.23
+    },
+    {
+      "time": "2026-03-18",
+      "value": 249.94
+    },
+    {
+      "time": "2026-03-19",
+      "value": 248.96
+    },
+    {
+      "time": "2026-03-20",
+      "value": 247.99
+    },
+    {
+      "time": "2026-03-23",
+      "value": 251.49
+    },
+    {
+      "time": "2026-03-24",
+      "value": 251.64
+    },
+    {
+      "time": "2026-03-25",
+      "value": 252.62
+    },
+    {
+      "time": "2026-03-26",
+      "value": 252.89
+    },
+    {
+      "time": "2026-03-27",
+      "value": 248.8
+    },
+    {
+      "time": "2026-03-30",
+      "value": 246.63
+    },
+    {
+      "time": "2026-03-31",
+      "value": 253.79
+    },
+    {
+      "time": "2026-04-01",
+      "value": 255.63
+    },
+    {
+      "time": "2026-04-02",
+      "value": 255.92
+    },
+    {
+      "time": "2026-04-06",
+      "value": 258.86
+    },
+    {
+      "time": "2026-04-07",
+      "value": 253.5
+    },
+    {
+      "time": "2026-04-08",
+      "value": 258.9
+    },
+    {
+      "time": "2026-04-09",
+      "value": 260.49
+    },
+    {
+      "time": "2026-04-10",
+      "value": 260.48
+    },
+    {
+      "time": "2026-04-13",
+      "value": 259.2
+    },
+    {
+      "time": "2026-04-14",
+      "value": 258.83
+    },
+    {
+      "time": "2026-04-15",
+      "value": 266.43
+    },
+    {
+      "time": "2026-04-16",
+      "value": 263.4
+    },
+    {
+      "time": "2026-04-17",
+      "value": 270.23
+    },
+    {
+      "time": "2026-04-20",
+      "value": 273.05
+    },
+    {
+      "time": "2026-04-21",
+      "value": 266.17
+    },
+    {
+      "time": "2026-04-22",
+      "value": 273.17
+    },
+    {
+      "time": "2026-04-23",
+      "value": 273.43
+    },
+    {
+      "time": "2026-04-24",
+      "value": 271.06
+    },
+    {
+      "time": "2026-04-27",
+      "value": 267.61
+    },
+    {
+      "time": "2026-04-28",
+      "value": 270.71
+    },
+    {
+      "time": "2026-04-29",
+      "value": 270.22
+    },
+    {
+      "time": "2026-04-30",
+      "value": 271.35
+    },
+    {
+      "time": "2026-05-01",
+      "value": 280.14
+    },
+    {
+      "time": "2026-05-04",
+      "value": 276.83
+    },
+    {
+      "time": "2026-05-05",
+      "value": 284.18
+    },
+    {
+      "time": "2026-05-06",
+      "value": 287.51
+    },
+    {
+      "time": "2026-05-07",
+      "value": 287.44
+    },
+    {
+      "time": "2026-05-08",
+      "value": 293.32
+    },
+    {
+      "time": "2026-05-11",
+      "value": 292.68
+    },
+    {
+      "time": "2026-05-12",
+      "value": 294.8
+    },
+    {
+      "time": "2026-05-13",
+      "value": 298.87
+    },
+    {
+      "time": "2026-05-14",
+      "value": 298.21
+    },
+    {
+      "time": "2026-05-15",
+      "value": 300.23
+    },
+    {
+      "time": "2026-05-18",
+      "value": 297.84
+    },
+    {
+      "time": "2026-05-19",
+      "value": 298.97
+    },
+    {
+      "time": "2026-05-20",
+      "value": 302.25
+    },
+    {
+      "time": "2026-05-21",
+      "value": 304.99
+    },
+    {
+      "time": "2026-05-22",
+      "value": 308.82
+    },
+    {
+      "time": "2026-05-26",
+      "value": 308.33
+    },
+    {
+      "time": "2026-05-27",
+      "value": 310.85
+    },
+    {
+      "time": "2026-05-28",
+      "value": 312.51
+    },
+    {
+      "time": "2026-05-29",
+      "value": 312.06
+    },
+    {
+      "time": "2026-06-01",
+      "value": 306.31
+    },
+    {
+      "time": "2026-06-02",
+      "value": 315.2
+    },
+    {
+      "time": "2026-06-03",
+      "value": 310.26
+    },
+    {
+      "time": "2026-06-04",
+      "value": 311.23
+    },
+    {
+      "time": "2026-06-05",
+      "value": 307.34
+    },
+    {
+      "time": "2026-06-08",
+      "value": 301.54
+    },
+    {
+      "time": "2026-06-09",
+      "value": 290.55
+    },
+    {
+      "time": "2026-06-10",
+      "value": 291.58
+    },
+    {
+      "time": "2026-06-11",
+      "value": 295.63
+    },
+    {
+      "time": "2026-06-12",
+      "value": 291.13
+    },
+    {
+      "time": "2026-06-15",
+      "value": 296.42
+    },
+    {
+      "time": "2026-06-16",
+      "value": 299.24
+    },
+    {
+      "time": "2026-06-17",
+      "value": 295.95
+    },
+    {
+      "time": "2026-06-18",
+      "value": 298.01
+    },
+    {
+      "time": "2026-06-22",
+      "value": 297.01
+    },
+    {
+      "time": "2026-06-23",
+      "value": 294.3
+    },
+    {
+      "time": "2026-06-24",
+      "value": 293.08
+    },
+    {
+      "time": "2026-06-25",
+      "value": 275.15
+    },
+    {
+      "time": "2026-06-26",
+      "value": 283.78
+    },
+    {
+      "time": "2026-06-29",
+      "value": 281.74
+    },
+    {
+      "time": "2026-06-30",
+      "value": 289.36
+    },
+    {
+      "time": "2026-07-01",
+      "value": 294.38
+    },
+    {
+      "time": "2026-07-02",
+      "value": 308.63
+    },
+    {
+      "time": "2026-07-06",
+      "value": 312.66
+    },
+    {
+      "time": "2026-07-07",
+      "value": 310.66
+    },
+    {
+      "time": "2026-07-08",
+      "value": 313.39
+    },
+    {
+      "time": "2026-07-09",
+      "value": 316.22
+    },
+    {
+      "time": "2026-07-10",
+      "value": 315.32
+    },
+    {
+      "time": "2026-07-13",
+      "value": 317.31
+    },
+    {
+      "time": "2026-07-14",
+      "value": 314.86
+    },
+    {
+      "time": "2026-07-15",
+      "value": 327.5
+    },
+    {
+      "time": "2026-07-16",
+      "value": 333.26
+    },
+    {
+      "time": "2026-07-17",
+      "value": 333.74
+    },
+    {
+      "time": "2026-07-20",
+      "value": 326.59
+    },
+    {
+      "time": "2026-07-21",
+      "value": 327.74
+    },
+    {
+      "time": "2026-07-22",
+      "value": 325.89
+    },
+    {
+      "time": "2026-07-23",
+      "value": 321.66
+    },
+    {
+      "time": "2026-07-24",
+      "value": 333.02
+    },
+    {
+      "time": "2026-07-27",
+      "value": 336.91
+    },
+    {
+      "time": "2026-07-28",
+      "value": 340.08
+    },
+    {
+      "time": "2026-07-29",
+      "value": 338.19
+    },
+    {
+      "time": "2026-07-30",
+      "value": 333.43
+    },
+    {
+      "time": "2026-07-31",
+      "value": 308.91
+    },
+    {
+      "time": "2026-08-03",
+      "value": 303.42
+    },
+    {
+      "time": "2026-08-04",
+      "value": 309.38
+    },
+    {
+      "time": "2026-08-05",
+      "value": 311.0
+    },
+    {
+      "time": "2026-08-06",
+      "value": 312.41
+    },
+    {
+      "time": "2026-08-07",
+      "value": 313.33
+    },
+    {
+      "time": "2026-08-10",
+      "value": 308.26
+    },
+    {
+      "time": "2026-08-11",
+      "value": 304.91
+    },
+    {
+      "time": "2026-08-12",
+      "value": 302.25
+    },
+    {
+      "time": "2026-08-13",
+      "value": 305.26
+    },
+    {
+      "time": "2026-08-14",
+      "value": 305.93
+    },
+    {
+      "time": "2026-08-17",
+      "value": 305.59
+    },
+    {
+      "time": "2026-08-18",
+      "value": 310.03
+    },
+    {
+      "time": "2026-08-19",
+      "value": 316.83
+    },
+    {
+      "time": "2026-08-20",
+      "value": 311.3
+    },
+    {
+      "time": "2026-08-21",
+      "value": 309.35
+    },
+    {
+      "time": "2026-08-24",
+      "value": 310.34
+    },
+    {
+      "time": "2026-08-25",
+      "value": 309.9
+    },
+    {
+      "time": "2026-08-26",
+      "value": 313.45
+    },
+    {
+      "time": "2026-08-27",
+      "value": 314.58
+    },
+    {
+      "time": "2026-08-28",
+      "value": 319.7
+    },
+    {
+      "time": "2026-08-31",
+      "value": 316.85
+    },
+    {
+      "time": "2026-09-01",
+      "value": 325.13
+    },
+    {
+      "time": "2026-09-02",
+      "value": 324.96
+    },
+    {
+      "time": "2026-09-03",
+      "value": 328.26
+    }
+  ],
+  "historial_volumen": [
+    {
+      "time": "2026-08-03",
+      "value": 75052000,
+      "up": false
+    },
+    {
+      "time": "2026-08-04",
+      "value": 68001000,
+      "up": true
+    },
+    {
+      "time": "2026-08-05",
+      "value": 49438800,
+      "up": true
+    },
+    {
+      "time": "2026-08-06",
+      "value": 46139901,
+      "up": false
+    },
+    {
+      "time": "2026-08-07",
+      "value": 34437200,
+      "up": true
+    },
+    {
+      "time": "2026-08-10",
+      "value": 44812503,
+      "up": true
+    },
+    {
+      "time": "2026-08-11",
+      "value": 37476746,
+      "up": false
+    },
+    {
+      "time": "2026-08-12",
+      "value": 41657800,
+      "up": false
+    },
+    {
+      "time": "2026-08-13",
+      "value": 40349300,
+      "up": true
+    },
+    {
+      "time": "2026-08-14",
+      "value": 28229400,
+      "up": false
+    },
+    {
+      "time": "2026-08-17",
+      "value": 38169300,
+      "up": false
+    },
+    {
+      "time": "2026-08-18",
+      "value": 53424535,
+      "up": true
+    },
+    {
+      "time": "2026-08-19",
+      "value": 50505646,
+      "up": true
+    },
+    {
+      "time": "2026-08-20",
+      "value": 40959200,
+      "up": false
+    },
+    {
+      "time": "2026-08-21",
+      "value": 46876815,
+      "up": false
+    },
+    {
+      "time": "2026-08-24",
+      "value": 34673600,
+      "up": false
+    },
+    {
+      "time": "2026-08-25",
+      "value": 25869807,
+      "up": false
+    },
+    {
+      "time": "2026-08-26",
+      "value": 34024500,
+      "up": true
+    },
+    {
+      "time": "2026-08-27",
+      "value": 32419233,
+      "up": true
+    },
+    {
+      "time": "2026-08-28",
+      "value": 38649400,
+      "up": true
+    },
+    {
+      "time": "2026-08-31",
+      "value": 41242724,
+      "up": false
+    },
+    {
+      "time": "2026-09-01",
+      "value": 53167400,
+      "up": true
+    },
+    {
+      "time": "2026-09-02",
+      "value": 33776370,
+      "up": false
+    },
+    {
+      "time": "2026-09-03",
+      "value": 8914973,
+      "up": true
+    }
+  ],
+  "earnings_info": {
+    "next_date": "2026-10-29",
+    "days_until": 56,
+    "eps_estimate": 8.83,
+    "label": "29 de octubre de 2026"
+  },
+  "insiders_snapshot": {
+    "transactions": [
+      {
+        "insider": "Ternus John",
+        "position": "director, officer: CEO",
+        "transaction": "A-Award",
+        "shares": 7690,
+        "value": null,
+        "date": "2026-09-01",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Ternus John",
+        "position": "director, officer: CEO",
+        "transaction": "",
+        "shares": 0,
+        "value": null,
+        "date": "2026-09-01",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Ternus John",
+        "position": "director, officer: CEO",
+        "transaction": "",
+        "shares": 48932,
+        "value": null,
+        "date": "2026-09-01",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Newstead Jennifer",
+        "position": "officer: SVP, GC and Secretary",
+        "transaction": "S-Sale",
+        "shares": 1439,
+        "value": 447457.05,
+        "date": "2026-08-25",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "Newstead Jennifer",
+        "position": "officer: SVP, GC and Secretary",
+        "transaction": "S-Sale",
+        "shares": 1439,
+        "value": 442478.11,
+        "date": "2026-08-18",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "Newstead Jennifer",
+        "position": "officer: SVP, GC and Secretary",
+        "transaction": "S-Sale",
+        "shares": 1439,
+        "value": 442852.25,
+        "date": "2026-08-11",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "Newstead Jennifer",
+        "position": "officer: SVP, GC and Secretary",
+        "transaction": "M-Exempt",
+        "shares": 30104,
+        "value": null,
+        "date": "2026-06-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Newstead Jennifer",
+        "position": "officer: SVP, GC and Secretary",
+        "transaction": "M-Exempt",
+        "shares": 30104,
+        "value": null,
+        "date": "2026-06-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Newstead Jennifer",
+        "position": "officer: SVP, GC and Secretary",
+        "transaction": "F-InKind",
+        "shares": 16238,
+        "value": 4813267.96,
+        "date": "2026-06-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "M-Exempt",
+        "shares": 240,
+        "value": null,
+        "date": "2026-06-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "F-InKind",
+        "shares": 124,
+        "value": 36756.08,
+        "date": "2026-06-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "S-Sale",
+        "shares": 116,
+        "value": 34236.24,
+        "date": "2026-06-16",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "M-Exempt",
+        "shares": 240,
+        "value": null,
+        "date": "2026-06-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "LEVINSON ARTHUR D",
+        "position": "director",
+        "transaction": "S-Sale",
+        "shares": 50000,
+        "value": 15551000.0,
+        "date": "2026-05-27",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "LEVINSON ARTHUR D",
+        "position": "director",
+        "transaction": "G-Gift",
+        "shares": 65000,
+        "value": null,
+        "date": "2026-05-27",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "S-Sale",
+        "shares": 1274,
+        "value": 369460.0,
+        "date": "2026-05-08",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "LEVINSON ARTHUR D",
+        "position": "director",
+        "transaction": "S-Sale",
+        "shares": 149527,
+        "value": 42550898.39,
+        "date": "2026-05-06",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "LEVINSON ARTHUR D",
+        "position": "director",
+        "transaction": "S-Sale",
+        "shares": 100473,
+        "value": 28638823.92,
+        "date": "2026-05-06",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "LEVINSON ARTHUR D",
+        "position": "director",
+        "transaction": "G-Gift",
+        "shares": 5000,
+        "value": null,
+        "date": "2026-05-06",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Parekh Kevan",
+        "position": "officer: Senior Vice President, CFO",
+        "transaction": "S-Sale",
+        "shares": 1534,
+        "value": 421850.0,
+        "date": "2026-04-23",
+        "is_buy": false,
+        "is_sell": true
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "M-Exempt",
+        "shares": 1717,
+        "value": null,
+        "date": "2026-04-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "F-InKind",
+        "shares": 892,
+        "value": 237655.56,
+        "date": "2026-04-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "M-Exempt",
+        "shares": 331,
+        "value": null,
+        "date": "2026-04-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "M-Exempt",
+        "shares": 371,
+        "value": null,
+        "date": "2026-04-15",
+        "is_buy": false,
+        "is_sell": false
+      },
+      {
+        "insider": "Borders Ben",
+        "position": "officer: Principal Accounting Officer",
+        "transaction": "M-Exempt",
+        "shares": 475,
+        "value": null,
+        "date": "2026-04-15",
+        "is_buy": false,
+        "is_sell": false
+      }
+    ],
+    "summary": {
+      "buys_count": 0,
+      "sells_count": 9,
+      "buys_value": 0.0,
+      "sells_value": 88899055.96,
+      "net_value": -88899055.96,
+      "signal": "BEARISH"
+    },
+    "institutional": [],
+    "major_holders": {},
+    "edgar": {
+      "cik": "0000320193",
+      "form4": [
+        {
+          "date": "2026-09-01",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126035362/xslF345X06/form4.xml"
+        },
+        {
+          "date": "2026-08-27",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126034741/xslF345X06/form4.xml"
+        },
+        {
+          "date": "2026-08-20",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126033928/xslF345X06/form4.xml"
+        },
+        {
+          "date": "2026-08-13",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126032884/xslF345X06/form4.xml"
+        },
+        {
+          "date": "2026-06-17",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126025622/xslF345X06/form4.xml"
+        },
+        {
+          "date": "2026-06-17",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126025620/xslF345X06/form4.xml"
+        },
+        {
+          "date": "2026-05-29",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126023363/xslF345X06/form4.xml"
+        },
+        {
+          "date": "2026-05-12",
+          "form": "4",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126020871/xslF345X06/form4.xml"
+        }
+      ],
+      "form13f": [],
+      "holders_5pct": [
+        {
+          "name": "BlackRock, Inc.",
+          "shares": 1144923925.0,
+          "value": 290570242874.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0002012383-26-001841 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "VANGUARD CAPITAL MANAGEMENT LLC",
+          "shares": 953847648.0,
+          "value": 242076924860.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0002100119-26-001311 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "STATE STREET CORP",
+          "shares": 602341409.0,
+          "value": 152868226190.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000093751-26-000315 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "GEODE CAPITAL MANAGEMENT, LLC",
+          "shares": 368616954.0,
+          "value": 93304547364.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0001214717-26-000006 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "VANGUARD PORTFOLIO MANAGEMENT LLC",
+          "shares": 331437055.0,
+          "value": 84115410189.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0002100121-26-000861 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "FMR LLC",
+          "shares": 307442040.0,
+          "value": 78025715113.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000315066-26-001390 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "MORGAN STANLEY",
+          "shares": 230483035.0,
+          "value": 62659118314.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000895421-26-000187 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "Berkshire Hathaway Inc",
+          "shares": 227917808.0,
+          "value": 57843260493.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0001193125-26-226661 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        }
+      ],
+      "holders_source": "SEC Form 13F structured data set (01mar2026-31may2026_form13f.zip): 10 mayores tenedores institucionales de CUSIP 037833100, ORDENADOS POR VALOR DE POSICION reportado, con acciones y dolares. Es el conjunto completo de 13F del trimestre, no una muestra del indice de texto completo."
+    }
+  },
+  "memory_comparison": {
+    "has_prior": false
+  },
+  "deep_memory": null,
+  "open_options": [],
+  "portfolio_fit": null,
+  "noticias_reales": [
+    {
+      "title": "Apple Dividend Scorecard: Can a 0.32% Yield Still Earn an A?",
+      "publisher": "24/7 Wall Street",
+      "publish_time": "2026-09-03 09:59 AM",
+      "summary": "Apple's dividend yield sits near the bottom of the S&P 500, yet the payout itself may be one of the most bulletproof in mega-cap tech. Here is what the numbers behind the tiny percentage actually reveal."
+    },
+    {
+      "title": "Berkshire Hathaway Just Poured Billions Into One Stock. Here's Why.",
+      "publisher": "The Motley Fool",
+      "publish_time": "2026-09-03 08:12 AM",
+      "summary": "Berkshire Hathaway has been aggressively buying shares of Alphabet, the parent of Google. Alphabet is now Berkshire's fourth-largest investment."
+    },
+    {
+      "title": "Apple facing $2.7 billion UK lawsuit over 'unfair' app tracking rules",
+      "publisher": "Reuters",
+      "publish_time": "2026-09-03 05:24 AM",
+      "summary": "Apple is facing a £2 billion ($2.7 billion) London lawsuit brought on behalf of app developers over its app tracking rules, with the ​iPhone maker accused of abusing its power to unfairly impose ‌greater restrictions on third parties."
+    },
+    {
+      "title": "Aware Super Pty Ltd as trustee of Aware Super Sells 38,672 Shares of Apple Inc. $AAPL",
+      "publisher": "Defense World",
+      "publish_time": "2026-09-03 05:21 AM",
+      "summary": "Aware Super Pty Ltd as trustee of Aware Super decreased its position in Apple Inc. (NASDAQ: AAPL) by 2.1% during the undefined quarter, according to its most recent filing with the SEC. The institutional investor owned 1,829,755 shares of the iPhone maker's stock after selling 38,672 shares during the period. Apple comprises 7.5%"
+    },
+    {
+      "title": "Tim Cook's Legacy at Apple Will Be Defined by This Nearly $879 Billion Investment, Not AI",
+      "publisher": "The Motley Fool",
+      "publish_time": "2026-09-03 05:06 AM",
+      "summary": "Tim Cook officially stepped down as Apple's CEO on Sept. 1, handing the baton to John Ternus."
+    },
+    {
+      "title": "Axis Wealth Partners LLC Decreases Holdings in Apple Inc. $AAPL",
+      "publisher": "Defense World",
+      "publish_time": "2026-09-03 04:10 AM",
+      "summary": "Axis Wealth Partners LLC lowered its stake in shares of Apple Inc. (NASDAQ: AAPL) by 15.1% in the second quarter, according to its most recent Form 13F filing with the Securities and Exchange Commission. The institutional investor owned 13,044 shares of the iPhone maker's stock after selling 2,312 shares during the period. Apple"
+    }
+  ],
+  "targets": {
+    "12m": {
+      "bull": 408.43,
+      "base": 338.91,
+      "bear": 234.68
+    }
+  },
+  "targets_source": "victor",
+  "targets_horizon_note": "Metodología de Victor: EPS × (1+crecimiento) × (P/E actual × factor). Un solo horizonte: 12 meses. Fair Value = target Base.",
+  "methodology": {
+    "annual_volatility_pct": 27.0,
+    "daily_vol_pct": 1.701,
+    "atr_14": 5.07,
+    "analyst_high": 400.0,
+    "analyst_low": 245.0,
+    "analyst_mean": 341.31,
+    "analyst_median": 362.0
+  },
+  "analisis": {
+    "biggest_pro": "El ecosistema robusto de Apple, su lealtad de marca inigualable y la capacidad probada para innovar y monetizar sus servicios, lo que se refleja en márgenes operativos consistentemente altos y un flujo de caja resiliente, incluso en un entorno macroeconómico desafiante.",
+    "biggest_risk": "El riesgo regulatorio es el más severo, evidenciado por la demanda de 2.7 mil millones de dólares en el Reino Unido por las reglas de seguimiento de aplicaciones, lo que podría impactar significativamente su modelo de negocio y rentabilidad en el segmento de servicios.",
+    "watch_for": "Se debe monitorear de cerca el próximo reporte de ganancias en 56 días (29 de octubre de 2026) con un EPS estimado de 8.83 dólares, así como cualquier desarrollo en las demandas regulatorias que enfrenta la compañía.",
+    "company_summary_simple": "Apple es una empresa tecnológica global que diseña, fabrica y comercializa teléfonos inteligentes (iPhone), computadoras personales (Mac), tabletas (iPad), wearables y accesorios, además de vender servicios relacionados. Gana dinero a través de la venta de hardware premium y un creciente portafolio de servicios (App Store, Apple Music, iCloud). Importa al inversor promedio por su marca icónica, su capacidad de innovación constante y su historial de generación de valor para los accionistas, aunque su valoración actual exige un análisis cuidadoso.",
+    "analisis_numeros_actuales": "Apple ostenta una capitalización de mercado masiva de 4.82 billones de dólares, lo que la posiciona como una de las empresas más grandes del mundo. Sus múltiplos de valoración son elevados, con un P/E actual de 37.46 y un Forward P/E de 37.16. A pesar de que el crecimiento de ingresos interanual no está disponible, la compañía mantiene márgenes brutos excepcionales del 48.65% y márgenes EBITDA del 36.09%, lo que subraya su eficiencia operativa y poder de fijación de precios.",
+    "crecimiento_yoy": "El crecimiento de ingresos interanual no está disponible en los datos proporcionados. Sin embargo, los márgenes brutos se mantienen en un robusto 48.65% y los márgenes EBITDA en 36.09%, indicando una fuerte rentabilidad operativa histórica y una gestión eficiente de costos.",
+    "crecimiento_proyectado": "Las estimaciones de crecimiento para los próximos años se ven impulsadas por la continua innovación de productos, la expansión del ecosistema de servicios y posibles acuerdos estratégicos, aunque los vientos en contra regulatorios podrían moderar estas proyecciones. El EPS estimado para el próximo trimestre es de 8.83 dólares, lo que sugiere un crecimiento continuo en las utilidades.",
+    "sec_filing_10k": "El último reporte anual 10-K de Apple probablemente detalla factores de riesgo relacionados con la dependencia de la cadena de suministro global, la intensa competencia en el mercado de tecnología de consumo, la capacidad de innovar constantemente y los crecientes desafíos regulatorios y antimonopolio en diversas jurisdicciones, que podrían afectar su modelo de negocio y rentabilidad a largo plazo.",
+    "sec_filing_10q": "El último reporte trimestral 10-Q reflejaría el rendimiento financiero reciente de Apple, mostrando balances sólidos con una considerable cantidad de efectivo y equivalentes, así como un flujo de caja operativo robusto. Sin embargo, también podría destacar el impacto de los desafíos macroeconómicos o los costos asociados a las disputas legales y regulatorias en curso.",
+    "sec_filing_8k": "Recientemente, Apple ha reportado dos eventos materiales a través de 8-K: un cambio de directivos/junta el 1 de septiembre de 2026, que incluye la salida de Tim Cook como CEO y la asunción de John Ternus, y la publicación de resultados de operación y estados financieros el 30 de julio de 2026, lo que constituye un catalizador duro para el análisis de la compañía.",
+    "recommendation": "DESFAVORABLE",
+    "conviccion_porque": "La convicción de 43.9 sobre 100 se justifica por una combinación de factores. Si bien los agentes de Business y Financial probablemente contribuyen positivamente debido a la solidez de la marca, los márgenes y el historial de ganancias, los agentes de Risk (riesgos regulatorios significativos), Market (flujo institucional cauteloso y actividad de venta de insiders) y Valuation (la gran discrepancia entre el precio spot y el DCF de 138.53 dólares) ejercen una presión bajista considerable, resultando en una puntuación de convicción moderadamente baja que sugiere precaución.",
+    "recomendacion_porque": "La recomendación de EVITAR se basa en la discrepancia entre el precio spot actual y el valor intrínseco proyectado por el modelo de Victor, así como por los riesgos inherentes y las señales de mercado. A pesar de la fortaleza fundamental de Apple, el precio actual de 328.26 dólares está significativamente por encima del DCF de 138.53 dólares por acción, y aunque el target base de Victor es de 338.91 dólares, la recomendación final del motor es desfavorable. La actividad de venta por parte de insiders y los crecientes desafíos regulatorios añaden una capa de incertidumbre que justifica la prudencia, a pesar de un régimen de mercado alcista general.",
+    "tesis_inversion_completa": "La tesis de inversión para Apple es compleja. Por un lado, la compañía es un gigante tecnológico con una marca globalmente reconocida, un ecosistema de productos y servicios altamente integrado que fomenta la lealtad del cliente, y un historial probado de innovación y rentabilidad. Sus márgenes brutos y EBITDA son envidiables, y ha demostrado una capacidad consistente para superar las expectativas de ganancias. Sin embargo, la valoración actual de la acción, con un P/E elevado, sugiere que gran parte de este crecimiento y fortaleza ya está descontado en el precio. El valor intrínseco calculado por DCF (138.53 dólares) está muy por debajo del precio spot, lo que indica una posible sobrevaloración. Además, la compañía enfrenta vientos en contra significativos en el frente regulatorio, con demandas multimillonarias que podrían alterar su modelo de negocio de servicios. La actividad de venta por parte de insiders y la cautela en el flujo institucional, a pesar de un régimen de mercado alcista, refuerzan la necesidad de prudencia. Por lo tanto, aunque Apple es una empresa de calidad incuestionable, la asignación de capital en los niveles actuales presenta un riesgo de valoración desfavorable, lo que justifica una postura de EVITAR.",
+    "tesis_riesgos": "Los riesgos inherentes que podrían destruir la tesis de inversión incluyen: 1) **Riesgos Regulatorios y Antimonopolio:** Las demandas y escrutinios gubernamentales sobre las prácticas de la App Store y el seguimiento de usuarios podrían forzar cambios en el modelo de negocio, impactando los ingresos por servicios y los márgenes. 2) **Competencia Intensa:** Aunque Apple tiene un foso competitivo fuerte, la competencia de Samsung, Google y otros en hardware y servicios es feroz, lo que exige una innovación constante y podría presionar los precios. 3) **Dependencia de la Innovación:** El éxito de Apple depende en gran medida de su capacidad para lanzar productos y servicios innovadores que capten la atención del consumidor, y un fallo en este aspecto podría ralentizar el crecimiento. 4) **Riesgos de la Cadena de Suministro:** La dependencia de una cadena de suministro global compleja expone a la empresa a interrupciones geopolíticas, desastres naturales o problemas laborales. 5) **Riesgos Macroeconómicos:** Una desaceleración económica global podría reducir el gasto del consumidor en productos premium, afectando las ventas de hardware y, en menor medida, los servicios. 6) **Riesgos de Valoración:** El precio actual de la acción podría no dejar margen de seguridad suficiente, haciendo que sea vulnerable a correcciones si el crecimiento no cumple con las altas expectativas del mercado.",
+    "analistas_consenso": "El consenso de Wall Street sitúa el precio objetivo medio en 341.31 dólares, lo que implica un ligero potencial alcista desde el precio spot actual. Este objetivo es muy cercano al target base de Victor de 338.91 dólares, lo que sugiere una coincidencia en la expectativa de precio a 12 meses. Sin embargo, la divergencia clave radica en la recomendación final: mientras que el consenso de analistas a menudo se inclina hacia 'BUY' o 'HOLD' para una empresa de la calidad de Apple, el veredicto determinista de Victor es 'AVOID'. Esta diferencia podría explicarse por la ponderación de Victor de factores como la actividad de insiders (ventas netas significativas), el flujo institucional cauteloso, y la gran brecha entre el precio spot y el DCF de 138.53 dólares, que no siempre son los principales impulsores de los targets de consenso de Wall Street.",
+    "calculos_y_crecimiento_ai": "Los targets de Victor se derivan de un modelo que considera el EPS, el crecimiento y un múltiplo P/E ajustado por el escenario. Específicamente, el target base de Victor a 12 meses es de 338.91 dólares. Aunque no se proporcionan los valores exactos de EPS, crecimiento y factor de múltiplo utilizados en la fórmula interna de Victor, podemos inferir que se proyecta un crecimiento moderado y un múltiplo que justifica este target. El Fair Value, según la metodología de Victor, ES su target base de 338.91 dólares. Adicionalmente, el especialista de valuación de Victor calculó un DCF (Flujo de Caja Libre para la Firma) de 138.53 dólares por acción, aunque los supuestos de WACC y proyecciones de flujo de caja no están detallados. El puntaje de convicción de 43.9/100 es empujado a la baja principalmente por los agentes de Risk (debido a los desafíos regulatorios), Market (por la actividad de venta de insiders y el flujo institucional cauteloso) y Valuation (por la significativa diferencia entre el precio de mercado y el DCF), mientras que la fortaleza del negocio y los fundamentales financieros probablemente contribuyen positivamente, pero no lo suficiente para compensar los factores negativos.",
+    "posicion_competitiva": "Apple posee un foso competitivo (moat) extremadamente fuerte, impulsado por su potente marca, su ecosistema de hardware y software altamente integrado que genera un 'lock-in' para el cliente, y su capacidad para innovar y controlar la experiencia del usuario de principio a fin. Esto le permite mantener precios premium y márgenes elevados, diferenciándose claramente de sus rivales.",
+    "principales_competidores": "Los principales competidores de Apple incluyen a Samsung (en smartphones y tablets), Google (en sistemas operativos móviles y servicios), Microsoft (en software y servicios empresariales), y Meta Platforms (en realidad virtual y metaverso).",
+    "porque_mejor_peor_inversion": "Apple se destaca por sus márgenes brutos (48.65%) y EBITDA (36.09%) superiores a la media de la industria tecnológica, lo que refleja su poder de fijación de precios y eficiencia operativa. Sus retornos de capital son históricamente sólidos. Sin embargo, sus múltiplos de valoración (P/E de 37.46) son significativamente más altos que muchos de sus pares, lo que implica que el mercado ya ha descontado un crecimiento considerable. Esto la convierte en una inversión potencialmente 'peor' en términos de margen de seguridad y riesgo/recompensa a los niveles actuales, a pesar de ser una empresa fundamentalmente 'mejor' en términos de calidad y rentabilidad.",
+    "in_simple_terms": "Imagina que Apple es como un club exclusivo de tecnología. Una vez que entras con un iPhone, te encanta tanto la experiencia que quieres el reloj, los auriculares y la computadora, y pagas por sus servicios de música y aplicaciones. Es un negocio que vende productos de alta gama y experiencias premium, y sus clientes rara vez se van. Sin embargo, el precio para unirse a este club es muy alto en este momento, y hay algunas reglas nuevas que los gobiernos quieren imponerle, lo que podría hacer que el club sea menos rentable en el futuro.",
+    "should_you_buy_now": "Dada la recomendación de EVITAR y la valoración actual, se aconseja una prudencia extrema. Los niveles de cotización actuales parecen incorporar un optimismo considerable, y los riesgos regulatorios junto con la actividad de venta de insiders sugieren que no es el momento óptimo para una compra agresiva. Es preferible esperar un punto de entrada más favorable o una resolución de los vientos en contra regulatorios.",
+    "the_bottom_line": "A pesar de ser una empresa de calidad excepcional con un ecosistema robusto, la valoración actual de Apple y los crecientes riesgos regulatorios justifican una postura de cautela y evitar la inversión en este momento.",
+    "probabilities": {
+      "rationale": "La probabilidad de un movimiento positivo significativo en los próximos doce meses parece moderada, anclada en la volatilidad histórica de la acción y el régimen de mercado alcista, pero atenuada por las preocupaciones de valoración y los riesgos regulatorios específicos de la compañía, así como la actividad de venta de insiders."
+    },
+    "fair_value": 338.91,
+    "upside_pct": 3.24,
+    "regime": {
+      "vol": "calmo",
+      "trend": "alcista",
+      "breadth": "neutral",
+      "rates": "estable",
+      "vix": 15.0,
+      "spy_vs_200d_pct": 8.0,
+      "detail": {
+        "spy_20d_pct": -0.0,
+        "rsp_minus_spy_20d_pct": 0.0,
+        "tlt_20d_pct": -0.4
+      },
+      "label": "Tendencia alcista · vol calmo · amplitud neutral · tasas estable"
+    },
+    "conviction_source": "puntaje de los 6 agentes de Victor (raw_total 0-100)",
+    "prob_anchoring": null,
+    "trade_plan": {
+      "probabilities": {
+        "p_positive_12m": null,
+        "rationale": "La probabilidad de un movimiento positivo significativo en los próximos doce meses parece moderada, anclada en la volatilidad histórica de la acción y el régimen de mercado alcista, pero atenuada por las preocupaciones de valoración y los riesgos regulatorios específicos de la compañía, así como la actividad de venta de insiders.",
+        "fuente": "sin muestra medida: no se publica probabilidad"
+      },
+      "reward_pct": 24.4,
+      "risk_pct": 28.5,
+      "reward_risk": 0.86,
+      "kelly_full_pct": null,
+      "kelly_half_pct": null,
+      "suggested_pct": null,
+      "cap_reason": "Sin dimensionar: hace falta al menos una predicción VENCIDA para medir la probabilidad. La del modelo no se usa — sin evidencia no hay número.",
+      "factor_haircut_pct": 0.0,
+      "already_held_pct": 0.0,
+      "risk_plan": {
+        "is_a_grade": false,
+        "equity_stop": 318.12,
+        "equity_stop_note": "No A-grade: stop sugerido en $318.12 (2×ATR-14 bajo el spot).",
+        "thesis_break_level": 234.68,
+        "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada."
+      },
+      "targets_r": {
+        "entry": 328.26,
+        "stop": 234.68,
+        "r_unit": 93.58,
+        "bull_r": 0.86,
+        "base_r": 0.11,
+        "bear_r": -1.0
+      },
+      "thesis_invalidation": [
+        {
+          "factor": "Precio",
+          "kind": "price",
+          "trigger": "Cierre sobre $234.68 (quiebre de tesis = −1R)"
+        }
+      ]
+    },
+    "coherence_flags": [],
+    "coherence_ok": true,
+    "model_source": "gemini",
+    "earnings_history": {
+      "n": 8,
+      "beats": 8,
+      "misses": 0,
+      "avg_surprise_pct": null,
+      "avg_abs_move_pct": 3.9,
+      "avg_move_pct": -2.2,
+      "rows": [
+        {
+          "date": "2026-07-30",
+          "reported": 2.02,
+          "estimate": 1.89,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -9.0
+        },
+        {
+          "date": "2026-04-30",
+          "reported": 2.01,
+          "estimate": 1.95,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": 2.0
+        },
+        {
+          "date": "2026-01-29",
+          "reported": 2.85,
+          "estimate": 2.67,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": 4.5
+        },
+        {
+          "date": "2025-10-30",
+          "reported": 1.85,
+          "estimate": 1.73,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -0.9
+        },
+        {
+          "date": "2025-07-31",
+          "reported": 1.57,
+          "estimate": 1.44,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -2.0
+        },
+        {
+          "date": "2025-05-01",
+          "reported": 1.65,
+          "estimate": 1.63,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -6.8
+        },
+        {
+          "date": "2025-01-30",
+          "reported": 2.4,
+          "estimate": 2.36,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -4.0
+        },
+        {
+          "date": "2024-10-31",
+          "reported": 1.64,
+          "estimate": 1.6,
+          "surprise_pct": null,
+          "beat": true,
+          "move_pct": -1.7
+        }
+      ]
+    },
+    "integrity": {
+      "checks": [
+        {
+          "name": "Fuente de datos",
+          "status": "ok",
+          "detail": "Quant Data",
+          "value": null
+        },
+        {
+          "name": "Spot",
+          "status": "fail",
+          "detail": "sin precio de referencia",
+          "value": null
+        }
+      ],
+      "ok": 0,
+      "warn": 0,
+      "fail": 1,
+      "status": "fail"
+    },
+    "ai_concentration": {
+      "proxy": "SMH",
+      "rho": 0.03,
+      "level": "baja",
+      "note": "ρ=0.03 con el complejo IA/semis (SMH): baja correlación con IA/semis — aporta diversificación real al libro."
+    },
+    "news_catalysts": [
+      "cambio de directivos/junta (CEO/CFO/director)",
+      "deal",
+      "earnings",
+      "estados financieros y exhibits",
+      "product",
+      "regulatory",
+      "resultados de operación (earnings)"
+    ],
+    "sec_8k": [
+      {
+        "date": "2026-09-01",
+        "form": "8-K/A",
+        "items": [
+          "5.02"
+        ],
+        "items_desc": [
+          "cambio de directivos/junta (CEO/CFO/director)"
+        ],
+        "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126035325/ef20081427_8ka.htm"
+      },
+      {
+        "date": "2026-07-30",
+        "form": "8-K",
+        "items": [
+          "2.02",
+          "9.01"
+        ],
+        "items_desc": [
+          "resultados de operación (earnings)",
+          "estados financieros y exhibits"
+        ],
+        "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000018/aapl-20260730.htm"
+      }
+    ],
+    "target_bull_12m": 408.43,
+    "target_base_12m": 338.91,
+    "target_bear_12m": 234.68,
+    "conviccion_score": 44,
+    "wbj": {
+      "framework": "Ruta 2030 Wall Street Agent System v2.0.0",
+      "categories": {
+        "business": {
+          "key": "business",
+          "label": "Business",
+          "max": 20.0,
+          "score10": 5.8,
+          "points": 11.53,
+          "coverage": 0.87,
+          "status": "scored",
+          "confidence": 87,
+          "mandatory_flags": [
+            "THESIS_KILLERS_NOT_LISTED"
+          ],
+          "reason": null
+        },
+        "financial": {
+          "key": "financial",
+          "label": "Financial",
+          "max": 15.0,
+          "score10": 7.2,
+          "points": 10.81,
+          "coverage": 0.96,
+          "status": "scored",
+          "confidence": 94,
+          "mandatory_flags": [],
+          "reason": null
+        },
+        "market": {
+          "key": "market",
+          "label": "Market & Growth",
+          "max": 20.0,
+          "score10": 0.9,
+          "points": 1.77,
+          "coverage": 0.35,
+          "status": "scored",
+          "confidence": 66,
+          "mandatory_flags": [],
+          "reason": null
+        },
+        "technical": {
+          "key": "technical",
+          "label": "Technical & Momentum",
+          "max": 20.0,
+          "score10": 6.8,
+          "points": 13.52,
+          "coverage": 1.0,
+          "status": "scored",
+          "confidence": 94,
+          "mandatory_flags": [],
+          "reason": null
+        },
+        "risk": {
+          "key": "risk",
+          "label": "Risk & Resilience",
+          "max": 15.0,
+          "score10": 3.4,
+          "points": 5.07,
+          "coverage": 0.95,
+          "status": "scored",
+          "confidence": 90,
+          "mandatory_flags": [
+            "SOLVENCY_CHECK_NOT_EVALUATED: interest coverage could not be computed (no interest expense reported) while the company carries debt -- the mandatory solvency check did not run, it did not pass."
+          ],
+          "reason": null
+        },
+        "valuation": {
+          "key": "valuation",
+          "label": "Valuation",
+          "max": 10.0,
+          "score10": 1.2,
+          "points": 1.22,
+          "coverage": 1.0,
+          "status": "scored",
+          "confidence": 92,
+          "mandatory_flags": [
+            "PER_SHARE_VALUE_INCOMPLETE_NO_DILUTION_SCHEDULE"
+          ],
+          "reason": null
+        }
+      },
+      "raw_total": 43.9,
+      "total_confidence": 86,
+      "band": "Avoid on raw score",
+      "profile": "Avoid / Wait",
+      "classification": "Evitar / esperar",
+      "passed_gates": [],
+      "failed_gates": [
+        "raw_total<50 (got 43.919607966044374)"
+      ],
+      "overrides": [
+        "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE"
+      ],
+      "warnings": [],
+      "contradictions": [],
+      "handoff_validation": {},
+      "data_staleness": {
+        "daily_market": "FRESH",
+        "quarterly_fundamentals": "FRESH",
+        "consensus": "FRESH",
+        "peer_set": "FRESH"
+      },
+      "recalc_recommended": false,
+      "proxy_inputs": {
+        "macro_series": "Factor macro = producción industrial FRED (INDPRO) en variación YoY, alineada al último dato NO POSTERIOR a cada cierre trimestral",
+        "ppe": "PP&E NETO de FMP como proxy del PP&E bruto que piden Beneish AQI/DEPI (proxy documentado de Victor: ppe_net)"
+      },
+      "categories_10": {
+        "business": 5.8,
+        "financial": 7.2,
+        "market": 0.9,
+        "technical": 6.8,
+        "risk": 3.4,
+        "valuation": 1.2
+      },
+      "gates_source": "aggregate real de Victor",
+      "scores_source": "engine determinista (metodología de Victor)",
+      "ai_judgment": null
+    },
+    "victor_targets_detail": {
+      "status": "ok",
+      "price": 324.96,
+      "eps": 7.46,
+      "pe_now": 43.5,
+      "growth_base": 0.0429,
+      "horizon": "12 months",
+      "scenarios": [
+        {
+          "key": "bear",
+          "label": "Bear",
+          "target": 234.68,
+          "upside": -0.2778,
+          "assumptions": "growth -4% (5y earnings) · multiple 32.6x (75% of current P/E)"
+        },
+        {
+          "key": "base",
+          "label": "Base",
+          "target": 338.91,
+          "upside": 0.0429,
+          "assumptions": "growth +4% (5y earnings) · multiple 43.5x (100% of current P/E)"
+        },
+        {
+          "key": "bull",
+          "label": "Bull",
+          "target": 408.43,
+          "upside": 0.2569,
+          "assumptions": "growth +9% (5y earnings) · multiple 50.1x (115% of current P/E)"
+        }
+      ],
+      "disclaimer": "Reference ranges with declared assumptions — research classification, not investment advice or a promise of return."
+    },
+    "victor_narrative": [
+      "Sold $416.2B last fiscal year; revenue is growing moderately (+6.4%).",
+      "For every $100 in sales, $27 is net profit — very profitable.",
+      "Generates real cash: $124.2B of free cash flow per year.",
+      "Owes $1.06 for every $1 of equity — moderate debt.",
+      "Quick score: 7.3/10, computed from 100 of 100 evidence points — full coverage of all 6 categories.",
+      "If it keeps growing as it has and the market pays the same multiple, the stock would be worth ~$338.91 in 12 months (4% above the current price of $324.96)."
+    ],
+    "victor_scorecard": {
+      "overall_10": 7.3,
+      "evidence_points_covered": 100,
+      "categories": [
+        {
+          "key": "business",
+          "label": "Negocio (rápido)",
+          "score10": 9.4,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "financial",
+          "label": "Finanzas (rápido)",
+          "score10": 7.5,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "market",
+          "label": "Mercado y Crecimiento (rápido)",
+          "score10": 8.5,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "technical",
+          "label": "Técnico y Momentum (rápido)",
+          "score10": 8.2,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "risk",
+          "label": "Riesgo y Resiliencia (rápido)",
+          "score10": 4.9,
+          "status": "scored",
+          "reason": null
+        },
+        {
+          "key": "valuation",
+          "label": "Valuación (rápido)",
+          "score10": 2.6,
+          "status": "scored",
+          "reason": null
+        }
+      ]
+    },
+    "victor_interpretation": {
+      "overall_10": 7.3,
+      "classification": "favors",
+      "classification_label": "the analysis favors investing (research classification)",
+      "revisit": null,
+      "categories": [
+        {
+          "key": "business",
+          "label": "Negocio (rápido)",
+          "score10": 9.4,
+          "meaning": "very strong"
+        },
+        {
+          "key": "financial",
+          "label": "Finanzas (rápido)",
+          "score10": 7.5,
+          "meaning": "solid"
+        },
+        {
+          "key": "market",
+          "label": "Mercado y Crecimiento (rápido)",
+          "score10": 8.5,
+          "meaning": "very strong"
+        },
+        {
+          "key": "technical",
+          "label": "Técnico y Momentum (rápido)",
+          "score10": 8.2,
+          "meaning": "very strong"
+        },
+        {
+          "key": "risk",
+          "label": "Riesgo y Resiliencia (rápido)",
+          "score10": 4.9,
+          "meaning": "weak"
+        },
+        {
+          "key": "valuation",
+          "label": "Valuación (rápido)",
+          "score10": 2.6,
+          "meaning": "troubled"
+        }
+      ]
+    },
+    "victor_targets_reason": null,
+    "financials_annual": {
+      "years": [
+        "2020",
+        "2021",
+        "2022",
+        "2023",
+        "2024",
+        "2025"
+      ],
+      "revenue": [
+        274515000000.0,
+        365817000000.0,
+        394328000000.0,
+        383285000000.0,
+        391035000000.0,
+        416161000000.0
+      ],
+      "net_income": [
+        57411000000.0,
+        94680000000.0,
+        99803000000.0,
+        96995000000.0,
+        93736000000.0,
+        112010000000.0
+      ],
+      "revenue_growth_yoy": [
+        null,
+        33.3,
+        7.8,
+        -2.8,
+        2.0,
+        6.4
+      ],
+      "revenue_cagr": 8.7,
+      "net_margin": [
+        20.9,
+        25.9,
+        25.3,
+        25.3,
+        24.0,
+        26.9
+      ],
+      "operating_margin": [
+        24.1,
+        29.8,
+        30.3,
+        29.8,
+        31.5,
+        32.0
+      ],
+      "gross_margin": [
+        38.2,
+        41.8,
+        43.3,
+        44.1,
+        46.2,
+        46.9
+      ]
+    },
+    "victor_levels": {
+      "current_price": 328.26,
+      "atr14": 7.419956714872494,
+      "levels": [
+        {
+          "level_class": "current_adjusted_close",
+          "label": "Current adjusted close",
+          "source": "current_price",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 328.26,
+          "distance_percent": 0.0,
+          "distance_atr": 0.0,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "nearest_confirmed_support_zone",
+          "label": "Nearest support zone (daily-support-302.42)",
+          "source": "technical",
+          "zone_low": 298.91394009049037,
+          "zone_high": 305.92605990950966,
+          "value": null,
+          "distance_percent": -5.857317851578754,
+          "distance_atr": -2.565236000951173,
+          "strength_or_confidence": 61.905806424355525,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "nearest_confirmed_resistance_zone",
+          "label": "Nearest resistance zone (daily-resistance-334.99)",
+          "source": "technical",
+          "zone_low": 330.9147527677472,
+          "zone_high": 339.06524723225283,
+          "value": null,
+          "distance_percent": 1.832457154033484,
+          "distance_atr": 0.802532008820423,
+          "strength_or_confidence": 59.16327120512414,
+          "status": "candidate",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "breakout_trigger_or_failure",
+          "label": "Failed-breakout level (daily-resistance-334.99)",
+          "source": "technical",
+          "zone_low": 330.9147527677472,
+          "zone_high": 339.06524723225283,
+          "value": null,
+          "distance_percent": 1.832457154033484,
+          "distance_atr": 0.802532008820423,
+          "strength_or_confidence": 59.16327120512414,
+          "status": "candidate",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-302.42)",
+          "source": "technical",
+          "zone_low": 298.91394009049037,
+          "zone_high": 305.92605990950966,
+          "value": null,
+          "distance_percent": -5.857317851578754,
+          "distance_atr": -2.565236000951173,
+          "strength_or_confidence": 61.905806424355525,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-288.62)",
+          "source": "technical",
+          "zone_low": 285.81400810788205,
+          "zone_high": 291.42599189211796,
+          "value": null,
+          "distance_percent": -10.319426424138976,
+          "distance_atr": -4.519434465253248,
+          "strength_or_confidence": 45.85153518020521,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-276.70)",
+          "source": "technical",
+          "zone_low": 273.94195884738895,
+          "zone_high": 279.45804115261103,
+          "value": null,
+          "distance_percent": -14.002326085484047,
+          "distance_atr": -6.132375240974821,
+          "strength_or_confidence": 71.1945716023165,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "moving_average",
+          "label": "SMA50",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 313.379,
+          "distance_percent": -4.533296776945097,
+          "distance_atr": -2.0055373059215604,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "moving_average",
+          "label": "SMA200",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 282.8905,
+          "distance_percent": -13.821208797904106,
+          "distance_atr": -6.1145235401524385,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2026-07-31 (material earnings gap)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 310.4727188705374,
+          "distance_percent": -5.418656287535064,
+          "distance_atr": -2.3972216837612996,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2026-07-29 (major swing high)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 313.1072237267347,
+          "distance_percent": -4.6160897682523965,
+          "distance_atr": -2.0421650496819246,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2024-04-19 (major swing low)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 239.54390895408702,
+          "distance_percent": -27.02616555349813,
+          "distance_atr": -11.956416250797158,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-03 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 186.65,
+          "distance_percent": -43.13958447572046,
+          "distance_atr": -19.085016994257956,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-03 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 187.0,
+          "distance_percent": -43.03296167671967,
+          "distance_atr": -19.03784690776696,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-03 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 182.66,
+          "distance_percent": -44.355084384329494,
+          "distance_atr": -19.62275598025534,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-03 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 178.905,
+          "distance_percent": -45.4989946993237,
+          "distance_atr": -20.12882362246591,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-01-31 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 247.19,
+          "distance_percent": -24.696886614269175,
+          "distance_atr": -10.925939748072118,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-01-31 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 247.19,
+          "distance_percent": -24.696886614269175,
+          "distance_atr": -10.925939748072118,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-01-31 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 233.44,
+          "distance_percent": -28.885639432157433,
+          "distance_atr": -12.779050288789913,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-01-31 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 241.535,
+          "distance_percent": -26.419606409553403,
+          "distance_atr": -11.688073574090964,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-07-31 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 304.81,
+          "distance_percent": -7.143727533053064,
+          "distance_atr": -3.160395794896892,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-07-31 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 310.69,
+          "distance_percent": -5.352464509839759,
+          "distance_atr": -2.3679383418481197,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-07-31 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 300.0,
+          "distance_percent": -8.609029427892521,
+          "distance_atr": -3.8086475549588994,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-07-31 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 318.975,
+          "distance_percent": -2.8285505392067165,
+          "distance_atr": -1.2513550087683394,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "weekly_zone",
+          "label": "Weekly resistance zone (weekly-resistance-344.57)",
+          "source": "technical",
+          "zone_low": 335.4211356492116,
+          "zone_high": 353.7188643507884,
+          "value": null,
+          "distance_percent": 3.2192071791025354,
+          "distance_atr": 1.4098647810496514,
+          "strength_or_confidence": 70.22288584451606,
+          "status": "candidate",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Bear-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 106.986048681501,
+          "distance_percent": -67.4081372444096,
+          "distance_atr": -29.821461205424484,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Base-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 138.5282855372086,
+          "distance_percent": -57.79921844354822,
+          "distance_atr": -25.5704610894151,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Bull-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 186.6453595968405,
+          "distance_percent": -43.140998112215776,
+          "distance_atr": -19.085642389167635,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "reverse_dcf_implied_assumptions",
+          "label": "Reverse-DCF current-price implied assumptions (reference only)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 324.96,
+          "distance_percent": null,
+          "distance_atr": null,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": "implied revenue CAGR 34.39%; implied operating margin 63.40%"
+        },
+        {
+          "level_class": "margin_of_safety_band",
+          "label": "Margin-of-safety reference band (15%)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 117.7490427066273,
+          "distance_percent": -64.12933567701599,
+          "distance_atr": -28.370914465232183,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "margin_of_safety_band",
+          "label": "Margin-of-safety reference band (25%)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 103.89621415290645,
+          "distance_percent": -68.34941383266117,
+          "distance_atr": -30.237883382443567,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        }
+      ],
+      "confluences": [
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-302.42)",
+            "Role-reversal retest zone (daily-support-302.42)"
+          ],
+          "low": 298.91394009049037,
+          "high": 305.92605990950966,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-302.42)' and 'Role-reversal retest zone (daily-support-302.42)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-302.42)",
+            "AVWAP anchored 2026-07-31 (material earnings gap)"
+          ],
+          "low": 298.91394009049037,
+          "high": 310.4727188705374,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-302.42)' and 'AVWAP anchored 2026-07-31 (material earnings gap)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-302.42)",
+            "AVWAP anchored 2026-07-29 (major swing high)"
+          ],
+          "low": 298.91394009049037,
+          "high": 313.1072237267347,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-302.42)' and 'AVWAP anchored 2026-07-29 (major swing high)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-302.42)",
+            "Earnings gap 2026-07-31 gap open"
+          ],
+          "low": 298.91394009049037,
+          "high": 305.92605990950966,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-302.42)' and 'Earnings gap 2026-07-31 gap open' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-302.42)",
+            "Earnings gap 2026-07-31 gap high"
+          ],
+          "low": 298.91394009049037,
+          "high": 310.69,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-302.42)' and 'Earnings gap 2026-07-31 gap high' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest support zone (daily-support-302.42)",
+            "Earnings gap 2026-07-31 gap low"
+          ],
+          "low": 298.91394009049037,
+          "high": 305.92605990950966,
+          "note": "Confluence reference: 'Nearest support zone (daily-support-302.42)' and 'Earnings gap 2026-07-31 gap low' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (daily-resistance-334.99)",
+            "Failed-breakout level (daily-resistance-334.99)"
+          ],
+          "low": 330.9147527677472,
+          "high": 339.06524723225283,
+          "note": "Confluence reference: 'Nearest resistance zone (daily-resistance-334.99)' and 'Failed-breakout level (daily-resistance-334.99)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (daily-resistance-334.99)",
+            "Weekly resistance zone (weekly-resistance-344.57)"
+          ],
+          "low": 330.9147527677472,
+          "high": 353.7188643507884,
+          "note": "Confluence reference: 'Nearest resistance zone (daily-resistance-334.99)' and 'Weekly resistance zone (weekly-resistance-344.57)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Nearest resistance zone (daily-resistance-334.99)",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 324.96,
+          "high": 339.06524723225283,
+          "note": "Confluence reference: 'Nearest resistance zone (daily-resistance-334.99)' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Failed-breakout level (daily-resistance-334.99)",
+            "Weekly resistance zone (weekly-resistance-344.57)"
+          ],
+          "low": 330.9147527677472,
+          "high": 353.7188643507884,
+          "note": "Confluence reference: 'Failed-breakout level (daily-resistance-334.99)' and 'Weekly resistance zone (weekly-resistance-344.57)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Failed-breakout level (daily-resistance-334.99)",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 324.96,
+          "high": 339.06524723225283,
+          "note": "Confluence reference: 'Failed-breakout level (daily-resistance-334.99)' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-302.42)",
+            "AVWAP anchored 2026-07-31 (material earnings gap)"
+          ],
+          "low": 298.91394009049037,
+          "high": 310.4727188705374,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-302.42)' and 'AVWAP anchored 2026-07-31 (material earnings gap)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-302.42)",
+            "AVWAP anchored 2026-07-29 (major swing high)"
+          ],
+          "low": 298.91394009049037,
+          "high": 313.1072237267347,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-302.42)' and 'AVWAP anchored 2026-07-29 (major swing high)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-302.42)",
+            "Earnings gap 2026-07-31 gap open"
+          ],
+          "low": 298.91394009049037,
+          "high": 305.92605990950966,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-302.42)' and 'Earnings gap 2026-07-31 gap open' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-302.42)",
+            "Earnings gap 2026-07-31 gap high"
+          ],
+          "low": 298.91394009049037,
+          "high": 310.69,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-302.42)' and 'Earnings gap 2026-07-31 gap high' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-302.42)",
+            "Earnings gap 2026-07-31 gap low"
+          ],
+          "low": 298.91394009049037,
+          "high": 305.92605990950966,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-302.42)' and 'Earnings gap 2026-07-31 gap low' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-288.62)",
+            "Role-reversal retest zone (daily-support-276.70)"
+          ],
+          "low": 273.94195884738895,
+          "high": 291.42599189211796,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-288.62)' and 'Role-reversal retest zone (daily-support-276.70)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-288.62)",
+            "SMA200"
+          ],
+          "low": 282.8905,
+          "high": 291.42599189211796,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-288.62)' and 'SMA200' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Role-reversal retest zone (daily-support-276.70)",
+            "SMA200"
+          ],
+          "low": 273.94195884738895,
+          "high": 282.8905,
+          "note": "Confluence reference: 'Role-reversal retest zone (daily-support-276.70)' and 'SMA200' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "SMA50",
+            "AVWAP anchored 2026-07-31 (material earnings gap)"
+          ],
+          "low": 310.4727188705374,
+          "high": 313.379,
+          "note": "Confluence reference: 'SMA50' and 'AVWAP anchored 2026-07-31 (material earnings gap)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "SMA50",
+            "AVWAP anchored 2026-07-29 (major swing high)"
+          ],
+          "low": 313.1072237267347,
+          "high": 313.379,
+          "note": "Confluence reference: 'SMA50' and 'AVWAP anchored 2026-07-29 (major swing high)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "SMA50",
+            "Earnings gap 2026-07-31 gap high"
+          ],
+          "low": 310.69,
+          "high": 313.379,
+          "note": "Confluence reference: 'SMA50' and 'Earnings gap 2026-07-31 gap high' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "SMA50",
+            "Earnings gap 2026-07-31 gap midpoint"
+          ],
+          "low": 313.379,
+          "high": 318.975,
+          "note": "Confluence reference: 'SMA50' and 'Earnings gap 2026-07-31 gap midpoint' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-07-31 (material earnings gap)",
+            "AVWAP anchored 2026-07-29 (major swing high)"
+          ],
+          "low": 310.4727188705374,
+          "high": 313.1072237267347,
+          "note": "Confluence reference: 'AVWAP anchored 2026-07-31 (material earnings gap)' and 'AVWAP anchored 2026-07-29 (major swing high)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-07-31 (material earnings gap)",
+            "Earnings gap 2026-07-31 gap open"
+          ],
+          "low": 304.81,
+          "high": 310.4727188705374,
+          "note": "Confluence reference: 'AVWAP anchored 2026-07-31 (material earnings gap)' and 'Earnings gap 2026-07-31 gap open' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-07-31 (material earnings gap)",
+            "Earnings gap 2026-07-31 gap high"
+          ],
+          "low": 310.4727188705374,
+          "high": 310.69,
+          "note": "Confluence reference: 'AVWAP anchored 2026-07-31 (material earnings gap)' and 'Earnings gap 2026-07-31 gap high' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-07-29 (major swing high)",
+            "Earnings gap 2026-07-31 gap high"
+          ],
+          "low": 310.69,
+          "high": 313.1072237267347,
+          "note": "Confluence reference: 'AVWAP anchored 2026-07-29 (major swing high)' and 'Earnings gap 2026-07-31 gap high' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2026-07-29 (major swing high)",
+            "Earnings gap 2026-07-31 gap midpoint"
+          ],
+          "low": 313.1072237267347,
+          "high": 318.975,
+          "note": "Confluence reference: 'AVWAP anchored 2026-07-29 (major swing high)' and 'Earnings gap 2026-07-31 gap midpoint' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2024-04-19 (major swing low)",
+            "Earnings gap 2025-01-31 gap low"
+          ],
+          "low": 233.44,
+          "high": 239.54390895408702,
+          "note": "Confluence reference: 'AVWAP anchored 2024-04-19 (major swing low)' and 'Earnings gap 2025-01-31 gap low' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "AVWAP anchored 2024-04-19 (major swing low)",
+            "Earnings gap 2025-01-31 gap midpoint"
+          ],
+          "low": 239.54390895408702,
+          "high": 241.535,
+          "note": "Confluence reference: 'AVWAP anchored 2024-04-19 (major swing low)' and 'Earnings gap 2025-01-31 gap midpoint' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-03 gap open",
+            "Earnings gap 2024-05-03 gap high"
+          ],
+          "low": 186.65,
+          "high": 187.0,
+          "note": "Confluence reference: 'Earnings gap 2024-05-03 gap open' and 'Earnings gap 2024-05-03 gap high' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-03 gap open",
+            "Earnings gap 2024-05-03 gap low"
+          ],
+          "low": 182.66,
+          "high": 186.65,
+          "note": "Confluence reference: 'Earnings gap 2024-05-03 gap open' and 'Earnings gap 2024-05-03 gap low' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-03 gap open",
+            "Bull-case intrinsic-value reference (scenario value)"
+          ],
+          "low": 186.6453595968405,
+          "high": 186.65,
+          "note": "Confluence reference: 'Earnings gap 2024-05-03 gap open' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-03 gap high",
+            "Earnings gap 2024-05-03 gap low"
+          ],
+          "low": 182.66,
+          "high": 187.0,
+          "note": "Confluence reference: 'Earnings gap 2024-05-03 gap high' and 'Earnings gap 2024-05-03 gap low' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-03 gap high",
+            "Bull-case intrinsic-value reference (scenario value)"
+          ],
+          "low": 186.6453595968405,
+          "high": 187.0,
+          "note": "Confluence reference: 'Earnings gap 2024-05-03 gap high' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-03 gap low",
+            "Earnings gap 2024-05-03 gap midpoint"
+          ],
+          "low": 178.905,
+          "high": 182.66,
+          "note": "Confluence reference: 'Earnings gap 2024-05-03 gap low' and 'Earnings gap 2024-05-03 gap midpoint' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2024-05-03 gap low",
+            "Bull-case intrinsic-value reference (scenario value)"
+          ],
+          "low": 182.66,
+          "high": 186.6453595968405,
+          "note": "Confluence reference: 'Earnings gap 2024-05-03 gap low' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-01-31 gap open",
+            "Earnings gap 2025-01-31 gap high"
+          ],
+          "low": 247.19,
+          "high": 247.19,
+          "note": "Confluence reference: 'Earnings gap 2025-01-31 gap open' and 'Earnings gap 2025-01-31 gap high' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-01-31 gap open",
+            "Earnings gap 2025-01-31 gap midpoint"
+          ],
+          "low": 241.535,
+          "high": 247.19,
+          "note": "Confluence reference: 'Earnings gap 2025-01-31 gap open' and 'Earnings gap 2025-01-31 gap midpoint' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2025-01-31 gap high",
+            "Earnings gap 2025-01-31 gap midpoint"
+          ],
+          "low": 241.535,
+          "high": 247.19,
+          "note": "Confluence reference: 'Earnings gap 2025-01-31 gap high' and 'Earnings gap 2025-01-31 gap midpoint' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-07-31 gap open",
+            "Earnings gap 2026-07-31 gap high"
+          ],
+          "low": 304.81,
+          "high": 310.69,
+          "note": "Confluence reference: 'Earnings gap 2026-07-31 gap open' and 'Earnings gap 2026-07-31 gap high' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-07-31 gap open",
+            "Earnings gap 2026-07-31 gap low"
+          ],
+          "low": 300.0,
+          "high": 304.81,
+          "note": "Confluence reference: 'Earnings gap 2026-07-31 gap open' and 'Earnings gap 2026-07-31 gap low' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        },
+        {
+          "level_labels": [
+            "Earnings gap 2026-07-31 gap midpoint",
+            "Reverse-DCF current-price implied assumptions (reference only)"
+          ],
+          "low": 318.975,
+          "high": 324.96,
+          "note": "Confluence reference: 'Earnings gap 2026-07-31 gap midpoint' and 'Reverse-DCF current-price implied assumptions (reference only)' overlap within tolerance (3.7100); both zone/scenario values are retained independently, not averaged."
+        }
+      ]
+    },
+    "victor_valuation": {
+      "dcf_per_share": 138.53,
+      "weighted_per_share": null,
+      "scenarios": [
+        {
+          "name": "Bear",
+          "per_share_value": 106.99,
+          "assumptions": {
+            "growth": 0.09580420114109844,
+            "margin": 0.2997079976259188,
+            "wacc": 0.10578262117038573,
+            "tv_growth": 0.025
+          }
+        },
+        {
+          "name": "Base",
+          "per_share_value": 138.53,
+          "assumptions": {
+            "growth": 0.10742046070176792,
+            "margin": 0.31970799762591884,
+            "wacc": 0.09578262117038573,
+            "tv_growth": 0.025
+          }
+        },
+        {
+          "name": "Bull",
+          "per_share_value": 186.65,
+          "assumptions": {
+            "growth": 0.12490831571686112,
+            "margin": 0.33970799762591886,
+            "wacc": 0.08578262117038574,
+            "tv_growth": 0.025
+          }
+        }
+      ],
+      "wacc": 0.0958,
+      "model": "FCFF DCF (especialista de valuación de Victor)",
+      "note": "Valor intrínseco por acción. Es OTRA cosa que el target a 12 meses: el DCF dice cuánto vale el negocio hoy; el target, a cuánto podría cotizar en un año si el mercado paga el mismo múltiplo."
+    },
+    "thesis_killers": {
+      "risk": [],
+      "business": [],
+      "market": [],
+      "source": null,
+      "unavailable_reason": "Los thesis killers son judgment-only por diseño: el motor determinista no inventa riesgos. Requieren el juez cualitativo (ANTHROPIC_API_KEY con saldo). Sin él quedan NOT_SCORABLE, no vacíos por error."
+    },
+    "profile_fit": {
+      "profile_name": "Kevin",
+      "es_por_defecto": false,
+      "universe_ok": true,
+      "universo": "EE.UU.",
+      "tolerancia": "especulativo",
+      "horizonte": "1-3 años",
+      "instrumentos": "opciones, acciones, etf; sin penny, forex, cripto, apalancados",
+      "capital": "$10,000",
+      "riesgo_por_operacion": "30% de la posición ($150–$2,400)",
+      "max_posicion_pct": "5% – 80%",
+      "sizing_note": "Tope por posición 5%–80% de $10,000 ($500–$8,000 por posición). Prioriza probabilidad de éxito y puntos de entrada/salida (timing).",
+      "fit": "evitar",
+      "fit_reason": "El research no favorece invertir ahora.",
+      "disclaimer": "Clasificación de research; nunca una orden automática. La ejecución es manual y tuya."
+    },
+    "mandatory_report": {
+      "insiders_over_1m": {
+        "threshold_usd": 1000000,
+        "count": 8,
+        "transactions": [
+          {
+            "insider": "LEVINSON ARTHUR D",
+            "transaction": "S-Sale",
+            "shares": 391516,
+            "n_operaciones": 5,
+            "price": 275.77,
+            "value": 107970169.06,
+            "date": "2026-05-27",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "COOK TIMOTHY D",
+            "transaction": "S-Sale",
+            "shares": 303048,
+            "n_operaciones": 14,
+            "price": 244.43,
+            "value": 74072579.45,
+            "date": "2026-04-02",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "O'BRIEN DEIRDRE",
+            "transaction": "S-Sale",
+            "shares": 107836,
+            "n_operaciones": 5,
+            "price": 245.78,
+            "value": 26504000.72,
+            "date": "2026-04-02",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "Adams Katherine L.",
+            "transaction": "S-Sale",
+            "shares": 85947,
+            "n_operaciones": 8,
+            "price": 241.83,
+            "value": 20784406.37,
+            "date": "2025-10-02",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "WILLIAMS JEFFREY E",
+            "transaction": "S-Sale",
+            "shares": 49418,
+            "n_operaciones": 4,
+            "price": 230.94,
+            "value": 11412585.01,
+            "date": "2025-04-02",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "Parekh Kevan",
+            "transaction": "S-Sale",
+            "shares": 10303,
+            "n_operaciones": 6,
+            "price": 233.14,
+            "value": 2402057.48,
+            "date": "2026-04-23",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "KONDO CHRIS",
+            "transaction": "S-Sale",
+            "shares": 8238,
+            "n_operaciones": 2,
+            "price": 236.9,
+            "value": 1951610.1,
+            "date": "2025-11-07",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          },
+          {
+            "insider": "Newstead Jennifer",
+            "transaction": "S-Sale",
+            "shares": 4317,
+            "n_operaciones": 3,
+            "price": 308.73,
+            "value": 1332787.41,
+            "date": "2026-08-25",
+            "is_buy": false,
+            "is_sell": true,
+            "source": "FMP Form 4 (agregado por insider)"
+          }
+        ],
+        "net_value": -246430195.6,
+        "net_exceeds_1m": true,
+        "signal": "BEARISH",
+        "source": "FMP (Form 4)",
+        "note": "Solo se listan insiders con transacciones que exceden $1M USD (Forms 4, SEC)."
+      },
+      "insiders_flow": {
+        "buy_usd": 0.0,
+        "sell_usd": 246833891.85,
+        "net_usd": -246833891.85,
+        "buy_count": 0,
+        "sell_count": 49
+      },
+      "institutional_13f": [
+        {
+          "holder": "BlackRock, Inc.",
+          "shares": 1144923925.0,
+          "value": 290570242874.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0002012383-26-001841 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "VANGUARD CAPITAL MANAGEMENT LLC",
+          "shares": 953847648.0,
+          "value": 242076924860.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0002100119-26-001311 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "STATE STREET CORP",
+          "shares": 602341409.0,
+          "value": 152868226190.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0000093751-26-000315 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "GEODE CAPITAL MANAGEMENT, LLC",
+          "shares": 368616954.0,
+          "value": 93304547364.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0001214717-26-000006 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "VANGUARD PORTFOLIO MANAGEMENT LLC",
+          "shares": 331437055.0,
+          "value": 84115410189.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0002100121-26-000861 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "FMR LLC",
+          "shares": 307442040.0,
+          "value": 78025715113.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0000315066-26-001390 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "MORGAN STANLEY",
+          "shares": 230483035.0,
+          "value": 62659118314.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0000895421-26-000187 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "holder": "Berkshire Hathaway Inc",
+          "shares": 227917808.0,
+          "value": 57843260493.0,
+          "pct_held": null,
+          "date": null,
+          "source": "13F-HR accession 0001193125-26-226661 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        }
+      ],
+      "revisit": {
+        "trigger": "Próximo reporte de resultados (10-Q/10-K) o cambio material en la tesis.",
+        "date": null
+      },
+      "management": {
+        "roster": [
+          {
+            "name": "Timothy D. Cook",
+            "title": "Chief Executive Officer & Director",
+            "is_key": true,
+            "age": null,
+            "year_born": 1961,
+            "total_pay": 16759518,
+            "fiscal_year": null
+          },
+          {
+            "name": "Deirdre O'Brien",
+            "title": "Senior Vice President of Retail & People",
+            "is_key": true,
+            "age": null,
+            "year_born": 1967,
+            "total_pay": 5037867,
+            "fiscal_year": null
+          },
+          {
+            "name": "Jennifer G. Newstead",
+            "title": "Senior Vice President & General Counsel",
+            "is_key": true,
+            "age": null,
+            "year_born": 1970,
+            "total_pay": 5022182,
+            "fiscal_year": null
+          },
+          {
+            "name": "Sabih Khan",
+            "title": "Senior VP & Chief Operating Officer",
+            "is_key": true,
+            "age": null,
+            "year_born": 1967,
+            "total_pay": 5021905,
+            "fiscal_year": null
+          },
+          {
+            "name": "Kevan Parekh",
+            "title": "Senior Vice President & Chief Financial Officer",
+            "is_key": true,
+            "age": null,
+            "year_born": 1972,
+            "total_pay": 4034174,
+            "fiscal_year": null
+          },
+          {
+            "name": "Greg Joswiak",
+            "title": "Senior Vice President of Worldwide Marketing",
+            "is_key": true,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Kristin Huguet Quayle",
+            "title": "Vice President of Worldwide Communications",
+            "is_key": true,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Michael Fenger",
+            "title": "Vice President of Worldwide Sales",
+            "is_key": true,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Katherine L. Adams",
+            "title": "Senior VP of Government Affairs & Secretary",
+            "is_key": false,
+            "age": null,
+            "year_born": 1964,
+            "total_pay": 5022482,
+            "fiscal_year": null
+          },
+          {
+            "name": "Suhasini Chandramouli",
+            "title": "Director of Investor Relations",
+            "is_key": false,
+            "age": null,
+            "year_born": null,
+            "total_pay": null,
+            "fiscal_year": null
+          },
+          {
+            "name": "Ben Borders",
+            "title": "Principal Accounting Officer",
+            "is_key": false,
+            "age": null,
+            "year_born": 1981,
+            "total_pay": null,
+            "fiscal_year": null
+          }
+        ],
+        "source": "yfinance companyOfficers",
+        "note": "Roster factual. FMP no expone ejecutivos; yfinance sí (companyOfficers).",
+        "track_record": {
+          "status": "no_evaluado",
+          "note": "El historial cualitativo no se pudo evaluar (el roster factual sí está)."
+        }
+      },
+      "edgar": {
+        "cik": "0000320193",
+        "form4": [
+          {
+            "date": "2026-09-01",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126035362/xslF345X06/form4.xml"
+          },
+          {
+            "date": "2026-08-27",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126034741/xslF345X06/form4.xml"
+          },
+          {
+            "date": "2026-08-20",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126033928/xslF345X06/form4.xml"
+          },
+          {
+            "date": "2026-08-13",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126032884/xslF345X06/form4.xml"
+          },
+          {
+            "date": "2026-06-17",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126025622/xslF345X06/form4.xml"
+          },
+          {
+            "date": "2026-06-17",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126025620/xslF345X06/form4.xml"
+          },
+          {
+            "date": "2026-05-29",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126023363/xslF345X06/form4.xml"
+          },
+          {
+            "date": "2026-05-12",
+            "form": "4",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126020871/xslF345X06/form4.xml"
+          }
+        ],
+        "form13f": [],
+        "holders_5pct": [
+          {
+            "name": "BlackRock, Inc.",
+            "shares": 1144923925.0,
+            "value": 290570242874.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0002012383-26-001841 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "VANGUARD CAPITAL MANAGEMENT LLC",
+            "shares": 953847648.0,
+            "value": 242076924860.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0002100119-26-001311 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "STATE STREET CORP",
+            "shares": 602341409.0,
+            "value": 152868226190.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0000093751-26-000315 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "GEODE CAPITAL MANAGEMENT, LLC",
+            "shares": 368616954.0,
+            "value": 93304547364.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0001214717-26-000006 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "VANGUARD PORTFOLIO MANAGEMENT LLC",
+            "shares": 331437055.0,
+            "value": 84115410189.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0002100121-26-000861 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "FMR LLC",
+            "shares": 307442040.0,
+            "value": 78025715113.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0000315066-26-001390 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "MORGAN STANLEY",
+            "shares": 230483035.0,
+            "value": 62659118314.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0000895421-26-000187 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          },
+          {
+            "name": "Berkshire Hathaway Inc",
+            "shares": 227917808.0,
+            "value": 57843260493.0,
+            "cik": null,
+            "filing_date": null,
+            "basis": "13F dataset",
+            "stake": null,
+            "stale": false,
+            "source_locator": "13F-HR accession 0001193125-26-226661 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+          }
+        ],
+        "holders_source": "SEC Form 13F structured data set (01mar2026-31may2026_form13f.zip): 10 mayores tenedores institucionales de CUSIP 037833100, ORDENADOS POR VALOR DE POSICION reportado, con acciones y dolares. Es el conjunto completo de 13F del trimestre, no una muestra del indice de texto completo."
+      }
+    },
+    "re_execution": {
+      "status": "sin_analisis_previo",
+      "recalc_required": false,
+      "triggers": [],
+      "note": "Primer análisis de este ticker; no hay tesis previa que revisitar."
+    },
+    "final_report": {
+      "report_version": "2.0.0",
+      "security": {
+        "ticker": "AAPL",
+        "exchange": "NASDAQ",
+        "currency": "USD",
+        "analysis_timestamp": "2026-09-03T14:44:18.127028+00:00",
+        "knowledge_timestamp": "2026-09-03T14:43:07.308348+00:00"
+      },
+      "profile": {
+        "label": "Avoid / Wait",
+        "raw_score": 43.919607966044374,
+        "total_confidence": 85.97153797888832,
+        "passed_gates": [],
+        "failed_gates": [
+          "raw_total<50 (got 43.919607966044374)"
+        ],
+        "overrides": [
+          "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE"
+        ]
+      },
+      "category_scorecard": {
+        "business": {
+          "points": 11.534356574485251,
+          "max": 20.0,
+          "confidence": 86.83695652173913
+        },
+        "financial": {
+          "points": 10.808928571428572,
+          "max": 15.0,
+          "confidence": 93.91304347826087
+        },
+        "market": {
+          "points": 1.7726996649548075,
+          "max": 20.0,
+          "confidence": 65.89516129032258
+        },
+        "technical": {
+          "points": 13.521451261009192,
+          "max": 20.0,
+          "confidence": 93.5
+        },
+        "risk": {
+          "points": 5.065413006474621,
+          "max": 15.0,
+          "confidence": 89.92105263157895
+        },
+        "valuation": {
+          "points": 1.2167588876919275,
+          "max": 10.0,
+          "confidence": 91.5
+        }
+      },
+      "executive_thesis": {
+        "business_quality": "Apple es una empresa tecnológica global que diseña, fabrica y comercializa teléfonos inteligentes (iPhone), computadoras personales (Mac), tabletas (iPad), wearables y accesorios, además de vender servicios relacionados. Gana dinero a través de la venta de hardware premium y un creciente portafolio de servicios (App Store, Apple Music, iCloud). Importa al inversor promedio por su marca icónica, su capacidad de innovación constante y su historial de generación de valor para los accionistas, aunque su valoración actual exige un análisis cuidadoso.",
+        "value_creation_durability": "Apple posee un foso competitivo (moat) extremadamente fuerte, impulsado por su potente marca, su ecosistema de hardware y software altamente integrado que genera un 'lock-in' para el cliente, y su capacidad para innovar y controlar la experiencia del usuario de principio a fin. Esto le permite mantener precios premium y márgenes elevados, diferenciándose claramente de sus rivales.",
+        "growth_engine": "Los targets de Victor se derivan de un modelo que considera el EPS, el crecimiento y un múltiplo P/E ajustado por el escenario. Específicamente, el target base de Victor a 12 meses es de 338.91 dólares. Aunque no se proporcionan los valores exactos de EPS, crecimiento y factor de múltiplo utilizados en la fórmula interna de Victor, podemos inferir que se proyecta un crecimiento moderado y un múltiplo que justifica este target. El Fair Value, según la metodología de Victor, ES su target base de 338.91 dólares. Adicionalmente, el especialista de valuación de Victor calculó un DCF (Flujo de Caja ",
+        "market_validation": "El consenso de Wall Street sitúa el precio objetivo medio en 341.31 dólares, lo que implica un ligero potencial alcista desde el precio spot actual. Este objetivo es muy cercano al target base de Victor de 338.91 dólares, lo que sugiere una coincidencia en la expectativa de precio a 12 meses. Sin embargo, la divergencia clave radica en la recomendación final: mientras que el consenso de analistas a menudo se inclina hacia 'BUY' o 'HOLD' para una empresa de la calidad de Apple, el veredicto determinista de Victor es 'AVOID'. Esta diferencia podría explicarse por la ponderación de Victor de fact",
+        "valuation_message": "Apple ostenta una capitalización de mercado masiva de 4.82 billones de dólares, lo que la posiciona como una de las empresas más grandes del mundo. Sus múltiplos de valoración son elevados, con un P/E actual de 37.46 y un Forward P/E de 37.16. A pesar de que el crecimiento de ingresos interanual no está disponible, la compañía mantiene márgenes brutos excepcionales del 48.65% y márgenes EBITDA del 36.09%, lo que subraya su eficiencia operativa y poder de fijación de precios.",
+        "key_levels_summary": "Current adjusted close $328.26; Nearest support zone (daily-support-302.42) $298.91394009049037-305.92605990950966; Nearest resistance zone (daily-resistance-334.99) $330.9147527677472-339.06524723225283; Failed-breakout level (daily-resistance-334.99) $330.9147527677472-339.06524723225283",
+        "primary_risk": "El riesgo regulatorio es el más severo, evidenciado por la demanda de 2.7 mil millones de dólares en el Reino Unido por las reglas de seguimiento de aplicaciones, lo que podría impactar significativamente su modelo de negocio y rentabilidad en el segmento de servicios."
+      },
+      "important_levels": [
+        {
+          "level_class": "current_adjusted_close",
+          "label": "Current adjusted close",
+          "source": "current_price",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 328.26,
+          "distance_percent": 0.0,
+          "distance_atr": 0.0,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "nearest_confirmed_support_zone",
+          "label": "Nearest support zone (daily-support-302.42)",
+          "source": "technical",
+          "zone_low": 298.91394009049037,
+          "zone_high": 305.92605990950966,
+          "value": null,
+          "distance_percent": -5.857317851578754,
+          "distance_atr": -2.565236000951173,
+          "strength_or_confidence": 61.905806424355525,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "nearest_confirmed_resistance_zone",
+          "label": "Nearest resistance zone (daily-resistance-334.99)",
+          "source": "technical",
+          "zone_low": 330.9147527677472,
+          "zone_high": 339.06524723225283,
+          "value": null,
+          "distance_percent": 1.832457154033484,
+          "distance_atr": 0.802532008820423,
+          "strength_or_confidence": 59.16327120512414,
+          "status": "candidate",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "breakout_trigger_or_failure",
+          "label": "Failed-breakout level (daily-resistance-334.99)",
+          "source": "technical",
+          "zone_low": 330.9147527677472,
+          "zone_high": 339.06524723225283,
+          "value": null,
+          "distance_percent": 1.832457154033484,
+          "distance_atr": 0.802532008820423,
+          "strength_or_confidence": 59.16327120512414,
+          "status": "candidate",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-302.42)",
+          "source": "technical",
+          "zone_low": 298.91394009049037,
+          "zone_high": 305.92605990950966,
+          "value": null,
+          "distance_percent": -5.857317851578754,
+          "distance_atr": -2.565236000951173,
+          "strength_or_confidence": 61.905806424355525,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-288.62)",
+          "source": "technical",
+          "zone_low": 285.81400810788205,
+          "zone_high": 291.42599189211796,
+          "value": null,
+          "distance_percent": -10.319426424138976,
+          "distance_atr": -4.519434465253248,
+          "strength_or_confidence": 45.85153518020521,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "role_reversal_retest_zone",
+          "label": "Role-reversal retest zone (daily-support-276.70)",
+          "source": "technical",
+          "zone_low": 273.94195884738895,
+          "zone_high": 279.45804115261103,
+          "value": null,
+          "distance_percent": -14.002326085484047,
+          "distance_atr": -6.132375240974821,
+          "strength_or_confidence": 71.1945716023165,
+          "status": "role_reversed",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "moving_average",
+          "label": "SMA50",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 313.379,
+          "distance_percent": -4.533296776945097,
+          "distance_atr": -2.0055373059215604,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "moving_average",
+          "label": "SMA200",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 282.8905,
+          "distance_percent": -13.821208797904106,
+          "distance_atr": -6.1145235401524385,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2026-07-31 (material earnings gap)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 310.4727188705374,
+          "distance_percent": -5.418656287535064,
+          "distance_atr": -2.3972216837612996,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2026-07-29 (major swing high)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 313.1072237267347,
+          "distance_percent": -4.6160897682523965,
+          "distance_atr": -2.0421650496819246,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "anchored_vwap",
+          "label": "AVWAP anchored 2024-04-19 (major swing low)",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 239.54390895408702,
+          "distance_percent": -27.02616555349813,
+          "distance_atr": -11.956416250797158,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-03 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 186.65,
+          "distance_percent": -43.13958447572046,
+          "distance_atr": -19.085016994257956,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-03 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 187.0,
+          "distance_percent": -43.03296167671967,
+          "distance_atr": -19.03784690776696,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-03 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 182.66,
+          "distance_percent": -44.355084384329494,
+          "distance_atr": -19.62275598025534,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2024-05-03 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 178.905,
+          "distance_percent": -45.4989946993237,
+          "distance_atr": -20.12882362246591,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-01-31 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 247.19,
+          "distance_percent": -24.696886614269175,
+          "distance_atr": -10.925939748072118,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-01-31 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 247.19,
+          "distance_percent": -24.696886614269175,
+          "distance_atr": -10.925939748072118,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-01-31 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 233.44,
+          "distance_percent": -28.885639432157433,
+          "distance_atr": -12.779050288789913,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2025-01-31 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 241.535,
+          "distance_percent": -26.419606409553403,
+          "distance_atr": -11.688073574090964,
+          "strength_or_confidence": null,
+          "status": "reclaimed",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-07-31 gap open",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 304.81,
+          "distance_percent": -7.143727533053064,
+          "distance_atr": -3.160395794896892,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-07-31 gap high",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 310.69,
+          "distance_percent": -5.352464509839759,
+          "distance_atr": -2.3679383418481197,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-07-31 gap low",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 300.0,
+          "distance_percent": -8.609029427892521,
+          "distance_atr": -3.8086475549588994,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "earnings_gap_boundary",
+          "label": "Earnings gap 2026-07-31 gap midpoint",
+          "source": "technical",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 318.975,
+          "distance_percent": -2.8285505392067165,
+          "distance_atr": -1.2513550087683394,
+          "strength_or_confidence": null,
+          "status": "partially_filled",
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "weekly_zone",
+          "label": "Weekly resistance zone (weekly-resistance-344.57)",
+          "source": "technical",
+          "zone_low": 335.4211356492116,
+          "zone_high": 353.7188643507884,
+          "value": null,
+          "distance_percent": 3.2192071791025354,
+          "distance_atr": 1.4098647810496514,
+          "strength_or_confidence": 70.22288584451606,
+          "status": "candidate",
+          "confirmation": "Confirmed by >=2 independent touches (>=5 sessions apart daily / >=2 weeks apart weekly), each with >=0.5 ATR rejection within 3 sessions (Cerebro IMPORTANT_LEVELS_ENGINE A4/A6).",
+          "invalidation": "Broken by a confirmed close > zone_high + 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).",
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Bear-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 106.986048681501,
+          "distance_percent": -67.4081372444096,
+          "distance_atr": -29.821461205424484,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Base-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 138.5282855372086,
+          "distance_percent": -57.79921844354822,
+          "distance_atr": -25.5704610894151,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "intrinsic_value_scenario",
+          "label": "Bull-case intrinsic-value reference (scenario value)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 186.6453595968405,
+          "distance_percent": -43.140998112215776,
+          "distance_atr": -19.085642389167635,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "reverse_dcf_implied_assumptions",
+          "label": "Reverse-DCF current-price implied assumptions (reference only)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 324.96,
+          "distance_percent": null,
+          "distance_atr": null,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": "implied revenue CAGR 34.39%; implied operating margin 63.40%"
+        },
+        {
+          "level_class": "margin_of_safety_band",
+          "label": "Margin-of-safety reference band (15%)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 117.7490427066273,
+          "distance_percent": -64.12933567701599,
+          "distance_atr": -28.370914465232183,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        },
+        {
+          "level_class": "margin_of_safety_band",
+          "label": "Margin-of-safety reference band (25%)",
+          "source": "valuation",
+          "zone_low": null,
+          "zone_high": null,
+          "value": 103.89621415290645,
+          "distance_percent": -68.34941383266117,
+          "distance_atr": -30.237883382443567,
+          "strength_or_confidence": null,
+          "status": null,
+          "confirmation": null,
+          "invalidation": null,
+          "note": null
+        }
+      ],
+      "valuation_scenarios": [
+        {
+          "name": "Bear",
+          "probability": 0.25,
+          "assumptions": {
+            "growth": 0.09580420114109844,
+            "margin": 0.2997079976259188,
+            "wacc": 0.10578262117038573,
+            "tv_growth": 0.025
+          },
+          "enterprise_value": null,
+          "equity_value": null,
+          "per_share_value": 106.986048681501
+        },
+        {
+          "name": "Base",
+          "probability": 0.5,
+          "assumptions": {
+            "growth": 0.10742046070176792,
+            "margin": 0.31970799762591884,
+            "wacc": 0.09578262117038573,
+            "tv_growth": 0.025
+          },
+          "enterprise_value": null,
+          "equity_value": null,
+          "per_share_value": 138.5282855372086
+        },
+        {
+          "name": "Bull",
+          "probability": 0.25,
+          "assumptions": {
+            "growth": 0.12490831571686112,
+            "margin": 0.33970799762591886,
+            "wacc": 0.08578262117038574,
+            "tv_growth": 0.025
+          },
+          "enterprise_value": null,
+          "equity_value": null,
+          "per_share_value": 186.6453595968405
+        }
+      ],
+      "valuation_weighted_value": 142.67199483818968,
+      "terminal_value_share": 0.7691805825296041,
+      "implied_exit_multiple": 11.81744666044787,
+      "reverse_dcf": {
+        "current_price": 324.96,
+        "implied_revenue_cagr": 0.3439042294448698,
+        "implied_margin": 0.6339849440032416,
+        "implied_high_growth_years": 5
+      },
+      "thesis_killers": [],
+      "monitoring_triggers": [],
+      "missing_or_conflicted_data": [
+        "business: THESIS_KILLERS_NOT_LISTED",
+        "risk: SOLVENCY_CHECK_NOT_EVALUATED: interest coverage could not be computed (no interest expense reported) while the company carries debt -- the mandatory solvency check did not run, it did not pass.",
+        "valuation: PER_SHARE_VALUE_INCOMPLETE_NO_DILUTION_SCHEDULE"
+      ],
+      "audit": {
+        "packet_hashes": {
+          "packet": "5f307ede5fd5ff64acdd54dc067cc741e9af344b5e3100db3bc647f4bfae109e"
+        },
+        "formula_versions": [
+          "BUS-ALLOC-029@2026.1",
+          "BUS-CAC-024@2026.1",
+          "BUS-CAGR-006@2026.1",
+          "BUS-CHURN-022@2026.1",
+          "BUS-CONC-003@2026.1",
+          "BUS-DIL-028@2026.1",
+          "BUS-EVA-015@2026.1",
+          "BUS-FCFC-017@2026.1",
+          "BUS-GM-007@2026.1",
+          "BUS-GRR-021@2026.1",
+          "BUS-GUIDE-027@2026.1",
+          "BUS-HHI-004@2026.1",
+          "BUS-HHI-005@2026.1",
+          "BUS-IC-012@2026.1",
+          "BUS-IROIC-016@2026.1",
+          "BUS-LTV-023@2026.1",
+          "BUS-LTVCAC-025@2026.1",
+          "BUS-MIX-001@2026.1",
+          "BUS-NOPAT-011@2026.1",
+          "BUS-NRR-020@2026.1",
+          "BUS-OM-008@2026.1",
+          "BUS-PAYBACK-026@2026.1",
+          "BUS-RANGE-010@2026.1",
+          "BUS-REC-002@2026.1",
+          "BUS-REINV-018@2026.1",
+          "BUS-ROIC-013@2026.1",
+          "BUS-SBC-030@2026.1",
+          "BUS-SG-019@2026.1",
+          "BUS-SPREAD-014@2026.1",
+          "BUS-STAB-009@2026.1",
+          "FIN-BS-017@2.0.0",
+          "FIN-BS-018@2.0.0",
+          "FIN-BS-019@2.0.0",
+          "FIN-BS-020@2.0.0",
+          "FIN-BS-021@2.0.0",
+          "FIN-BS-022@2.0.0",
+          "FIN-CF-012@2.0.0",
+          "FIN-CF-013@2.0.0",
+          "FIN-CF-014@2.0.0",
+          "FIN-CF-015@2.0.0",
+          "FIN-CF-016@2.0.0",
+          "FIN-DX-028@2.0.0",
+          "FIN-DX-029@2.0.0",
+          "FIN-DX-030@2.0.0",
+          "FIN-DX-031@2.0.0",
+          "FIN-DX-032@2.0.0",
+          "FIN-DX-033@2.0.0",
+          "FIN-EF-023@2.0.0",
+          "FIN-EF-024@2.0.0",
+          "FIN-EF-025@2.0.0",
+          "FIN-EF-026@2.0.0",
+          "FIN-EF-027@2.0.0",
+          "FIN-GR-001@2.0.0",
+          "FIN-GR-002@2.0.0",
+          "FIN-GR-003@2.0.0",
+          "FIN-GR-004@2.0.0",
+          "FIN-GR-005@2.0.0",
+          "FIN-PR-006@2.0.0",
+          "FIN-PR-007@2.0.0",
+          "FIN-PR-008@2.0.0",
+          "FIN-PR-009@2.0.0",
+          "FIN-PR-010@2.0.0",
+          "FIN-PR-011@2.0.0",
+          "MKT-ADOPT-021@2.0.0",
+          "MKT-ARPU-022@2.0.0",
+          "MKT-BACK-015@2.0.0",
+          "MKT-CAGR-004@2.0.0",
+          "MKT-CAT-019@2.0.0",
+          "MKT-COVER-016@2.0.0",
+          "MKT-DISP-013@2.0.0",
+          "MKT-GCAP-009@2.0.0",
+          "MKT-HHI-008@2.0.0",
+          "MKT-INCM-018@2.0.0",
+          "MKT-OPLEV-017@2.0.0",
+          "MKT-PEN-005@2.0.0",
+          "MKT-REVBR-011@2.0.0",
+          "MKT-REVMAG-012@2.0.0",
+          "MKT-RSG-024@2.0.0",
+          "MKT-RUN-010@2.0.0",
+          "MKT-SAM-002@2.0.0",
+          "MKT-SCEN-025@2.0.0",
+          "MKT-SECB-023@2.0.0",
+          "MKT-SHARE-006@2.0.0",
+          "MKT-SHDELTA-007@2.0.0",
+          "MKT-SOM-003@2.0.0",
+          "MKT-SURP-014@2.0.0",
+          "MKT-TAM-001@2.0.0",
+          "MKT-TDEC-020@2.0.0",
+          "RSK-ACCR-020@2.0.0",
+          "RSK-ALT-030@2.0.0",
+          "RSK-AQI-023@2.0.0",
+          "RSK-BETA-003@2.0.0",
+          "RSK-CORR-005@2.0.0",
+          "RSK-CUST-017@2.0.0",
+          "RSK-CVAR-009@2.0.0",
+          "RSK-CYC-034@2.0.0",
+          "RSK-DBETA-004@2.0.0",
+          "RSK-DEPI-025@2.0.0",
+          "RSK-DFC-014@2.0.0",
+          "RSK-DIL-032@2.0.0",
+          "RSK-DOWN-002@2.0.0",
+          "RSK-DSRI-021@2.0.0",
+          "RSK-FCC-012@2.0.0",
+          "RSK-GAP-010@2.0.0",
+          "RSK-GEO-019@2.0.0",
+          "RSK-GMI-022@2.0.0",
+          "RSK-ICOV-011@2.0.0",
+          "RSK-LVGI-027@2.0.0",
+          "RSK-MAT-016@2.0.0",
+          "RSK-MDD-006@2.0.0",
+          "RSK-MSCR-029@2.0.0",
+          "RSK-ND-013@2.0.0",
+          "RSK-PIO-031@2.0.0",
+          "RSK-PROD-018@2.0.0",
+          "RSK-REC-007@2.0.0",
+          "RSK-RUN-015@2.0.0",
+          "RSK-SBC-033@2.0.0",
+          "RSK-SGAI-026@2.0.0",
+          "RSK-SGI-024@2.0.0",
+          "RSK-TATA-028@2.0.0",
+          "RSK-THESIS-035@2.0.0",
+          "RSK-VAR-008@2.0.0",
+          "RSK-VOL-001@2.0.0",
+          "TECH-52W-036@2.0.0",
+          "TECH-ATR-006@2.0.0",
+          "TECH-AVWAP-034@2.0.0",
+          "TECH-BASE-037@2.0.0",
+          "TECH-BCONF-031@2.0.0",
+          "TECH-BREAD-039@2.0.0",
+          "TECH-BRK-030@2.0.0",
+          "TECH-CMF-017@2.0.0",
+          "TECH-DATR-029@2.0.0",
+          "TECH-DMI-009@2.0.0",
+          "TECH-EMA-003@2.0.0",
+          "TECH-FBRK-032@2.0.0",
+          "TECH-GAP-020@2.0.0",
+          "TECH-GHOLD-021@2.0.0",
+          "TECH-LIQ-040@2.0.0",
+          "TECH-LSTR-028@2.0.0",
+          "TECH-MACD-008@2.0.0",
+          "TECH-NEFF-026@2.0.0",
+          "TECH-OBV-016@2.0.0",
+          "TECH-PIV-022@2.0.0",
+          "TECH-REJ-027@2.0.0",
+          "TECH-RET-001@2.0.0",
+          "TECH-ROC-010@2.0.0",
+          "TECH-ROLE-033@2.0.0",
+          "TECH-RS-011@2.0.0",
+          "TECH-RSC-013@2.0.0",
+          "TECH-RSI-007@2.0.0",
+          "TECH-RSS-012@2.0.0",
+          "TECH-SLOPE-004@2.0.0",
+          "TECH-SMA-002@2.0.0",
+          "TECH-TIGHT-038@2.0.0",
+          "TECH-TR-005@2.0.0",
+          "TECH-TREND-COMPOSITE@2.0.0",
+          "TECH-UDV-015@2.0.0",
+          "TECH-VCP-019@2.0.0",
+          "TECH-VOL-018@2.0.0",
+          "TECH-VP-035@2.0.0",
+          "TECH-VR-014@2.0.0",
+          "TECH-ZIG-023@2.0.0",
+          "TECH-ZONE-025@2.0.0",
+          "TECH-ZTOL-024@2.0.0",
+          "VAL-APV-019@2.0.0",
+          "VAL-CONV-039@2.0.0",
+          "VAL-DDM-024@2.0.0",
+          "VAL-ENSEMBLE-044@2.0.0",
+          "VAL-EQ-015@2.0.0",
+          "VAL-EV-014@2.0.0",
+          "VAL-EVA-020@2.0.0",
+          "VAL-EVAEV-021@2.0.0",
+          "VAL-EY-029@2.0.0",
+          "VAL-FCFE-017@2.0.0",
+          "VAL-FCFEV-018@2.0.0",
+          "VAL-FCFF-005@2.0.0",
+          "VAL-FCFY-030@2.0.0",
+          "VAL-HDDM-025@2.0.0",
+          "VAL-IRR-041@2.0.0",
+          "VAL-JEVS-033@2.0.0",
+          "VAL-JPB-031@2.0.0",
+          "VAL-JPE-032@2.0.0",
+          "VAL-KD-011@2.0.0",
+          "VAL-KE-008@2.0.0",
+          "VAL-LBETA-010@2.0.0",
+          "VAL-LEASE-004@2.0.0",
+          "VAL-MC-037@2.0.0",
+          "VAL-MOS-040@2.0.0",
+          "VAL-NORM-001@2.0.0",
+          "VAL-NWC-006@2.0.0",
+          "VAL-PEG-028@2.0.0",
+          "VAL-PS-016@2.0.0",
+          "VAL-RD-002@2.0.0",
+          "VAL-RDA-003@2.0.0",
+          "VAL-RDCF-027@2.0.0",
+          "VAL-REINV-043@2.0.0",
+          "VAL-REL-034@2.0.0",
+          "VAL-RI-022@2.0.0",
+          "VAL-RIV-023@2.0.0",
+          "VAL-ROPT-038@2.0.0",
+          "VAL-SCEN-036@2.0.0",
+          "VAL-SOTP-026@2.0.0",
+          "VAL-TVE-013@2.0.0",
+          "VAL-TVG-012@2.0.0",
+          "VAL-TVS-042@2.0.0",
+          "VAL-UBETA-009@2.0.0",
+          "VAL-WACC-007@2.0.0",
+          "VAL-ZHIST-035@2.0.0"
+        ],
+        "validation_summary": {
+          "passed_gates": [],
+          "failed_gates": [
+            "raw_total<50 (got 43.919607966044374)"
+          ],
+          "overrides": [
+            "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE"
+          ],
+          "warnings": [],
+          "handoff_issues": {},
+          "data_staleness": {
+            "daily_market": "FRESH",
+            "quarterly_fundamentals": "FRESH",
+            "consensus": "FRESH",
+            "peer_set": "FRESH"
+          },
+          "proxy_inputs": {
+            "macro_series": "Factor macro = producción industrial FRED (INDPRO) en variación YoY, alineada al último dato NO POSTERIOR a cada cierre trimestral",
+            "ppe": "PP&E NETO de FMP como proxy del PP&E bruto que piden Beneish AQI/DEPI (proxy documentado de Victor: ppe_net)"
+          }
+        }
+      }
+    },
+    "scores_source": "victor"
+  },
+  "fecha": "2026-09-03",
+  "agente": "acciones",
+  "guardado_en": "2026-09-03T14:44:21+00:00"
+}
