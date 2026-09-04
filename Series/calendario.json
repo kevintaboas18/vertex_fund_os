@@ -3,129 +3,12 @@
   "resultados": {
     "filas": [
       {
-        "ticker": "AVGO",
-        "fecha": "2026-09-02",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 1747173679200.0,
-        "nombre": "Broadcom Inc."
-      },
-      {
-        "ticker": "SNOW",
-        "fecha": "2026-09-02",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 106004144000.0,
-        "nombre": "Snowflake Inc."
-      },
-      {
-        "ticker": "HPE",
-        "fecha": "2026-09-02",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 68666573581.0,
-        "nombre": "Hewlett Packard Enterprise Company"
-      },
-      {
-        "ticker": "NTAP",
-        "fecha": "2026-09-02",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 35451634440.0,
-        "nombre": "NetApp, Inc."
-      },
-      {
-        "ticker": "FDXF",
-        "fecha": "2026-09-02",
-        "sector": "XLI",
-        "sector_nombre": "Industrial",
-        "cuando": null,
-        "cap": 18927364397.0,
-        "nombre": "FedEx Freight Holding Company, Inc."
-      },
-      {
-        "ticker": "FIVE",
-        "fecha": "2026-09-02",
-        "sector": "XLY",
-        "sector_nombre": "Consumo discrecional",
-        "cuando": null,
-        "cap": 13441193921.0,
-        "nombre": "Five Below, Inc."
-      },
-      {
-        "ticker": "BF-B",
-        "fecha": "2026-09-02",
-        "sector": "XLP",
-        "sector_nombre": "Consumo básico",
-        "cuando": null,
-        "cap": 12768448286.0,
-        "nombre": "Brown-Forman Corporation"
-      },
-      {
-        "ticker": "CIEN",
-        "fecha": "2026-09-03",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 50132382856.0,
-        "nombre": "Ciena Corporation"
-      },
-      {
-        "ticker": "ZS",
-        "fecha": "2026-09-03",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 27932086253.0,
-        "nombre": "Zscaler, Inc."
-      },
-      {
-        "ticker": "IOT",
-        "fecha": "2026-09-03",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 21229939281.0,
-        "nombre": "Samsara Inc."
-      },
-      {
-        "ticker": "GWRE",
-        "fecha": "2026-09-03",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 16048503664.0,
-        "nombre": "Guidewire Software, Inc."
-      },
-      {
-        "ticker": "DOCU",
-        "fecha": "2026-09-03",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 12485893550.0,
-        "nombre": "DocuSign, Inc."
-      },
-      {
-        "ticker": "ORCL",
-        "fecha": "2026-09-08",
-        "sector": "XLK",
-        "sector_nombre": "Tecnología",
-        "cuando": null,
-        "cap": 419828502500.0,
-        "nombre": "Oracle Corporation"
-      },
-      {
         "ticker": "CASY",
         "fecha": "2026-09-08",
         "sector": "XLY",
         "sector_nombre": "Consumo discrecional",
         "cuando": null,
-        "cap": 27886522591.0,
+        "cap": 27924637638.0,
         "nombre": "Casey's General Stores, Inc."
       },
       {
@@ -134,7 +17,7 @@
         "sector": "XLI",
         "sector_nombre": "Industrial",
         "cuando": null,
-        "cap": 27511580483.0,
+        "cap": 27614067372.0,
         "nombre": "Sunbelt Rentals Holdings Inc"
       },
       {
@@ -143,7 +26,7 @@
         "sector": "XLV",
         "sector_nombre": "Salud",
         "cuando": null,
-        "cap": 13599511630.0,
+        "cap": 13697027130.0,
         "nombre": "The Cooper Companies, Inc."
       },
       {
@@ -152,17 +35,17 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 10385120675.0,
+        "cap": 10871423377.0,
         "nombre": "SailPoint, Inc."
       },
       {
-        "ticker": "CHWY",
-        "fecha": "2026-09-09",
-        "sector": "XLY",
-        "sector_nombre": "Consumo discrecional",
+        "ticker": "ORCL",
+        "fecha": "2026-09-10",
+        "sector": "XLK",
+        "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 10009288449.0,
-        "nombre": "Chewy, Inc."
+        "cap": 453491979296.0,
+        "nombre": "Oracle Corporation"
       },
       {
         "ticker": "ADBE",
@@ -170,7 +53,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 111216525000.0,
+        "cap": 106398825000.0,
         "nombre": "Adobe Inc."
       },
       {
@@ -179,7 +62,7 @@
         "sector": "XLI",
         "sector_nombre": "Industrial",
         "cuando": null,
-        "cap": 29774097261.0,
+        "cap": 31116986816.0,
         "nombre": "Copart, Inc."
       },
       {
@@ -188,32 +71,92 @@
         "sector": "XLP",
         "sector_nombre": "Consumo básico",
         "cuando": null,
-        "cap": 35668308340.0,
+        "cap": 35913367140.0,
         "nombre": "The Kroger Co."
+      },
+      {
+        "ticker": "LEN",
+        "fecha": "2026-09-16",
+        "sector": "XLY",
+        "sector_nombre": "Consumo discrecional",
+        "cuando": null,
+        "cap": 20791004517.0,
+        "nombre": "Lennar Corporation"
+      },
+      {
+        "ticker": "FDX",
+        "fecha": "2026-09-17",
+        "sector": "XLI",
+        "sector_nombre": "Industrial",
+        "cuando": null,
+        "cap": 76387333981.0,
+        "nombre": "FedEx Corporation"
       }
     ],
     "motivo": "",
     "recortadas": 0,
     "umbral": 10000000000.0,
-    "fuera": 610,
+    "fuera": 451,
     "medida": true,
     "motivo_tamano": ""
   },
   "macro": {
     "publicados": [
       {
-        "evento": "ISM Non-Manufacturing PMI (Aug)",
-        "fecha": "2026-09-03 14:00",
-        "salio": 55.4,
-        "esperado": 54.1,
-        "anterior": 54.1,
+        "evento": "Non Farm Payrolls (Aug)",
+        "fecha": "2026-09-04 12:30",
+        "salio": 162.0,
+        "esperado": 56.0,
+        "anterior": 21.0,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
-        "mejor": null,
-        "hora_et": "10:00",
-        "sorpresa": 1.2999999999999972,
+        "mejor": "alto",
+        "hora_et": "08:30",
+        "sorpresa": 106.0,
+        "bueno": true
+      },
+      {
+        "evento": "Unemployment Rate (Aug)",
+        "fecha": "2026-09-04 12:30",
+        "salio": 4.1,
+        "esperado": 4.1,
+        "anterior": 4.1,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
         "bueno": null
+      },
+      {
+        "evento": "Average Hourly Earnings MoM (Aug)",
+        "fecha": "2026-09-04 12:30",
+        "salio": 0.3,
+        "esperado": 0.3,
+        "anterior": 0.2,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
+        "evento": "Average Hourly Earnings YoY (Aug)",
+        "fecha": "2026-09-04 12:30",
+        "salio": 3.1,
+        "esperado": 3.0,
+        "anterior": 3.2,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.10000000000000009,
+        "bueno": false
       },
       {
         "evento": "ISM Services PMI (Aug)",
@@ -230,17 +173,17 @@
         "bueno": true
       },
       {
-        "evento": "ISM Non-Manufacturing Prices (Aug)",
-        "fecha": "2026-09-03 14:00",
-        "salio": 72.6,
-        "esperado": 70.0,
-        "anterior": 70.3,
+        "evento": "Jobless Claims 4-Week Average (Aug/29)",
+        "fecha": "2026-09-03 12:30",
+        "salio": 207.25,
+        "esperado": 205.0,
+        "anterior": 205.75,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
         "mejor": null,
-        "hora_et": "10:00",
-        "sorpresa": 2.5999999999999943,
+        "hora_et": "08:30",
+        "sorpresa": 2.25,
         "bueno": null
       },
       {
@@ -256,20 +199,6 @@
         "hora_et": "08:30",
         "sorpresa": 1.0,
         "bueno": false
-      },
-      {
-        "evento": "Jobless Claims 4-Week Average (Aug/29)",
-        "fecha": "2026-09-03 12:30",
-        "salio": 207.25,
-        "esperado": 205.0,
-        "anterior": 205.75,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": null,
-        "hora_et": "08:30",
-        "sorpresa": 2.25,
-        "bueno": null
       },
       {
         "evento": "ADP Employment Change (Aug)",
@@ -340,58 +269,30 @@
         "hora_et": "08:30",
         "sorpresa": 2.5,
         "bueno": null
-      },
-      {
-        "evento": "Personal Income MoM (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 0.4,
-        "esperado": 0.2,
-        "anterior": 0.2,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "08:30",
-        "sorpresa": 0.2,
-        "bueno": true
-      },
-      {
-        "evento": "Personal Spending MoM (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 0.2,
-        "esperado": 0.1,
-        "anterior": 0.3,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "08:30",
-        "sorpresa": 0.1,
-        "bueno": true
       }
     ],
     "proximos": [
       {
-        "evento": "Jackson Hole Symposium",
-        "fecha": "2026-08-29 00:00",
+        "evento": "Producer Price Index MoM (Aug)",
+        "fecha": "2026-09-10 12:30",
         "salio": null,
-        "esperado": null,
-        "anterior": null,
+        "esperado": 0.3,
+        "anterior": 0.0,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
-        "mejor": null,
-        "hora_et": "20:00",
+        "mejor": "bajo",
+        "hora_et": "08:30",
         "sorpresa": null,
         "bueno": null,
-        "retrasado": true
+        "retrasado": false
       },
       {
-        "evento": "Average Hourly Earnings YoY (Aug)",
-        "fecha": "2026-09-04 12:30",
+        "evento": "Core PPI MoM (Aug)",
+        "fecha": "2026-09-10 12:30",
         "salio": null,
-        "esperado": 3.0,
-        "anterior": 3.2,
+        "esperado": 0.3,
+        "anterior": 0.2,
         "unidad": "",
         "impacto": "medium",
         "nivel": 1,
@@ -402,46 +303,91 @@
         "retrasado": false
       },
       {
-        "evento": "Non Farm Payrolls (Aug)",
-        "fecha": "2026-09-04 12:30",
+        "evento": "Producer Price Index YoY (Aug)",
+        "fecha": "2026-09-10 12:30",
         "salio": null,
-        "esperado": 58.0,
-        "anterior": -23.0,
+        "esperado": 4.5,
+        "anterior": 4.7,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "Initial Jobless Claims (Sep/05)",
+        "fecha": "2026-09-10 12:30",
+        "salio": null,
+        "esperado": 205.0,
+        "anterior": 206.0,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "Core PPI YoY (Aug)",
+        "fecha": "2026-09-10 12:30",
+        "salio": null,
+        "esperado": 4.1,
+        "anterior": 4.2,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "Producer Price Index (Aug)",
+        "fecha": "2026-09-10 12:30",
+        "salio": null,
+        "esperado": 157.0,
+        "anterior": 156.563,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "Existing Home Sales MoM (Aug)",
+        "fecha": "2026-09-10 14:00",
+        "salio": null,
+        "esperado": -0.2,
+        "anterior": -1.7,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "10:00",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "Existing Home Sales (Aug)",
+        "fecha": "2026-09-10 14:00",
+        "salio": null,
+        "esperado": 4.03,
+        "anterior": 4.06,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
         "mejor": "alto",
-        "hora_et": "08:30",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
-        "evento": "Unemployment Rate (Aug)",
-        "fecha": "2026-09-04 12:30",
-        "salio": null,
-        "esperado": 4.1,
-        "anterior": 4.1,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
-        "evento": "Average Hourly Earnings MoM (Aug)",
-        "fecha": "2026-09-04 12:30",
-        "salio": null,
-        "esperado": 0.3,
-        "anterior": 0.1,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
+        "hora_et": "10:00",
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
@@ -451,7 +397,7 @@
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado_resultados": "2026-09-02T20:39:19.395079+00:00",
-  "generado_macro": "2026-09-03T14:13:43.638510+00:00",
-  "generado": "2026-09-03T14:13:43.638510+00:00"
+  "generado_resultados": "2026-09-04T15:25:04.277143+00:00",
+  "generado_macro": "2026-09-04T15:25:04.277143+00:00",
+  "generado": "2026-09-04T15:25:04.277143+00:00"
 }

@@ -11,6 +11,7 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [DELL](tesis/DELL.md) | 2026-09-02 | DESFAVORABLE | 49 | acciones |
 | [GOOGL](tesis/GOOGL.md) | 2026-09-03 | Oportunidad Fuerte | 75 | opciones |
 | [GOOG](tesis/GOOG.md) | 2026-08-30 | Oportunidad Moderada | 62 | opciones |
+| [KWEB](tesis/KWEB.md) | 2026-09-04 | Oportunidad Moderada | 70 | opciones |
 | [META](tesis/META.md) | 2026-08-28 | Oportunidad Moderada | 59 | opciones |
 | [MSFT](tesis/MSFT.md) | 2026-08-28 | Oportunidad Moderada | 56 | opciones |
 | [NBIS](tesis/NBIS.md) | 2026-08-24 | DESFAVORABLE | 26 | acciones |
