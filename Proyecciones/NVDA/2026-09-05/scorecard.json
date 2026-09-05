@@ -4151,7 +4151,7 @@
     "motivo": null,
     "evals": [
       {
-        "date": "2026-09-04",
+        "date": "2026-09-05",
         "horizon_days": 10,
         "matured": false,
         "spot": 230.36,
@@ -4162,8 +4162,19 @@
         "direction_hit": null
       },
       {
-        "date": "2026-09-04",
+        "date": "2026-09-05",
         "horizon_days": 20,
+        "matured": false,
+        "spot": 230.36,
+        "base": 230.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-09-05",
+        "horizon_days": 30,
         "matured": false,
         "spot": 230.36,
         "base": 230.0,
@@ -4268,17 +4279,6 @@
         "base": 220.0,
         "actual_close": 230.36,
         "error_pct": 4.82,
-        "best": "bull",
-        "direction_hit": null
-      },
-      {
-        "date": "2026-08-21",
-        "horizon_days": 30,
-        "matured": false,
-        "spot": 215.87,
-        "base": 220.0,
-        "actual_close": 230.36,
-        "error_pct": 4.8,
         "best": "bull",
         "direction_hit": null
       }
@@ -4615,7 +4615,7 @@
     "price": 230.36,
     "change": 1.04,
     "change_percent": 0.45,
-    "market_cap": 5516382150000.0,
+    "market_cap": 5562502920000.0,
     "day_volume": 135352701.0,
     "day_low": 229.63,
     "day_high": 234.76,
@@ -4702,5 +4702,5 @@
   ],
   "fecha": "2026-09-05",
   "agente": "opciones",
-  "guardado_en": "2026-09-05T04:08:56+00:00"
+  "guardado_en": "2026-09-05T14:45:47+00:00"
 }

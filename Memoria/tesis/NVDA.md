@@ -16,6 +16,16 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+### 2026-09-05 · agente de opciones
+
+**Oportunidad Moderada** · puntaje 65 · precio $230.36
+
+---
+
+---
+
+---
+
 ### 2026-09-03 · agente de opciones
 
 **Oportunidad Fuerte** · puntaje 75 · precio $228.40
@@ -26,9 +36,13 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+---
+
 ### 2026-08-30 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 61 · precio $217.55
+
+---
 
 ---
 
@@ -58,6 +72,8 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 
 ---
 
+---
+
 ### 2026-08-30 · agente de acciones
 
 **ESPECULATIVO** · puntaje 58 · precio $217.55
@@ -80,27 +96,33 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 
 ---
 
-### 2026-08-30 · agente de opciones
-
-**Oportunidad Moderada** · puntaje 61 · precio $217.55
-
----
-
----
-
----
-
----
-
----
-
----
-
 ---
 
 ### 2026-08-30 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 61 · precio $217.55
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+### 2026-08-30 · agente de opciones
+
+**Oportunidad Moderada** · puntaje 61 · precio $217.55
+
+---
 
 ---
 
@@ -121,6 +143,8 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 ### 2026-08-28 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 63 · precio $228.57
+
+---
 
 ---
 
@@ -164,35 +188,11 @@ Imagina que la inteligencia artificial es un coche de carreras. NVIDIA es el fab
 
 ---
 
+---
+
 ### 2026-08-28 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 63 · precio $227.98
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
-### 2026-08-27 · agente de opciones
-
-**Oportunidad Moderada** · puntaje 68 · precio $225.72
 
 ---
 
