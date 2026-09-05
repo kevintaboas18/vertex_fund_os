@@ -257,18 +257,18 @@
         "bueno": null
       },
       {
-        "evento": "Durable Goods Orders MoM (Jul)",
+        "evento": "PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
-        "salio": 1.1,
-        "esperado": 0.5,
-        "anterior": 0.5,
+        "salio": 3.7,
+        "esperado": 3.6,
+        "anterior": 3.7,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "medium",
         "nivel": 1,
-        "mejor": "alto",
+        "mejor": "bajo",
         "hora_et": "08:30",
-        "sorpresa": 0.6000000000000001,
-        "bueno": true
+        "sorpresa": 0.10000000000000009,
+        "bueno": false
       }
     ],
     "proximos": [
@@ -303,11 +303,11 @@
         "retrasado": false
       },
       {
-        "evento": "Producer Price Index (Aug)",
+        "evento": "Core PPI YoY (Aug)",
         "fecha": "2026-09-10 12:30",
         "salio": null,
-        "esperado": 157.0,
-        "anterior": 156.563,
+        "esperado": 4.1,
+        "anterior": 4.2,
         "unidad": "",
         "impacto": "low",
         "nivel": 1,
@@ -318,13 +318,13 @@
         "retrasado": false
       },
       {
-        "evento": "Producer Price Index MoM (Aug)",
+        "evento": "Producer Price Index (Aug)",
         "fecha": "2026-09-10 12:30",
         "salio": null,
-        "esperado": 0.3,
-        "anterior": 0.0,
+        "esperado": 157.0,
+        "anterior": 156.563,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -348,13 +348,13 @@
         "retrasado": false
       },
       {
-        "evento": "Core PPI YoY (Aug)",
+        "evento": "Producer Price Index MoM (Aug)",
         "fecha": "2026-09-10 12:30",
         "salio": null,
-        "esperado": 4.1,
-        "anterior": 4.2,
+        "esperado": 0.3,
+        "anterior": 0.0,
         "unidad": "",
-        "impacto": "low",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -408,13 +408,13 @@
         "retrasado": false
       },
       {
-        "evento": "Core CPI (Aug)",
+        "evento": "CPI (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
-        "esperado": null,
-        "anterior": 336.79,
+        "esperado": 334.9,
+        "anterior": 333.92,
         "unidad": "",
-        "impacto": "low",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -423,11 +423,11 @@
         "retrasado": false
       },
       {
-        "evento": "Core Inflation Rate YoY (Aug)",
+        "evento": "Inflation Rate YoY (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
-        "esperado": 2.4,
-        "anterior": 2.5,
+        "esperado": 3.4,
+        "anterior": 3.4,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
@@ -453,11 +453,11 @@
         "retrasado": false
       },
       {
-        "evento": "Inflation Rate YoY (Aug)",
+        "evento": "Core Inflation Rate YoY (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
-        "esperado": 3.4,
-        "anterior": 3.4,
+        "esperado": 2.4,
+        "anterior": 2.5,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
@@ -468,13 +468,13 @@
         "retrasado": false
       },
       {
-        "evento": "CPI (Aug)",
+        "evento": "Core CPI (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
-        "esperado": 334.9,
-        "anterior": 333.92,
+        "esperado": null,
+        "anterior": 336.79,
         "unidad": "",
-        "impacto": "medium",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -503,6 +503,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-09-04T15:25:04.277143+00:00",
-  "generado_macro": "2026-09-05T15:02:15.403872+00:00",
-  "generado": "2026-09-05T15:02:15.403872+00:00"
+  "generado_macro": "2026-09-05T15:09:14.495474+00:00",
+  "generado": "2026-09-05T15:09:14.495474+00:00"
 }

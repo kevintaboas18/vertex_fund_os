@@ -8,6 +8,14 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+### 2026-09-05 · agente de opciones
+
+**Oportunidad Moderada** · puntaje 56 · precio $770.19
+
+---
+
+---
+
 ### 2026-08-28 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 62 · precio $771.10
@@ -16,9 +24,13 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+---
+
 ### 2026-08-27 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 62 · precio $768.38
+
+---
 
 ---
 
@@ -38,9 +50,13 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+---
+
 ### 2026-08-25 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 60 · precio $765.00
+
+---
 
 ---
 
@@ -68,9 +84,13 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+---
+
 ### 2026-08-21 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 62 · precio $764.99
+
+---
 
 ---
 
@@ -106,9 +126,13 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+---
+
 ### 2026-08-20 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 60 · precio $767.86
+
+---
 
 ---
 
@@ -152,34 +176,6 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
-### 2026-08-20 · agente de acciones
-
-**HOLD** · puntaje 65 · precio $767.01
-
-Niveles: bear $590.49 · base $787.26 · bull $1,008.76
-
-Imagina que el mercado de valores de EE. UU. es un gran pastel con 500 rebanadas, cada una representando una empresa importante. Comprar SPY es como comprar una pequeña porción de cada una de esas 500 rebanadas a la vez. Así, si el pastel crece, tu porción también lo hace, y no tienes que preocuparte por elegir la mejor rebanada individualmente.
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
 ---
 
 ### 2026-08-20 · agente de acciones
@@ -189,3 +185,25 @@ Imagina que el mercado de valores de EE. UU. es un gran pastel con 500 rebanadas
 Niveles: bear $590.49 · base $787.26 · bull $1,008.76
 
 Imagina que el mercado de valores de EE. UU. es un gran pastel con 500 rebanadas, cada una representando una empresa importante. Comprar SPY es como comprar una pequeña porción de cada una de esas 500 rebanadas a la vez. Así, si el pastel crece, tu porción también lo hace, y no tienes que preocuparte por elegir la mejor rebanada individualmente.
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
