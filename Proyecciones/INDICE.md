@@ -2,7 +2,7 @@
 
 Scorecard de flujo 0-100: 6 sub-agentes sobre la cadena de opciones y la cinta, con escenarios a 10 / 20 / 30 días.
 
-Generado por `vertex_archivo.reconstruye_indice` · 144 análisis · 2026-09-05 15:25 UTC
+Generado por `vertex_archivo.reconstruye_indice` · 145 análisis · 2026-09-05 15:35 UTC
 
 | Fecha | Ticker | Veredicto | Archivo |
 |---|---|---|---|
@@ -18,6 +18,7 @@ Generado por `vertex_archivo.reconstruye_indice` · 144 análisis · 2026-09-05 
 | 2026-09-05 | **INTC** | Oportunidad Moderada · 66.0/100 | [`Proyecciones/INTC/2026-09-05/scorecard.json`](INTC/2026-09-05/scorecard.json) |
 | 2026-09-05 | **GOOGL** | Oportunidad Moderada · 57.0/100 | [`Proyecciones/GOOGL/2026-09-05/scorecard.json`](GOOGL/2026-09-05/scorecard.json) |
 | 2026-09-05 | **GOOG** | Oportunidad Moderada · 57.0/100 | [`Proyecciones/GOOG/2026-09-05/scorecard.json`](GOOG/2026-09-05/scorecard.json) |
+| 2026-09-05 | **CRWV** | Oportunidad Moderada · 61.0/100 | [`Proyecciones/CRWV/2026-09-05/scorecard.json`](CRWV/2026-09-05/scorecard.json) |
 | 2026-09-05 | **ADBE** | Oportunidad Moderada · 54.0/100 | [`Proyecciones/ADBE/2026-09-05/scorecard.json`](ADBE/2026-09-05/scorecard.json) |
 | 2026-09-05 | **AAPL** | Oportunidad Moderada · 64.0/100 | [`Proyecciones/AAPL/2026-09-05/scorecard.json`](AAPL/2026-09-05/scorecard.json) |
 | 2026-09-04 | **KWEB** | Oportunidad Moderada · 70.0/100 | [`Proyecciones/KWEB/2026-09-04/scorecard.json`](KWEB/2026-09-04/scorecard.json) |
