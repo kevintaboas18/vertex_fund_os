@@ -2,10 +2,11 @@
 
 Scorecard de flujo 0-100: 6 sub-agentes sobre la cadena de opciones y la cinta, con escenarios a 10 / 20 / 30 días.
 
-Generado por `vertex_archivo.reconstruye_indice` · 134 análisis · 2026-09-05 14:46 UTC
+Generado por `vertex_archivo.reconstruye_indice` · 135 análisis · 2026-09-05 15:04 UTC
 
 | Fecha | Ticker | Veredicto | Archivo |
 |---|---|---|---|
+| 2026-09-05 | **TSLA** | Oportunidad Moderada · 62.0/100 | [`Proyecciones/TSLA/2026-09-05/scorecard.json`](TSLA/2026-09-05/scorecard.json) |
 | 2026-09-05 | **ORCL** | Oportunidad Moderada · 61.0/100 | [`Proyecciones/ORCL/2026-09-05/scorecard.json`](ORCL/2026-09-05/scorecard.json) |
 | 2026-09-05 | **NVDA** | Oportunidad Moderada · 65.0/100 | [`Proyecciones/NVDA/2026-09-05/scorecard.json`](NVDA/2026-09-05/scorecard.json) |
 | 2026-09-05 | **KWEB** | Oportunidad Moderada · 65.0/100 | [`Proyecciones/KWEB/2026-09-05/scorecard.json`](KWEB/2026-09-05/scorecard.json) |
