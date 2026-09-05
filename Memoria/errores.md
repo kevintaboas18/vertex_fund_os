@@ -16,3 +16,4 @@ _Cada vuelta de veredicto sobre el mismo ticker queda aquí. No es un castigo: e
 - **GOOGL** · 2026-08-30 → 2026-09-03: de **Oportunidad Moderada** a **Oportunidad Fuerte** · el precio se movió -1.15% en ese tramo.
 - **AAPL** · 2026-08-30 → 2026-09-03: de **Oportunidad Moderada** a **DESFAVORABLE** · el precio se movió +2.68% en ese tramo.
 - **NVDA** · 2026-09-03 → 2026-09-05: de **Oportunidad Fuerte** a **Oportunidad Moderada** · el precio se movió +0.86% en ese tramo.
+- **AAPL** · 2026-09-03 → 2026-09-05: de **DESFAVORABLE** a **Oportunidad Moderada** · el precio se movió -2.53% en ese tramo.
