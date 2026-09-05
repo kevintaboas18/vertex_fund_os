@@ -17,6 +17,7 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [NBIS](tesis/NBIS.md) | 2026-08-24 | DESFAVORABLE | 26 | acciones |
 | [NFLX](tesis/NFLX.md) | 2026-08-24 | DESFAVORABLE | 50 | acciones |
 | [NVDA](tesis/NVDA.md) | 2026-09-05 | Oportunidad Moderada | 65 | opciones |
+| [ORCL](tesis/ORCL.md) | 2026-09-05 | Oportunidad Moderada | 61 | opciones |
 | [PLTR](tesis/PLTR.md) | 2026-08-18 | DESFAVORABLE | 46 | acciones |
 | [SPXC](tesis/SPXC.md) | 2026-08-20 | DESFAVORABLE | 44 | acciones |
 | [SPY](tesis/SPY.md) | 2026-08-28 | Oportunidad Moderada | 62 | opciones |
