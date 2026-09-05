@@ -122,27 +122,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 30577843,
+          "medio": 30654080,
           "relativo": 0.78,
           "respalda": false
         },
         "1M": {
-          "medio": 30786987,
+          "medio": 30805139,
           "relativo": 0.78,
           "respalda": false
         },
         "3M": {
-          "medio": 40763496,
+          "medio": 40769546,
           "relativo": 1.03,
           "respalda": false
         },
         "6M": {
-          "medio": 45480873,
+          "medio": 45483898,
           "relativo": 1.15,
           "respalda": false
         },
         "1A": {
-          "medio": 52079369,
+          "medio": 52080881,
           "relativo": 1.32,
           "respalda": true
         }
@@ -1581,5 +1581,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-09-05T05:15:20.276963+00:00"
+  "generado": "2026-09-05T05:43:22.881264+00:00"
 }
