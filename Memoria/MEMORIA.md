@@ -6,7 +6,7 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 |---|---|---|---|---|
 | [AAPL](tesis/AAPL.md) | 2026-09-05 | Oportunidad Moderada | 64 | opciones |
 | [ADBE](tesis/ADBE.md) | 2026-09-05 | Oportunidad Moderada | 54 | opciones |
-| [AMD](tesis/AMD.md) | 2026-08-27 | Oportunidad Moderada | 62 | opciones |
+| [AMD](tesis/AMD.md) | 2026-09-05 | Oportunidad Moderada | 57 | opciones |
 | [AMZN](tesis/AMZN.md) | 2026-08-25 | Oportunidad Moderada | 60 | opciones |
 | [APH](tesis/APH.md) | 2026-08-13 | ESPECULATIVO | 56 | acciones |
 | [CRWV](tesis/CRWV.md) | 2026-09-05 | Oportunidad Moderada | 61 | opciones |
