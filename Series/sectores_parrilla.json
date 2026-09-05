@@ -36,27 +36,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 37402997,
-          "relativo": 0.78,
+          "medio": 37199065,
+          "relativo": 0.77,
           "respalda": false
         },
         "1M": {
-          "medio": 36665321,
+          "medio": 36616765,
           "relativo": 0.76,
           "respalda": false
         },
         "3M": {
-          "medio": 49075348,
+          "medio": 49059162,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 57639825,
-          "relativo": 1.19,
-          "respalda": false
+          "medio": 57631733,
+          "relativo": 1.2,
+          "respalda": true
         },
         "1A": {
-          "medio": 69269617,
+          "medio": 69265570,
           "relativo": 1.44,
           "respalda": true
         }
@@ -79,27 +79,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5774797,
+          "medio": 5769531,
           "relativo": 0.71,
           "respalda": false
         },
         "1M": {
-          "medio": 5638513,
+          "medio": 5637259,
           "relativo": 0.7,
           "respalda": false
         },
         "3M": {
-          "medio": 8284517,
+          "medio": 8284099,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 9794768,
+          "medio": 9794559,
           "relativo": 1.21,
           "respalda": true
         },
         "1A": {
-          "medio": 13863152,
+          "medio": 13863047,
           "relativo": 1.71,
           "respalda": true
         }
@@ -122,27 +122,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 30553235,
+          "medio": 30577843,
           "relativo": 0.78,
           "respalda": false
         },
         "1M": {
-          "medio": 30781128,
+          "medio": 30786987,
           "relativo": 0.78,
           "respalda": false
         },
         "3M": {
-          "medio": 40761543,
+          "medio": 40763496,
           "relativo": 1.03,
           "respalda": false
         },
         "6M": {
-          "medio": 45479896,
+          "medio": 45480873,
           "relativo": 1.15,
           "respalda": false
         },
         "1A": {
-          "medio": 52078880,
+          "medio": 52079369,
           "relativo": 1.32,
           "respalda": true
         }
@@ -165,27 +165,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5886742,
+          "medio": 5882264,
           "relativo": 0.65,
           "respalda": false
         },
         "1M": {
-          "medio": 6004753,
+          "medio": 6003687,
           "relativo": 0.67,
           "respalda": false
         },
         "3M": {
-          "medio": 9611131,
+          "medio": 9610775,
           "relativo": 1.07,
           "respalda": false
         },
         "6M": {
-          "medio": 11715365,
+          "medio": 11715187,
           "relativo": 1.3,
           "respalda": true
         },
         "1A": {
-          "medio": 15173497,
+          "medio": 15173408,
           "relativo": 1.68,
           "respalda": true
         }
@@ -208,27 +208,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 29571083,
+          "medio": 29572414,
           "relativo": 0.92,
           "respalda": false
         },
         "1M": {
-          "medio": 27404052,
+          "medio": 27404369,
           "relativo": 0.85,
           "respalda": false
         },
         "3M": {
-          "medio": 32439713,
+          "medio": 32439818,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 37276278,
+          "medio": 37276331,
           "relativo": 1.16,
           "respalda": false
         },
         "1A": {
-          "medio": 41133629,
+          "medio": 41133655,
           "relativo": 1.28,
           "respalda": true
         }
@@ -251,27 +251,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 6986738,
+          "medio": 6990466,
           "relativo": 0.74,
           "respalda": false
         },
         "1M": {
-          "medio": 7410590,
+          "medio": 7411478,
           "relativo": 0.78,
           "respalda": false
         },
         "3M": {
-          "medio": 9564216,
+          "medio": 9564512,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 10498289,
+          "medio": 10498437,
           "relativo": 1.11,
           "respalda": false
         },
         "1A": {
-          "medio": 11780016,
+          "medio": 11780089,
           "relativo": 1.25,
           "respalda": true
         }
@@ -294,27 +294,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5152488,
+          "medio": 5152946,
           "relativo": 0.72,
           "respalda": false
         },
         "1M": {
-          "medio": 5008839,
+          "medio": 5008948,
           "relativo": 0.7,
           "respalda": false
         },
         "3M": {
-          "medio": 7191645,
+          "medio": 7191681,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 8083965,
+          "medio": 8083983,
           "relativo": 1.13,
           "respalda": false
         },
         "1A": {
-          "medio": 9832978,
+          "medio": 9832987,
           "relativo": 1.37,
           "respalda": true
         }
@@ -337,27 +337,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 3928517,
+          "medio": 3928787,
           "relativo": 0.66,
           "respalda": false
         },
         "1M": {
-          "medio": 3948190,
+          "medio": 3948254,
           "relativo": 0.66,
           "respalda": false
         },
         "3M": {
-          "medio": 6032271,
+          "medio": 6032292,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 6032912,
+          "medio": 6032922,
           "relativo": 1.01,
           "respalda": false
         },
         "1A": {
-          "medio": 6158272,
+          "medio": 6158278,
           "relativo": 1.03,
           "respalda": false
         }
@@ -380,12 +380,12 @@
       },
       "volumen": {
         "7D": {
-          "medio": 8296958,
+          "medio": 8296959,
           "relativo": 1.2,
           "respalda": true
         },
         "1M": {
-          "medio": 6310331,
+          "medio": 6310332,
           "relativo": 0.91,
           "respalda": false
         },
@@ -423,27 +423,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 8980023,
+          "medio": 8980304,
           "relativo": 0.84,
           "respalda": false
         },
         "1M": {
-          "medio": 8690586,
+          "medio": 8690652,
           "relativo": 0.81,
           "respalda": false
         },
         "3M": {
-          "medio": 10739103,
+          "medio": 10739126,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 12309502,
+          "medio": 12309513,
           "relativo": 1.15,
           "respalda": false
         },
         "1A": {
-          "medio": 14737294,
+          "medio": 14737300,
           "relativo": 1.38,
           "respalda": true
         }
@@ -466,27 +466,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 27591357,
+          "medio": 27598769,
           "relativo": 0.93,
           "respalda": false
         },
         "1M": {
-          "medio": 25463285,
+          "medio": 25465050,
           "relativo": 0.86,
           "respalda": false
         },
         "3M": {
-          "medio": 29908511,
+          "medio": 29909099,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 38699734,
+          "medio": 38700028,
           "relativo": 1.31,
           "respalda": true
         },
         "1A": {
-          "medio": 39246411,
+          "medio": 39246558,
           "relativo": 1.33,
           "respalda": true
         }
@@ -509,27 +509,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 26746466,
+          "medio": 26747097,
           "relativo": 1.33,
           "respalda": true
         },
         "1M": {
-          "medio": 20070717,
+          "medio": 20070868,
           "relativo": 1.0,
           "respalda": false
         },
         "3M": {
-          "medio": 20075187,
+          "medio": 20075237,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 21308637,
+          "medio": 21308662,
           "relativo": 1.06,
           "respalda": false
         },
         "1A": {
-          "medio": 22325491,
+          "medio": 22325503,
           "relativo": 1.11,
           "respalda": false
         }
@@ -552,27 +552,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 6017275,
-          "relativo": 1.16,
+          "medio": 6003658,
+          "relativo": 1.15,
           "respalda": false
         },
         "1M": {
-          "medio": 5081827,
+          "medio": 5078585,
           "relativo": 0.98,
           "respalda": false
         },
         "3M": {
-          "medio": 5198177,
+          "medio": 5197096,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 5854947,
+          "medio": 5854407,
           "relativo": 1.12,
           "respalda": false
         },
         "1A": {
-          "medio": 6880014,
+          "medio": 6879743,
           "relativo": 1.32,
           "respalda": true
         }
@@ -595,27 +595,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 13122118,
+          "medio": 13124384,
           "relativo": 1.15,
           "respalda": false
         },
         "1M": {
-          "medio": 10924587,
+          "medio": 10925126,
           "relativo": 0.96,
           "respalda": false
         },
         "3M": {
-          "medio": 11377063,
+          "medio": 11377243,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 12128998,
+          "medio": 12129088,
           "relativo": 1.07,
           "respalda": false
         },
         "1A": {
-          "medio": 13346550,
+          "medio": 13346595,
           "relativo": 1.17,
           "respalda": false
         }
@@ -736,7 +736,7 @@
         "cuadrante": "improving",
         "fuerza": -3.26,
         "impulso": 0.7463,
-        "volumen_rel": 0.8525,
+        "volumen_rel": 0.8489,
         "flujo": null,
         "roc_5": 0.7463,
         "roc_20": 0.0301,
@@ -748,7 +748,7 @@
         "cuadrante": "weakening",
         "fuerza": 3.6344,
         "impulso": -0.1091,
-        "volumen_rel": 0.9463,
+        "volumen_rel": 0.9465,
         "flujo": null,
         "roc_5": -0.1091,
         "roc_20": 1.2701,
@@ -760,7 +760,7 @@
         "cuadrante": "leading",
         "fuerza": 5.0316,
         "impulso": 0.0602,
-        "volumen_rel": 0.8195,
+        "volumen_rel": 0.8219,
         "flujo": null,
         "roc_5": 0.0602,
         "roc_20": 3.8951,
@@ -772,7 +772,7 @@
         "cuadrante": "lagging",
         "fuerza": -3.3478,
         "impulso": -2.0692,
-        "volumen_rel": 1.0127,
+        "volumen_rel": 1.0132,
         "flujo": null,
         "roc_5": -2.0692,
         "roc_20": -3.7477,
@@ -784,7 +784,7 @@
         "cuadrante": "weakening",
         "fuerza": 1.1645,
         "impulso": -0.9578,
-        "volumen_rel": 0.6726,
+        "volumen_rel": 0.6729,
         "flujo": null,
         "roc_5": -0.9578,
         "roc_20": 1.1025,
@@ -808,7 +808,7 @@
         "cuadrante": "lagging",
         "fuerza": -3.933,
         "impulso": -1.1261,
-        "volumen_rel": 1.1111,
+        "volumen_rel": 1.1112,
         "flujo": null,
         "roc_5": -1.1261,
         "roc_20": -0.2383,
@@ -820,7 +820,7 @@
         "cuadrante": "leading",
         "fuerza": 12.9134,
         "impulso": 2.0902,
-        "volumen_rel": 1.0144,
+        "volumen_rel": 1.0158,
         "flujo": null,
         "roc_5": 2.0902,
         "roc_20": 11.8528,
@@ -832,7 +832,7 @@
         "cuadrante": "improving",
         "fuerza": -10.4198,
         "impulso": 0.7091,
-        "volumen_rel": 0.9353,
+        "volumen_rel": 0.9354,
         "flujo": null,
         "roc_5": 0.7091,
         "roc_20": -0.8216,
@@ -844,7 +844,7 @@
         "cuadrante": "lagging",
         "fuerza": -6.0711,
         "impulso": -1.3442,
-        "volumen_rel": 0.7446,
+        "volumen_rel": 0.7318,
         "flujo": null,
         "roc_5": -1.3442,
         "roc_20": -1.9451,
@@ -856,7 +856,7 @@
         "cuadrante": "lagging",
         "fuerza": -3.5564,
         "impulso": -1.499,
-        "volumen_rel": 1.0042,
+        "volumen_rel": 1.0052,
         "flujo": null,
         "roc_5": -1.499,
         "roc_20": -0.3991,
@@ -1581,5 +1581,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-09-05T03:44:11.586876+00:00"
+  "generado": "2026-09-05T04:04:33.959635+00:00"
 }
