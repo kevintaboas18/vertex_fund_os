@@ -2,13 +2,14 @@
 
 Scorecard de flujo 0-100: 6 sub-agentes sobre la cadena de opciones y la cinta, con escenarios a 10 / 20 / 30 días.
 
-Generado por `vertex_archivo.reconstruye_indice` · 133 análisis · 2026-09-05 03:55 UTC
+Generado por `vertex_archivo.reconstruye_indice` · 134 análisis · 2026-09-05 04:03 UTC
 
 | Fecha | Ticker | Veredicto | Archivo |
 |---|---|---|---|
 | 2026-09-05 | **ORCL** | Oportunidad Moderada · 61.0/100 | [`Proyecciones/ORCL/2026-09-05/scorecard.json`](ORCL/2026-09-05/scorecard.json) |
 | 2026-09-05 | **NVDA** | Oportunidad Moderada · 65.0/100 | [`Proyecciones/NVDA/2026-09-05/scorecard.json`](NVDA/2026-09-05/scorecard.json) |
 | 2026-09-05 | **KWEB** | Oportunidad Moderada · 65.0/100 | [`Proyecciones/KWEB/2026-09-05/scorecard.json`](KWEB/2026-09-05/scorecard.json) |
+| 2026-09-05 | **ADBE** | Oportunidad Moderada · 54.0/100 | [`Proyecciones/ADBE/2026-09-05/scorecard.json`](ADBE/2026-09-05/scorecard.json) |
 | 2026-09-04 | **KWEB** | Oportunidad Moderada · 70.0/100 | [`Proyecciones/KWEB/2026-09-04/scorecard.json`](KWEB/2026-09-04/scorecard.json) |
 | 2026-09-03 | **NVDA** | Oportunidad Fuerte · 75.0/100 | [`Proyecciones/NVDA/2026-09-03/scorecard.json`](NVDA/2026-09-03/scorecard.json) |
 | 2026-09-03 | **GOOGL** | Oportunidad Fuerte · 75.0/100 | [`Proyecciones/GOOGL/2026-09-03/scorecard.json`](GOOGL/2026-09-03/scorecard.json) |
