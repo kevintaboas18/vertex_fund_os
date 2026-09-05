@@ -79,27 +79,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5769531,
+          "medio": 5774968,
           "relativo": 0.71,
           "respalda": false
         },
         "1M": {
-          "medio": 5637259,
+          "medio": 5638554,
           "relativo": 0.7,
           "respalda": false
         },
         "3M": {
-          "medio": 8284099,
+          "medio": 8284531,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 9794559,
+          "medio": 9794774,
           "relativo": 1.21,
           "respalda": true
         },
         "1A": {
-          "medio": 13863047,
+          "medio": 13863155,
           "relativo": 1.71,
           "respalda": true
         }
@@ -208,27 +208,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 29572414,
+          "medio": 29594792,
           "relativo": 0.92,
           "respalda": false
         },
         "1M": {
-          "medio": 27404369,
+          "medio": 27409697,
           "relativo": 0.85,
           "respalda": false
         },
         "3M": {
-          "medio": 32439818,
+          "medio": 32441595,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 37276331,
+          "medio": 37277219,
           "relativo": 1.16,
           "respalda": false
         },
         "1A": {
-          "medio": 41133655,
+          "medio": 41134099,
           "relativo": 1.28,
           "respalda": true
         }
@@ -380,27 +380,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 8296959,
+          "medio": 8303793,
           "relativo": 1.2,
           "respalda": true
         },
         "1M": {
-          "medio": 6310332,
+          "medio": 6311959,
           "relativo": 0.91,
           "respalda": false
         },
         "3M": {
-          "medio": 7066415,
+          "medio": 7066957,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 8741193,
+          "medio": 8741464,
           "relativo": 1.26,
           "respalda": true
         },
         "1A": {
-          "medio": 10087385,
+          "medio": 10087521,
           "relativo": 1.45,
           "respalda": true
         }
@@ -466,27 +466,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 27598769,
+          "medio": 27639032,
           "relativo": 0.93,
           "respalda": false
         },
         "1M": {
-          "medio": 25465050,
+          "medio": 25474636,
           "relativo": 0.86,
           "respalda": false
         },
         "3M": {
-          "medio": 29909099,
+          "medio": 29912295,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 38700028,
+          "medio": 38701626,
           "relativo": 1.31,
           "respalda": true
         },
         "1A": {
-          "medio": 39246558,
+          "medio": 39247357,
           "relativo": 1.33,
           "respalda": true
         }
@@ -595,17 +595,17 @@
       },
       "volumen": {
         "7D": {
-          "medio": 13124384,
+          "medio": 13124406,
           "relativo": 1.15,
           "respalda": false
         },
         "1M": {
-          "medio": 10925126,
+          "medio": 10925132,
           "relativo": 0.96,
           "respalda": false
         },
         "3M": {
-          "medio": 11377243,
+          "medio": 11377245,
           "relativo": 1.0,
           "respalda": false
         },
@@ -615,7 +615,7 @@
           "respalda": false
         },
         "1A": {
-          "medio": 13346595,
+          "medio": 13346596,
           "relativo": 1.17,
           "respalda": false
         }
@@ -748,7 +748,7 @@
         "cuadrante": "weakening",
         "fuerza": 3.6344,
         "impulso": -0.1091,
-        "volumen_rel": 0.9465,
+        "volumen_rel": 0.9503,
         "flujo": null,
         "roc_5": -0.1091,
         "roc_20": 1.2701,
@@ -796,7 +796,7 @@
         "cuadrante": "lagging",
         "fuerza": -9.2426,
         "impulso": -1.1636,
-        "volumen_rel": 0.9193,
+        "volumen_rel": 0.9245,
         "flujo": null,
         "roc_5": -1.1636,
         "roc_20": -4.9743,
@@ -820,7 +820,7 @@
         "cuadrante": "leading",
         "fuerza": 12.9134,
         "impulso": 2.0902,
-        "volumen_rel": 1.0158,
+        "volumen_rel": 1.0232,
         "flujo": null,
         "roc_5": 2.0902,
         "roc_20": 11.8528,
@@ -1581,5 +1581,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-09-05T08:05:24.077548+00:00"
+  "generado": "2026-09-05T08:32:01.439149+00:00"
 }
