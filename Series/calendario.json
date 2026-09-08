@@ -112,20 +112,6 @@
   "macro": {
     "publicados": [
       {
-        "evento": "Unemployment Rate (Aug)",
-        "fecha": "2026-09-04 12:30",
-        "salio": 4.1,
-        "esperado": 4.1,
-        "anterior": 4.1,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
         "evento": "Average Hourly Earnings MoM (Aug)",
         "fecha": "2026-09-04 12:30",
         "salio": 0.3,
@@ -133,6 +119,20 @@
         "anterior": 0.2,
         "unidad": "",
         "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
+        "evento": "Unemployment Rate (Aug)",
+        "fecha": "2026-09-04 12:30",
+        "salio": 4.1,
+        "esperado": 4.1,
+        "anterior": 4.1,
+        "unidad": "",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -210,20 +210,6 @@
         "bueno": false
       },
       {
-        "evento": "ISM Manufacturing PMI (Aug)",
-        "fecha": "2026-09-01 14:00",
-        "salio": 54.6,
-        "esperado": 55.2,
-        "anterior": 55.6,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "10:00",
-        "sorpresa": -0.6000000000000014,
-        "bueno": false
-      },
-      {
         "evento": "JOLTs Job Openings (Jul)",
         "fecha": "2026-09-01 14:00",
         "salio": 7.271,
@@ -235,6 +221,20 @@
         "mejor": "alto",
         "hora_et": "10:00",
         "sorpresa": -0.028999999999999915,
+        "bueno": false
+      },
+      {
+        "evento": "ISM Manufacturing PMI (Aug)",
+        "fecha": "2026-09-01 14:00",
+        "salio": 54.6,
+        "esperado": 55.2,
+        "anterior": 55.6,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "10:00",
+        "sorpresa": -0.6000000000000014,
         "bueno": false
       },
       {
@@ -252,20 +252,6 @@
         "bueno": true
       },
       {
-        "evento": "PCE Price Index YoY (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": 3.7,
-        "esperado": 3.6,
-        "anterior": 3.7,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.10000000000000009,
-        "bueno": false
-      },
-      {
         "evento": "Durable Goods Orders MoM (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": 1.1,
@@ -278,17 +264,31 @@
         "hora_et": "08:30",
         "sorpresa": 0.6000000000000001,
         "bueno": true
+      },
+      {
+        "evento": "Personal Income MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": 0.4,
+        "esperado": 0.2,
+        "anterior": 0.2,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "08:30",
+        "sorpresa": 0.2,
+        "bueno": true
       }
     ],
     "proximos": [
       {
-        "evento": "Producer Price Index MoM (Aug)",
+        "evento": "Core PPI YoY (Aug)",
         "fecha": "2026-09-10 12:30",
         "salio": null,
-        "esperado": 0.4,
-        "anterior": 0.0,
+        "esperado": 4.6,
+        "anterior": 4.2,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -297,11 +297,11 @@
         "retrasado": false
       },
       {
-        "evento": "Core PPI YoY (Aug)",
+        "evento": "Producer Price Index YoY (Aug)",
         "fecha": "2026-09-10 12:30",
         "salio": null,
-        "esperado": 4.6,
-        "anterior": 4.2,
+        "esperado": 5.3,
+        "anterior": 4.7,
         "unidad": "",
         "impacto": "low",
         "nivel": 1,
@@ -342,21 +342,6 @@
         "retrasado": false
       },
       {
-        "evento": "Producer Price Index YoY (Aug)",
-        "fecha": "2026-09-10 12:30",
-        "salio": null,
-        "esperado": 5.3,
-        "anterior": 4.7,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "Core PPI MoM (Aug)",
         "fecha": "2026-09-10 12:30",
         "salio": null,
@@ -372,16 +357,16 @@
         "retrasado": false
       },
       {
-        "evento": "Existing Home Sales (Aug)",
-        "fecha": "2026-09-10 14:00",
+        "evento": "Producer Price Index MoM (Aug)",
+        "fecha": "2026-09-10 12:30",
         "salio": null,
-        "esperado": 3.99,
-        "anterior": 4.06,
+        "esperado": 0.4,
+        "anterior": 0.0,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "10:00",
+        "mejor": "bajo",
+        "hora_et": "08:30",
         "sorpresa": null,
         "bueno": null,
         "retrasado": false
@@ -394,6 +379,21 @@
         "anterior": -1.7,
         "unidad": "",
         "impacto": "medium",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "10:00",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "Existing Home Sales (Aug)",
+        "fecha": "2026-09-10 14:00",
+        "salio": null,
+        "esperado": 3.99,
+        "anterior": 4.06,
+        "unidad": "",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "alto",
         "hora_et": "10:00",
@@ -417,36 +417,6 @@
         "retrasado": false
       },
       {
-        "evento": "Core CPI (Aug)",
-        "fecha": "2026-09-11 12:30",
-        "salio": null,
-        "esperado": null,
-        "anterior": 336.79,
-        "unidad": "",
-        "impacto": "low",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
-        "evento": "CPI (Aug)",
-        "fecha": "2026-09-11 12:30",
-        "salio": null,
-        "esperado": 334.85,
-        "anterior": 333.92,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
         "evento": "Inflation Rate YoY (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
@@ -454,6 +424,36 @@
         "anterior": 3.4,
         "unidad": "",
         "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "Core Inflation Rate MoM (Aug)",
+        "fecha": "2026-09-11 12:30",
+        "salio": null,
+        "esperado": 0.2,
+        "anterior": 0.2,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
+        "evento": "Core CPI (Aug)",
+        "fecha": "2026-09-11 12:30",
+        "salio": null,
+        "esperado": null,
+        "anterior": 336.79,
+        "unidad": "",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -477,13 +477,13 @@
         "retrasado": false
       },
       {
-        "evento": "Core Inflation Rate MoM (Aug)",
+        "evento": "CPI (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
-        "esperado": 0.2,
-        "anterior": 0.2,
+        "esperado": 334.85,
+        "anterior": 333.92,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -512,6 +512,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-09-08T13:37:32.447411+00:00",
-  "generado_macro": "2026-09-08T13:37:32.447411+00:00",
-  "generado": "2026-09-08T13:37:32.447411+00:00"
+  "generado_macro": "2026-09-08T14:31:49.431280+00:00",
+  "generado": "2026-09-08T14:31:49.431280+00:00"
 }
