@@ -19,3 +19,4 @@ _Cada vuelta de veredicto sobre el mismo ticker queda aquí. No es un castigo: e
 - **AAPL** · 2026-09-03 → 2026-09-05: de **DESFAVORABLE** a **Oportunidad Moderada** · el precio se movió -2.53% en ese tramo.
 - **GOOGL** · 2026-09-03 → 2026-09-05: de **Oportunidad Fuerte** a **Oportunidad Moderada** · el precio se movió -1.08% en ese tramo.
 - **PLTR** · 2026-08-18 → 2026-09-05: de **DESFAVORABLE** a **Oportunidad Moderada** · el precio se movió +1.03% en ese tramo.
+- **AMD** · 2026-09-08 → 2026-09-08: de **Oportunidad Moderada** a **DESFAVORABLE** · el precio se movió +0.79% en ese tramo.
