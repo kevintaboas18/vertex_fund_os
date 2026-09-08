@@ -36,28 +36,28 @@
       },
       "volumen": {
         "7D": {
-          "medio": 37626990,
-          "relativo": 0.79,
+          "medio": 38266031,
+          "relativo": 0.81,
           "respalda": false
         },
         "1M": {
-          "medio": 36491246,
+          "medio": 36643399,
           "relativo": 0.77,
           "respalda": false
         },
         "3M": {
-          "medio": 48926326,
+          "medio": 48977043,
           "relativo": 1.03,
           "respalda": false
         },
         "6M": {
-          "medio": 57141913,
+          "medio": 57167272,
           "relativo": 1.2,
           "respalda": true
         },
         "1A": {
-          "medio": 69090060,
-          "relativo": 1.46,
+          "medio": 69102740,
+          "relativo": 1.45,
           "respalda": true
         }
       }
@@ -79,27 +79,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5842385,
+          "medio": 5842935,
           "relativo": 0.74,
           "respalda": false
         },
         "1M": {
-          "medio": 5647984,
+          "medio": 5648115,
           "relativo": 0.71,
           "respalda": false
         },
         "3M": {
-          "medio": 8263267,
+          "medio": 8263311,
           "relativo": 1.04,
           "respalda": false
         },
         "6M": {
-          "medio": 9632898,
+          "medio": 9632920,
           "relativo": 1.22,
           "respalda": true
         },
         "1A": {
-          "medio": 13810450,
+          "medio": 13810461,
           "relativo": 1.74,
           "respalda": true
         }
@@ -208,27 +208,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 32157012,
+          "medio": 32159590,
           "relativo": 1.0,
           "respalda": false
         },
         "1M": {
-          "medio": 28229225,
+          "medio": 28229839,
           "relativo": 0.88,
           "respalda": false
         },
         "3M": {
-          "medio": 32424517,
+          "medio": 32424721,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 36958553,
+          "medio": 36958655,
           "relativo": 1.15,
           "respalda": false
         },
         "1A": {
-          "medio": 41053344,
+          "medio": 41053395,
           "relativo": 1.28,
           "respalda": true
         }
@@ -239,39 +239,39 @@
       "nombre": "Salud",
       "precio": 167.16,
       "cambio_pct": -2.5,
-      "rsi": 44.8,
+      "rsi": 44.7,
       "sma200": 155.45,
       "sma200_dist": 7.53,
       "cambios": {
-        "7D": -1.98,
-        "1M": 0.89,
-        "3M": 9.51,
-        "6M": 8.36,
-        "1A": 21.22
+        "7D": -2.0,
+        "1M": 0.88,
+        "3M": 9.49,
+        "6M": 8.34,
+        "1A": 21.2
       },
       "volumen": {
         "7D": {
-          "medio": 7685011,
+          "medio": 7685797,
           "relativo": 0.81,
           "respalda": false
         },
         "1M": {
-          "medio": 7545697,
+          "medio": 7545884,
           "relativo": 0.8,
           "respalda": false
         },
         "3M": {
-          "medio": 9566907,
+          "medio": 9566969,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 10435855,
+          "medio": 10435887,
           "relativo": 1.1,
           "respalda": false
         },
         "1A": {
-          "medio": 11764718,
+          "medio": 11764734,
           "relativo": 1.24,
           "respalda": true
         }
@@ -294,27 +294,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5741725,
+          "medio": 5742385,
           "relativo": 0.8,
           "respalda": false
         },
         "1M": {
-          "medio": 5141294,
+          "medio": 5141451,
           "relativo": 0.72,
           "respalda": false
         },
         "3M": {
-          "medio": 7216266,
+          "medio": 7216319,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 8017143,
+          "medio": 8017169,
           "relativo": 1.12,
           "respalda": false
         },
         "1A": {
-          "medio": 9741160,
+          "medio": 9741173,
           "relativo": 1.36,
           "respalda": true
         }
@@ -325,39 +325,39 @@
       "nombre": "Comunicaciones",
       "precio": 111.56,
       "cambio_pct": -0.42,
-      "rsi": 50.1,
+      "rsi": 50.0,
       "sma200": 114.02,
       "sma200_dist": -2.16,
       "cambios": {
-        "7D": 0.09,
-        "1M": 0.28,
-        "3M": 0.42,
-        "6M": -5.1,
-        "1A": -2.73
+        "7D": 0.05,
+        "1M": 0.24,
+        "3M": 0.39,
+        "6M": -5.14,
+        "1A": -2.76
       },
       "volumen": {
         "7D": {
-          "medio": 4397133,
+          "medio": 4397833,
           "relativo": 0.74,
           "respalda": false
         },
         "1M": {
-          "medio": 4066951,
+          "medio": 4067118,
           "relativo": 0.68,
           "respalda": false
         },
         "3M": {
-          "medio": 5978022,
+          "medio": 5978078,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 5994112,
+          "medio": 5994140,
           "relativo": 1.0,
           "respalda": false
         },
         "1A": {
-          "medio": 6159608,
+          "medio": 6159622,
           "relativo": 1.03,
           "respalda": false
         }
@@ -380,27 +380,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 8067546,
+          "medio": 8067592,
           "relativo": 1.18,
           "respalda": false
         },
         "1M": {
-          "medio": 6312473,
+          "medio": 6312484,
           "relativo": 0.92,
           "respalda": false
         },
         "3M": {
-          "medio": 7079793,
+          "medio": 7079797,
           "relativo": 1.03,
           "respalda": false
         },
         "6M": {
-          "medio": 8635818,
+          "medio": 8635820,
           "relativo": 1.26,
           "respalda": true
         },
         "1A": {
-          "medio": 10045457,
+          "medio": 10045458,
           "relativo": 1.46,
           "respalda": true
         }
@@ -423,27 +423,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 10297158,
+          "medio": 10298371,
           "relativo": 0.97,
           "respalda": false
         },
         "1M": {
-          "medio": 9067137,
+          "medio": 9067426,
           "relativo": 0.85,
           "respalda": false
         },
         "3M": {
-          "medio": 10803449,
+          "medio": 10803545,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 12252906,
+          "medio": 12252954,
           "relativo": 1.15,
           "respalda": false
         },
         "1A": {
-          "medio": 14709282,
+          "medio": 14709306,
           "relativo": 1.39,
           "respalda": true
         }
@@ -459,34 +459,34 @@
       "sma200_dist": 17.94,
       "cambios": {
         "7D": 1.27,
-        "1M": 12.65,
-        "3M": 11.05,
-        "6M": 15.01,
-        "1A": 48.29
+        "1M": 12.64,
+        "3M": 11.04,
+        "6M": 15.0,
+        "1A": 48.28
       },
       "volumen": {
         "7D": {
-          "medio": 27747030,
+          "medio": 27749387,
           "relativo": 0.94,
           "respalda": false
         },
         "1M": {
-          "medio": 25788737,
+          "medio": 25789298,
           "relativo": 0.88,
           "respalda": false
         },
         "3M": {
-          "medio": 29943581,
+          "medio": 29943768,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 38217034,
+          "medio": 38217127,
           "relativo": 1.3,
           "respalda": true
         },
         "1A": {
-          "medio": 39166034,
+          "medio": 39166081,
           "relativo": 1.33,
           "respalda": true
         }
@@ -509,27 +509,27 @@
       },
       "volumen": {
         "7D": {
-          "medio": 24358401,
+          "medio": 24364462,
           "relativo": 1.21,
           "respalda": true
         },
         "1M": {
-          "medio": 20117993,
+          "medio": 20119436,
           "relativo": 1.0,
           "respalda": false
         },
         "3M": {
-          "medio": 20056823,
+          "medio": 20057304,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 21244570,
+          "medio": 21244810,
           "relativo": 1.06,
           "respalda": false
         },
         "1A": {
-          "medio": 22296442,
+          "medio": 22296563,
           "relativo": 1.11,
           "respalda": false
         }
@@ -583,39 +583,39 @@
       "nombre": "Materiales",
       "precio": 51.95,
       "cambio_pct": -0.93,
-      "rsi": 45.4,
+      "rsi": 45.3,
       "sma200": 50.12,
       "sma200_dist": 3.66,
       "cambios": {
-        "7D": -1.4,
-        "1M": -1.72,
-        "3M": 3.98,
-        "6M": 3.92,
-        "1A": 12.98
+        "7D": -1.42,
+        "1M": -1.74,
+        "3M": 3.96,
+        "6M": 3.9,
+        "1A": 12.96
       },
       "volumen": {
         "7D": {
-          "medio": 13083556,
+          "medio": 13086991,
           "relativo": 1.15,
           "respalda": false
         },
         "1M": {
-          "medio": 10869915,
+          "medio": 10870732,
           "relativo": 0.96,
           "respalda": false
         },
         "3M": {
-          "medio": 11391760,
+          "medio": 11392033,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 12045334,
+          "medio": 12045470,
           "relativo": 1.06,
           "respalda": false
         },
         "1A": {
-          "medio": 13334113,
+          "medio": 13334181,
           "relativo": 1.17,
           "respalda": false
         }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 15.74,
-      "cambio_pct": 8.33,
-      "rsi": 51.2,
-      "sma200": 18.24,
-      "sma200_dist": -13.68,
+      "precio": 15.72,
+      "cambio_pct": 8.19,
+      "rsi": 51.0,
+      "sma200": 18.23,
+      "sma200_dist": -13.79,
       "cambios": {
-        "7D": 5.63,
-        "1M": 5.77,
-        "3M": -16.7,
-        "6M": -38.2,
-        "1A": 3.82
+        "7D": 5.36,
+        "1M": 5.5,
+        "3M": -16.91,
+        "6M": -38.35,
+        "1A": 3.56
       },
       "volumen": {
         "7D": {
@@ -748,7 +748,7 @@
         "cuadrante": "weakening",
         "fuerza": 1.8002,
         "impulso": -0.5692,
-        "volumen_rel": 1.3419,
+        "volumen_rel": 1.3424,
         "flujo": "salida",
         "roc_5": -0.5692,
         "roc_20": 0.0327,
@@ -758,13 +758,13 @@
       "XLV": {
         "rs": 0.2182,
         "cuadrante": "lagging",
-        "fuerza": -0.7785,
-        "impulso": -1.8425,
-        "volumen_rel": 1.4222,
+        "fuerza": -0.7963,
+        "impulso": -1.8601,
+        "volumen_rel": 1.4227,
         "flujo": "salida",
-        "roc_5": -1.8425,
-        "roc_20": 0.1561,
-        "roc_50": -0.7785,
+        "roc_5": -1.8601,
+        "roc_20": 0.1381,
+        "roc_50": -0.7963,
         "categoria": "defensivos"
       },
       "XLY": {
@@ -772,7 +772,7 @@
         "cuadrante": "lagging",
         "fuerza": -5.1428,
         "impulso": -2.0909,
-        "volumen_rel": 1.5087,
+        "volumen_rel": 1.5093,
         "flujo": "salida",
         "roc_5": -2.0909,
         "roc_20": -3.8672,
@@ -782,13 +782,13 @@
       "XLC": {
         "rs": 0.1456,
         "cuadrante": "improving",
-        "fuerza": -0.0043,
-        "impulso": 0.2322,
-        "volumen_rel": 1.3929,
+        "fuerza": -0.0402,
+        "impulso": 0.1962,
+        "volumen_rel": 1.3937,
         "flujo": "entrada",
-        "roc_5": 0.2322,
-        "roc_20": 0.6794,
-        "roc_50": -0.0043,
+        "roc_5": 0.1962,
+        "roc_20": 0.6433,
+        "roc_50": -0.0402,
         "categoria": "crecimiento"
       },
       "XLI": {
@@ -808,7 +808,7 @@
         "cuadrante": "lagging",
         "fuerza": -5.6019,
         "impulso": -0.989,
-        "volumen_rel": 1.4733,
+        "volumen_rel": 1.4739,
         "flujo": "salida",
         "roc_5": -0.989,
         "roc_20": -0.1818,
@@ -818,13 +818,13 @@
       "XLE": {
         "rs": 0.0846,
         "cuadrante": "leading",
-        "fuerza": 14.5033,
-        "impulso": 1.4184,
-        "volumen_rel": 1.0904,
+        "fuerza": 14.4944,
+        "impulso": 1.4105,
+        "volumen_rel": 1.0908,
         "flujo": null,
-        "roc_5": 1.4184,
-        "roc_20": 8.6289,
-        "roc_50": 14.5033,
+        "roc_5": 1.4105,
+        "roc_20": 8.6205,
+        "roc_50": 14.4944,
         "categoria": "ciclicos"
       },
       "XLU": {
@@ -832,7 +832,7 @@
         "cuadrante": "improving",
         "fuerza": -10.4917,
         "impulso": 3.0354,
-        "volumen_rel": 0.9904,
+        "volumen_rel": 0.9918,
         "flujo": null,
         "roc_5": 3.0354,
         "roc_20": 1.6718,
@@ -854,13 +854,13 @@
       "XLB": {
         "rs": 0.0678,
         "cuadrante": "lagging",
-        "fuerza": -4.1811,
-        "impulso": -1.2641,
-        "volumen_rel": 1.101,
+        "fuerza": -4.1995,
+        "impulso": -1.2831,
+        "volumen_rel": 1.1025,
         "flujo": null,
-        "roc_5": -1.2641,
-        "roc_20": -1.4112,
-        "roc_50": -4.1811,
+        "roc_5": -1.2831,
+        "roc_20": -1.4302,
+        "roc_50": -4.1995,
         "categoria": "ciclicos"
       }
     },
@@ -941,8 +941,8 @@
           "cuadrante": "weakening"
         },
         {
-          "fuerza": -0.7785,
-          "impulso": -1.8425,
+          "fuerza": -0.7963,
+          "impulso": -1.8601,
           "cuadrante": "lagging"
         }
       ],
@@ -995,8 +995,8 @@
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -0.0043,
-          "impulso": 0.2322,
+          "fuerza": -0.0402,
+          "impulso": 0.1962,
           "cuadrante": "improving"
         }
       ],
@@ -1076,8 +1076,8 @@
           "cuadrante": "leading"
         },
         {
-          "fuerza": 14.5033,
-          "impulso": 1.4184,
+          "fuerza": 14.4944,
+          "impulso": 1.4105,
           "cuadrante": "leading"
         }
       ],
@@ -1157,8 +1157,8 @@
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -4.1811,
-          "impulso": -1.2641,
+          "fuerza": -4.1995,
+          "impulso": -1.2831,
           "cuadrante": "lagging"
         }
       ]
@@ -1249,7 +1249,7 @@
         {
           "ticker": "XLE",
           "nombre": "Energía",
-          "cambio_pct": 12.65
+          "cambio_pct": 12.64
         },
         {
           "ticker": "XLK",
@@ -1296,7 +1296,7 @@
         {
           "ticker": "XLE",
           "nombre": "Energía",
-          "cambio_pct": 11.05
+          "cambio_pct": 11.04
         },
         {
           "ticker": "XLF",
@@ -1306,7 +1306,7 @@
         {
           "ticker": "XLB",
           "nombre": "Materiales",
-          "cambio_pct": 3.98
+          "cambio_pct": 3.96
         }
       ],
       "frenan": [
@@ -1348,7 +1348,7 @@
         {
           "ticker": "XLE",
           "nombre": "Energía",
-          "cambio_pct": 15.01
+          "cambio_pct": 15.0
         },
         {
           "ticker": "XLF",
@@ -1365,7 +1365,7 @@
         {
           "ticker": "XLC",
           "nombre": "Comunicaciones",
-          "cambio_pct": -5.1
+          "cambio_pct": -5.14
         },
         {
           "ticker": "XLY",
@@ -1400,7 +1400,7 @@
         {
           "ticker": "XLE",
           "nombre": "Energía",
-          "cambio_pct": 48.29
+          "cambio_pct": 48.28
         },
         {
           "ticker": "XLK",
@@ -1410,7 +1410,7 @@
         {
           "ticker": "XLB",
           "nombre": "Materiales",
-          "cambio_pct": 12.98
+          "cambio_pct": 12.96
         }
       ],
       "frenan": [
@@ -1422,7 +1422,7 @@
         {
           "ticker": "XLC",
           "nombre": "Comunicaciones",
-          "cambio_pct": -2.73
+          "cambio_pct": -2.76
         }
       ]
     }
@@ -1575,5 +1575,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-09-08T20:27:36.764135+00:00"
+  "generado": "2026-09-08T20:55:05.216070+00:00"
 }
