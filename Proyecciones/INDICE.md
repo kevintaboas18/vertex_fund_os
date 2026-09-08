@@ -2,13 +2,14 @@
 
 Scorecard de flujo 0-100: 6 sub-agentes sobre la cadena de opciones y la cinta, con escenarios a 10 / 20 / 30 días.
 
-Generado por `vertex_archivo.reconstruye_indice` · 150 análisis · 2026-09-08 13:46 UTC
+Generado por `vertex_archivo.reconstruye_indice` · 151 análisis · 2026-09-08 13:47 UTC
 
 | Fecha | Ticker | Veredicto | Archivo |
 |---|---|---|---|
 | 2026-09-08 | **SPY** | Oportunidad Moderada · 56.0/100 | [`Proyecciones/SPY/2026-09-08/scorecard.json`](SPY/2026-09-08/scorecard.json) |
 | 2026-09-08 | **QQQ** | Oportunidad Moderada · 58.0/100 | [`Proyecciones/QQQ/2026-09-08/scorecard.json`](QQQ/2026-09-08/scorecard.json) |
 | 2026-09-08 | **NVDA** | Oportunidad Moderada · 65.0/100 | [`Proyecciones/NVDA/2026-09-08/scorecard.json`](NVDA/2026-09-08/scorecard.json) |
+| 2026-09-08 | **META** | Oportunidad Moderada · 63.0/100 | [`Proyecciones/META/2026-09-08/scorecard.json`](META/2026-09-08/scorecard.json) |
 | 2026-09-05 | **TSLA** | Oportunidad Moderada · 62.0/100 | [`Proyecciones/TSLA/2026-09-05/scorecard.json`](TSLA/2026-09-05/scorecard.json) |
 | 2026-09-05 | **SPY** | Oportunidad Moderada · 56.0/100 | [`Proyecciones/SPY/2026-09-05/scorecard.json`](SPY/2026-09-05/scorecard.json) |
 | 2026-09-05 | **PLTR** | Oportunidad Moderada · 60.0/100 | [`Proyecciones/PLTR/2026-09-05/scorecard.json`](PLTR/2026-09-05/scorecard.json) |
