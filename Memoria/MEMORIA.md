@@ -11,7 +11,7 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [APH](tesis/APH.md) | 2026-08-13 | ESPECULATIVO | 56 | acciones |
 | [CRWV](tesis/CRWV.md) | 2026-09-05 | Oportunidad Moderada | 61 | opciones |
 | [DELL](tesis/DELL.md) | 2026-09-02 | DESFAVORABLE | 49 | acciones |
-| [GOOGL](tesis/GOOGL.md) | 2026-09-05 | Oportunidad Moderada | 57 | opciones |
+| [GOOGL](tesis/GOOGL.md) | 2026-09-08 | Oportunidad Moderada | 57 | opciones |
 | [GOOG](tesis/GOOG.md) | 2026-09-05 | Oportunidad Moderada | 57 | opciones |
 | [INTC](tesis/INTC.md) | 2026-09-05 | Oportunidad Moderada | 66 | opciones |
 | [IREN](tesis/IREN.md) | 2026-09-05 | Oportunidad Moderada | 58 | opciones |
