@@ -1,0 +1,31 @@
+{
+  "report_id": "20260908_150808_AMD",
+  "ticker": "AMD",
+  "fecha": "2026-09-08",
+  "price_at_analysis": 502.16,
+  "fair_value": 514.79,
+  "profile": "Avoid / Wait",
+  "raw_total": 48.0,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 619.47,
+    "base": 514.79,
+    "bear": 357.44
+  },
+  "framework": "WBJ v2.0.0",
+  "invalidacion": {
+    "lado": "soporte",
+    "zona_baja": 162.0097778878446,
+    "zona_alta": 168.1902221121554,
+    "etiqueta": "Nearest support zone (daily-support-165.10)",
+    "regla": "Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C)."
+  },
+  "date": "2026-09-08",
+  "price": 502.16,
+  "bear": 357.44,
+  "base": 514.79,
+  "bull": 619.47,
+  "horizon_days": 365,
+  "source": "cerebro",
+  "score10": 4.8
+}
