@@ -25,6 +25,6 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [PANW](tesis/PANW.md) | 2026-09-05 | Oportunidad Moderada | 61 | opciones |
 | [PLTR](tesis/PLTR.md) | 2026-09-05 | Oportunidad Moderada | 60 | opciones |
 | [SPXC](tesis/SPXC.md) | 2026-08-20 | DESFAVORABLE | 44 | acciones |
-| [SPY](tesis/SPY.md) | 2026-09-05 | Oportunidad Moderada | 56 | opciones |
+| [SPY](tesis/SPY.md) | 2026-09-08 | Oportunidad Moderada | 56 | opciones |
 | [TSLA](tesis/TSLA.md) | 2026-09-05 | Oportunidad Moderada | 62 | opciones |
 | [XLE](tesis/XLE.md) | 2026-09-02 | — | — | acciones |
