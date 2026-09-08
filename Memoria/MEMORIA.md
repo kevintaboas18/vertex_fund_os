@@ -17,7 +17,7 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [IREN](tesis/IREN.md) | 2026-09-05 | Oportunidad Moderada | 58 | opciones |
 | [KWEB](tesis/KWEB.md) | 2026-09-05 | Oportunidad Moderada | 65 | opciones |
 | [META](tesis/META.md) | 2026-09-08 | Oportunidad Moderada | 63 | opciones |
-| [MSFT](tesis/MSFT.md) | 2026-09-05 | Oportunidad Moderada | 56 | opciones |
+| [MSFT](tesis/MSFT.md) | 2026-09-08 | Oportunidad Moderada | 56 | opciones |
 | [NBIS](tesis/NBIS.md) | 2026-08-24 | DESFAVORABLE | 26 | acciones |
 | [NFLX](tesis/NFLX.md) | 2026-08-24 | DESFAVORABLE | 50 | acciones |
 | [NVDA](tesis/NVDA.md) | 2026-09-08 | Oportunidad Moderada | 65 | opciones |
