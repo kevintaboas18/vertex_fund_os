@@ -158,18 +158,18 @@
         "bueno": null
       },
       {
-        "evento": "Core PPI YoY (Aug)",
+        "evento": "Initial Jobless Claims (Sep/05)",
         "fecha": "2026-09-10 12:30",
-        "salio": 4.6,
-        "esperado": 4.6,
-        "anterior": 4.3,
+        "salio": 206.0,
+        "esperado": 205.0,
+        "anterior": 207.0,
         "unidad": "",
-        "impacto": "low",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
+        "sorpresa": 1.0,
+        "bueno": false
       },
       {
         "evento": "Producer Price Index YoY (Aug)",
@@ -186,6 +186,20 @@
         "bueno": false
       },
       {
+        "evento": "Core PPI YoY (Aug)",
+        "fecha": "2026-09-10 12:30",
+        "salio": 4.6,
+        "esperado": 4.6,
+        "anterior": 4.3,
+        "unidad": "",
+        "impacto": "low",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
+        "bueno": null
+      },
+      {
         "evento": "Producer Price Index (Aug)",
         "fecha": "2026-09-10 12:30",
         "salio": 157.411,
@@ -198,34 +212,6 @@
         "hora_et": "08:30",
         "sorpresa": 0.41100000000000136,
         "bueno": false
-      },
-      {
-        "evento": "Initial Jobless Claims (Sep/05)",
-        "fecha": "2026-09-10 12:30",
-        "salio": 206.0,
-        "esperado": 205.0,
-        "anterior": 207.0,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 1.0,
-        "bueno": false
-      },
-      {
-        "evento": "Core PPI MoM (Aug)",
-        "fecha": "2026-09-10 12:30",
-        "salio": 0.2,
-        "esperado": 0.3,
-        "anterior": 0.3,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": -0.09999999999999998,
-        "bueno": true
       },
       {
         "evento": "Producer Price Index MoM (Aug)",
@@ -242,13 +228,27 @@
         "bueno": null
       },
       {
-        "evento": "Unemployment Rate (Aug)",
-        "fecha": "2026-09-04 12:30",
-        "salio": 4.1,
-        "esperado": 4.1,
-        "anterior": 4.1,
+        "evento": "Core PPI MoM (Aug)",
+        "fecha": "2026-09-10 12:30",
+        "salio": 0.2,
+        "esperado": 0.3,
+        "anterior": 0.3,
         "unidad": "",
-        "impacto": "high",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": -0.09999999999999998,
+        "bueno": true
+      },
+      {
+        "evento": "Average Hourly Earnings MoM (Aug)",
+        "fecha": "2026-09-04 12:30",
+        "salio": 0.3,
+        "esperado": 0.3,
+        "anterior": 0.2,
+        "unidad": "",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -270,13 +270,13 @@
         "bueno": true
       },
       {
-        "evento": "Average Hourly Earnings MoM (Aug)",
+        "evento": "Unemployment Rate (Aug)",
         "fecha": "2026-09-04 12:30",
-        "salio": 0.3,
-        "esperado": 0.3,
-        "anterior": 0.2,
+        "salio": 4.1,
+        "esperado": 4.1,
+        "anterior": 4.1,
         "unidad": "",
-        "impacto": "medium",
+        "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -330,13 +330,13 @@
         "retrasado": false
       },
       {
-        "evento": "Core CPI (Aug)",
+        "evento": "CPI (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
-        "esperado": null,
-        "anterior": 336.79,
+        "esperado": 334.85,
+        "anterior": 333.92,
         "unidad": "",
-        "impacto": "low",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -360,13 +360,13 @@
         "retrasado": false
       },
       {
-        "evento": "CPI (Aug)",
+        "evento": "Core CPI (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
-        "esperado": 334.85,
-        "anterior": 333.92,
+        "esperado": null,
+        "anterior": 336.79,
         "unidad": "",
-        "impacto": "medium",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -405,6 +405,21 @@
         "retrasado": false
       },
       {
+        "evento": "Retail Sales Ex Autos MoM (Aug)",
+        "fecha": "2026-09-16 12:30",
+        "salio": null,
+        "esperado": 0.1,
+        "anterior": -0.3,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "alto",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
         "evento": "Retail Sales YoY (Aug)",
         "fecha": "2026-09-16 12:30",
         "salio": null,
@@ -425,21 +440,6 @@
         "salio": null,
         "esperado": -0.1,
         "anterior": -0.4,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "alto",
-        "hora_et": "08:30",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
-        "evento": "Retail Sales Ex Autos MoM (Aug)",
-        "fecha": "2026-09-16 12:30",
-        "salio": null,
-        "esperado": 0.1,
-        "anterior": -0.3,
         "unidad": "",
         "impacto": "medium",
         "nivel": 1,
@@ -480,7 +480,7 @@
         "retrasado": false
       },
       {
-        "evento": "Press Conference",
+        "evento": "Fed Press Conference",
         "fecha": "2026-09-16 18:30",
         "salio": null,
         "esperado": null,
@@ -495,7 +495,7 @@
         "retrasado": false
       },
       {
-        "evento": "Fed Press Conference",
+        "evento": "Press Conference",
         "fecha": "2026-09-16 18:30",
         "salio": null,
         "esperado": null,
@@ -515,6 +515,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-09-10T18:38:47.758243+00:00",
-  "generado_macro": "2026-09-10T18:38:47.758243+00:00",
-  "generado": "2026-09-10T18:38:47.758243+00:00"
+  "generado_macro": "2026-09-10T20:03:48.754636+00:00",
+  "generado": "2026-09-10T20:03:48.754636+00:00"
 }
