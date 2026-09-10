@@ -4,7 +4,7 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 
 | Ticker | Última revisión | Veredicto | Puntaje | Agente |
 |---|---|---|---|---|
-| [AAPL](tesis/AAPL.md) | 2026-09-05 | Oportunidad Moderada | 64 | opciones |
+| [AAPL](tesis/AAPL.md) | 2026-09-10 | Oportunidad Moderada | 70 | opciones |
 | [ADBE](tesis/ADBE.md) | 2026-09-05 | Oportunidad Moderada | 54 | opciones |
 | [AMD](tesis/AMD.md) | 2026-09-08 | DESFAVORABLE | 48 | acciones |
 | [AMZN](tesis/AMZN.md) | 2026-08-25 | Oportunidad Moderada | 60 | opciones |
