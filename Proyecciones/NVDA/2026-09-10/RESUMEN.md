@@ -4,7 +4,7 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 65.0 / 100 |
-| Spot | $218.09 |
+| Spot | $218.10 |
 | Régimen de gamma | positive |
 | Nodo imán | $230.00 |
 | Gamma flip | $217.99 |
@@ -25,9 +25,9 @@
 
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
-| 10 días | $217.50 | $230.00 | $234.62 | 37.0 |
-| 20 días | $217.50 | $230.00 | $241.83 | 36.0 |
-| 30 días | $217.50 | $230.00 | $247.51 | 36.0 |
+| 10 días | $217.50 | $230.00 | $234.63 | 37.0 |
+| 20 días | $217.50 | $230.00 | $241.84 | 36.0 |
+| 30 días | $217.50 | $230.00 | $247.52 | 36.0 |
 
 ## Niveles importantes
 
