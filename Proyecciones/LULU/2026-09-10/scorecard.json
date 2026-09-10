@@ -1,0 +1,1168 @@
+{
+  "ok": true,
+  "ticker": "LULU",
+  "spot": 96.7,
+  "score": 30.0,
+  "verdict": "Oportunidad Débil",
+  "verdict_meaning": "Alto riesgo / baja convicción",
+  "active": 2,
+  "scores": {
+    "aggression": null,
+    "conviction": null,
+    "unusuality": null,
+    "structure": 6.0,
+    "iv_context": null,
+    "validation": 0.0
+  },
+  "gex": {
+    "iv": 0.7756,
+    "regime": "negative",
+    "king_strike": 95.0,
+    "flip_strike": 100.79,
+    "direction": "down",
+    "confidence": 24.0,
+    "low_liquidity": false,
+    "total_net_gex": -16906965.690107893,
+    "n": 27,
+    "nodes": [
+      {
+        "strike": 95.0,
+        "net_gex": -4262277.389944713,
+        "call_gex": 353901.1287784087,
+        "put_gex": 4616178.518723121,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 1.0,
+        "side": "put"
+      },
+      {
+        "strike": 90.0,
+        "net_gex": -3318438.696864615,
+        "call_gex": 213031.32176175975,
+        "put_gex": 3531470.018626375,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.7786,
+        "side": "put"
+      },
+      {
+        "strike": 100.0,
+        "net_gex": -2853047.5757375504,
+        "call_gex": 2399649.6146184145,
+        "put_gex": 5252697.190355965,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.6694,
+        "side": "put"
+      },
+      {
+        "strike": 96.0,
+        "net_gex": -2700621.0073625,
+        "call_gex": 133214.4891524103,
+        "put_gex": 2833835.4965149104,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.6336,
+        "side": "put"
+      },
+      {
+        "strike": 85.0,
+        "net_gex": -1684586.1559410144,
+        "call_gex": 39275.71843610519,
+        "put_gex": 1723861.8743771196,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.3952,
+        "side": "put"
+      },
+      {
+        "strike": 98.0,
+        "net_gex": -852592.1990255933,
+        "call_gex": 116880.3333414469,
+        "put_gex": 969472.5323670403,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.2,
+        "side": "put"
+      },
+      {
+        "strike": 80.0,
+        "net_gex": -775341.7110817758,
+        "call_gex": 60602.859242478284,
+        "put_gex": 835944.5703242541,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.1819,
+        "side": "put"
+      },
+      {
+        "strike": 101.0,
+        "net_gex": 737596.4513817976,
+        "call_gex": 961226.5096584138,
+        "put_gex": 223630.05827661624,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.1731,
+        "side": "call"
+      },
+      {
+        "strike": 97.0,
+        "net_gex": -703978.9887887429,
+        "call_gex": 59771.800934893276,
+        "put_gex": 763750.7897236362,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.1652,
+        "side": "put"
+      },
+      {
+        "strike": 110.0,
+        "net_gex": -596936.9135643189,
+        "call_gex": 990528.4378358853,
+        "put_gex": 1587465.3514002042,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.1401,
+        "side": "put"
+      },
+      {
+        "strike": 93.0,
+        "net_gex": -582439.1716967503,
+        "call_gex": 8807.043926866181,
+        "put_gex": 591246.2156236165,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.1366,
+        "side": "put"
+      },
+      {
+        "strike": 99.0,
+        "net_gex": -532467.8649407767,
+        "call_gex": 346307.3442210241,
+        "put_gex": 878775.2091618008,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.1249,
+        "side": "put"
+      },
+      {
+        "strike": 105.0,
+        "net_gex": 335417.7432158345,
+        "call_gex": 2007358.431413026,
+        "put_gex": 1671940.6881971916,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0787,
+        "side": "call"
+      },
+      {
+        "strike": 94.0,
+        "net_gex": -328282.9690453282,
+        "call_gex": 22766.82783088406,
+        "put_gex": 351049.7968762123,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.077,
+        "side": "put"
+      },
+      {
+        "strike": 103.0,
+        "net_gex": 325623.79059898446,
+        "call_gex": 400587.54095270747,
+        "put_gex": 74963.75035372302,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0764,
+        "side": "call"
+      },
+      {
+        "strike": 115.0,
+        "net_gex": 242480.67223752628,
+        "call_gex": 1123402.64394024,
+        "put_gex": 880921.9717027136,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0569,
+        "side": "call"
+      },
+      {
+        "strike": 107.0,
+        "net_gex": 166152.63106960698,
+        "call_gex": 253559.5778014078,
+        "put_gex": 87406.94673180081,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.039,
+        "side": "call"
+      },
+      {
+        "strike": 106.0,
+        "net_gex": 135115.19593602855,
+        "call_gex": 236853.05200615694,
+        "put_gex": 101737.8560701284,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0317,
+        "side": "call"
+      },
+      {
+        "strike": 102.0,
+        "net_gex": 110652.3666105126,
+        "call_gex": 345531.5537279945,
+        "put_gex": 234879.1871174819,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.026,
+        "side": "call"
+      },
+      {
+        "strike": 108.0,
+        "net_gex": 79975.51319236899,
+        "call_gex": 164051.83439895706,
+        "put_gex": 84076.32120658807,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0188,
+        "side": "call"
+      },
+      {
+        "strike": 109.0,
+        "net_gex": 73208.122295494,
+        "call_gex": 98819.36992637033,
+        "put_gex": 25611.247630876325,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0172,
+        "side": "call"
+      },
+      {
+        "strike": 111.0,
+        "net_gex": 33724.92892838402,
+        "call_gex": 52670.24733550622,
+        "put_gex": 18945.318407122202,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0079,
+        "side": "call"
+      },
+      {
+        "strike": 112.0,
+        "net_gex": 22114.517184957855,
+        "call_gex": 41468.23810769711,
+        "put_gex": 19353.720922739252,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0052,
+        "side": "call"
+      },
+      {
+        "strike": 114.0,
+        "net_gex": 17797.02246139787,
+        "call_gex": 28533.47596369108,
+        "put_gex": 10736.453502293209,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0042,
+        "side": "call"
+      },
+      {
+        "strike": 113.0,
+        "net_gex": 16827.005376466528,
+        "call_gex": 50110.57902246084,
+        "put_gex": 33283.573645994315,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0039,
+        "side": "call"
+      },
+      {
+        "strike": 116.0,
+        "net_gex": -11757.883139860438,
+        "call_gex": 22749.073042352764,
+        "put_gex": 34506.9561822132,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0028,
+        "side": "put"
+      },
+      {
+        "strike": 104.0,
+        "net_gex": -883.1234637146117,
+        "call_gex": 298804.4057727672,
+        "put_gex": 299687.5292364818,
+        "trade_premium": 0.0,
+        "trade_count": 0,
+        "concentration": 0.0002,
+        "side": "put"
+      }
+    ]
+  },
+  "structure": {
+    "score": 6.0,
+    "call_pct": 73.2,
+    "put_pct": 26.8,
+    "dominant_side": "calls",
+    "avg_notional": 70966325.390625,
+    "low_liquidity": false,
+    "vol_oi": {
+      "pct": 25.2,
+      "exceeded": 380,
+      "considered": 1510
+    },
+    "top_strikes": [
+      {
+        "strike": 620.0,
+        "notional": 497674000.0,
+        "pct_of_total": 5.5,
+        "side": "calls",
+        "dominant": true,
+        "dominance_pct": 100.0,
+        "open_interest": 8027.0,
+        "volume": 8.0
+      },
+      {
+        "strike": 100.0,
+        "notional": 421860000.0,
+        "pct_of_total": 4.6,
+        "side": "puts",
+        "dominant": true,
+        "dominance_pct": 75.2,
+        "open_interest": 42186.0,
+        "volume": 7485.0
+      },
+      {
+        "strike": 200.0,
+        "notional": 393020000.0,
+        "pct_of_total": 4.3,
+        "side": "calls",
+        "dominant": true,
+        "dominance_pct": 92.4,
+        "open_interest": 19651.0,
+        "volume": 1179.0
+      },
+      {
+        "strike": 500.0,
+        "notional": 313900000.0,
+        "pct_of_total": 3.5,
+        "side": "calls",
+        "dominant": true,
+        "dominance_pct": 100.0,
+        "open_interest": 6278.0,
+        "volume": 54.0
+      },
+      {
+        "strike": 300.0,
+        "notional": 276090000.0,
+        "pct_of_total": 3.0,
+        "side": "calls",
+        "dominant": true,
+        "dominance_pct": 81.5,
+        "open_interest": 9203.0,
+        "volume": 1013.0
+      },
+      {
+        "strike": 110.0,
+        "notional": 271359000.0,
+        "pct_of_total": 3.0,
+        "side": "puts",
+        "dominant": true,
+        "dominance_pct": 61.1,
+        "open_interest": 24669.0,
+        "volume": 3070.0
+      },
+      {
+        "strike": 140.0,
+        "notional": 265272000.0,
+        "pct_of_total": 2.9,
+        "side": "calls",
+        "dominant": true,
+        "dominance_pct": 72.3,
+        "open_interest": 18948.0,
+        "volume": 860.0
+      },
+      {
+        "strike": 150.0,
+        "notional": 261885000.0,
+        "pct_of_total": 2.9,
+        "side": "calls",
+        "dominant": true,
+        "dominance_pct": 73.6,
+        "open_interest": 17459.0,
+        "volume": 681.0
+      }
+    ]
+  },
+  "unusual": [],
+  "subagents": {
+    "aggression": {
+      "score": 0,
+      "ratio": 0.0,
+      "premium_ask": 0,
+      "premium_bid": 0,
+      "premium_mid": 0,
+      "n": 0
+    },
+    "conviction": {
+      "score": 0.0,
+      "n": 0,
+      "spread": {
+        "avg_pct": null,
+        "points": 0,
+        "wide_count": 0
+      },
+      "dominance": {
+        "side": "ask",
+        "dominant_pct": 0.0,
+        "ask_pct": 0.0,
+        "bid_pct": 0.0,
+        "points": 0
+      },
+      "execution": {
+        "points": 0.0,
+        "avg_raw": 0.0,
+        "counts": {
+          "above_ask": 0,
+          "below_bid": 0,
+          "at_ask": 0,
+          "at_bid": 0,
+          "near": 0,
+          "mid": 0,
+          "unclear": 0
+        }
+      }
+    },
+    "unusuality": {
+      "score": 0,
+      "n": 0,
+      "unusual_count": 0,
+      "confirmed_count": 0,
+      "avg_by_param": {
+        "size": 0.0,
+        "delta": 0.0,
+        "theta": 0.0,
+        "gamma": 0.0,
+        "leg": 0.0,
+        "expiry": 0.0
+      }
+    },
+    "structure": {
+      "score": 6.0,
+      "notional": {
+        "avg_per_strike": 70966325.390625,
+        "total": 9083689650.0,
+        "strike_count": 128,
+        "points": 6
+      },
+      "strikes": {
+        "dominant_count": 5,
+        "considered_count": 5,
+        "points": 10
+      },
+      "vol_oi_points": 2,
+      "expirations": [
+        {
+          "expiration": "2027-01-15",
+          "notional": 2731753000.0,
+          "pct_of_total": 30.1,
+          "call_notional": 2380423000.0,
+          "put_notional": 351330000.0,
+          "contracts": 142
+        },
+        {
+          "expiration": "2026-09-18",
+          "notional": 1499196300.0,
+          "pct_of_total": 16.5,
+          "call_notional": 1143300700.0,
+          "put_notional": 355895600.0,
+          "contracts": 190
+        },
+        {
+          "expiration": "2026-12-18",
+          "notional": 1159878000.0,
+          "pct_of_total": 12.8,
+          "call_notional": 831637500.0,
+          "put_notional": 328240500.0,
+          "contracts": 142
+        },
+        {
+          "expiration": "2028-01-21",
+          "notional": 1022386000.0,
+          "pct_of_total": 11.3,
+          "call_notional": 716800500.0,
+          "put_notional": 305585500.0,
+          "contracts": 86
+        },
+        {
+          "expiration": "2026-09-11",
+          "notional": 590144550.0,
+          "pct_of_total": 6.5,
+          "call_notional": 338342550.0,
+          "put_notional": 251802000.0,
+          "contracts": 138
+        },
+        {
+          "expiration": "2027-12-17",
+          "notional": 378968000.0,
+          "pct_of_total": 4.2,
+          "call_notional": 267899500.0,
+          "put_notional": 111068500.0,
+          "contracts": 86
+        }
+      ]
+    },
+    "iv_context": {
+      "score": 0,
+      "regime": "desconocido",
+      "note": "Sin trades con volatilidad implícita en la ventana.",
+      "front_skew": null,
+      "iv": {
+        "current": null,
+        "points": 0,
+        "band": "sin datos",
+        "special": false,
+        "contracts": 0
+      },
+      "rank": {
+        "value": null,
+        "points": 0,
+        "band": "sin datos",
+        "source": "none",
+        "days": 0,
+        "low": null,
+        "high": null
+      },
+      "by_expiration": []
+    },
+    "validation": {
+      "score": 0.0,
+      "verdict": "El precio absorbe el flujo: entra dinero grande pero el movimiento no se desarrolla.",
+      "threshold_pct": 4.8,
+      "weighted_hit_rate": 0.0,
+      "avg_mfe": 17.1,
+      "avg_mae": 6.7,
+      "hit_rate": {
+        "value": 0.0,
+        "points": 0,
+        "validated": 0,
+        "resolved": 1,
+        "band": "<30% — el precio absorbe el flujo"
+      },
+      "speed": {
+        "median_sessions": null,
+        "points": 0,
+        "band": "sin datos"
+      },
+      "by_direction": [
+        {
+          "direction": "alcista",
+          "total": 0,
+          "validated": 0,
+          "hit_rate": null
+        },
+        {
+          "direction": "bajista",
+          "total": 1,
+          "validated": 0,
+          "hit_rate": 0.0
+        }
+      ],
+      "outcomes": [
+        {
+          "id": 3309819347,
+          "timestamp": "2026-08-20T14:00:02.241Z",
+          "type": "call",
+          "strike": 140.0,
+          "expiration": "2027-09-17",
+          "premium": 183000,
+          "direction": "bajista",
+          "entry_price": 116.64,
+          "mfe_pct": 17.1,
+          "mae_pct": 6.7,
+          "days_to_mfe": 14,
+          "days_to_mae": 7,
+          "days_to_validate": 11,
+          "days_to_invalidate": 2,
+          "sessions_observed": 14,
+          "days_elapsed": 21,
+          "validated": false,
+          "resolved": true
+        }
+      ],
+      "coverage": {
+        "days": 0,
+        "flows": 1,
+        "pending": 0,
+        "below_target": true
+      }
+    }
+  },
+  "levels": {
+    "supports": [
+      {
+        "price": 95.0,
+        "kind": "soporte",
+        "strength": 21.0,
+        "distance_pct": -1.8,
+        "why": "15,430 contratos abiertos de puts",
+        "flipped": false,
+        "touch": 0.994
+      },
+      {
+        "price": 90.0,
+        "kind": "soporte",
+        "strength": 22.0,
+        "distance_pct": -6.9,
+        "why": "21,930 contratos abiertos de puts",
+        "flipped": false,
+        "touch": 0.761
+      },
+      {
+        "price": 85.0,
+        "kind": "soporte",
+        "strength": 21.0,
+        "distance_pct": -12.1,
+        "why": "16,362 contratos abiertos de puts",
+        "flipped": false,
+        "touch": 0.536
+      },
+      {
+        "price": 80.0,
+        "kind": "soporte",
+        "strength": 20.0,
+        "distance_pct": -17.3,
+        "why": "11,432 contratos abiertos de puts",
+        "flipped": false,
+        "touch": 0.34
+      }
+    ],
+    "resistances": [
+      {
+        "price": 100.0,
+        "kind": "resistencia",
+        "strength": 20.0,
+        "distance_pct": 3.4,
+        "why": "10,481 contratos abiertos de calls",
+        "flipped": false,
+        "touch": 0.783
+      },
+      {
+        "price": 104.44,
+        "kind": "resistencia",
+        "strength": 41.0,
+        "distance_pct": 8.0,
+        "why": "el precio reaccionó 1 vez aquí · 13,870 contratos abiertos de calls · confluencia precio + opciones",
+        "flipped": true,
+        "touch": 0.607
+      },
+      {
+        "price": 109.28,
+        "kind": "resistencia",
+        "strength": 50.0,
+        "distance_pct": 13.0,
+        "why": "el precio reaccionó 2 veces aquí · 10,479 contratos abiertos de calls · confluencia precio + opciones",
+        "flipped": true,
+        "touch": 0.445
+      },
+      {
+        "price": 110.9,
+        "kind": "resistencia",
+        "strength": 40.0,
+        "distance_pct": 14.7,
+        "why": "el precio reaccionó 1 vez aquí · 10,194 contratos abiertos de calls · confluencia precio + opciones",
+        "flipped": true,
+        "touch": 0.398
+      },
+      {
+        "price": 114.9,
+        "kind": "resistencia",
+        "strength": 65.0,
+        "distance_pct": 18.8,
+        "why": "el precio reaccionó 3 veces aquí · 11,250 contratos abiertos de calls · confluencia precio + opciones",
+        "flipped": true,
+        "touch": 0.298
+      },
+      {
+        "price": 116.63,
+        "kind": "resistencia",
+        "strength": 33.0,
+        "distance_pct": 20.6,
+        "why": "el precio reaccionó 1 vez aquí · 909 contratos abiertos de calls · confluencia precio + opciones",
+        "flipped": true,
+        "touch": 0.262
+      }
+    ],
+    "tolerance_pct": 1,
+    "key_support": {
+      "price": 90.0,
+      "kind": "soporte",
+      "strength": 22.0,
+      "distance_pct": -6.9,
+      "why": "21,930 contratos abiertos de puts",
+      "flipped": false,
+      "touch": 0.761
+    },
+    "key_resistance": {
+      "price": 114.9,
+      "kind": "resistencia",
+      "strength": 65.0,
+      "distance_pct": 18.8,
+      "why": "el precio reaccionó 3 veces aquí · 11,250 contratos abiertos de calls · confluencia precio + opciones",
+      "flipped": true,
+      "touch": 0.298
+    }
+  },
+  "predictions": {
+    "10": {
+      "bear": {
+        "target": 85.05,
+        "change_pct": -12.0,
+        "probability": 0.349,
+        "driver": "Gamma concentrada en $96.00 (dominan puts) — el dealer amplifica (γ−): si el precio llega, acelera"
+      },
+      "base": {
+        "target": 95.0,
+        "change_pct": -1.8,
+        "probability": 0.941,
+        "driver": "Nivel imán: 26% del peso del mapa está en $95.00"
+      },
+      "bull": {
+        "target": 100.0,
+        "change_pct": 3.4,
+        "probability": 0.745,
+        "driver": "Gamma concentrada en $100.00 (dominan puts) — el dealer amplifica (γ−): si el precio llega, acelera"
+      },
+      "confidence": 33.0,
+      "direction": "down",
+      "summary": "A 10 días el escenario base apunta hacia $95.00 (-1.8%), dentro de un rango esperado de ±12.8% (1σ). No hay lectura clara del flujo. Las señales de los sub-agentes son muy débiles. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 0% de las veces.",
+      "caveat": "Solo 2 de 6 sub-agentes tienen dato; la confianza está recortada.",
+      "calibration": {
+        "applied": false,
+        "shift_pct": 0.0,
+        "samples": 0
+      }
+    },
+    "20": {
+      "bear": {
+        "target": 80.64,
+        "change_pct": -16.6,
+        "probability": 0.363,
+        "driver": "Gamma concentrada en $96.00 (dominan puts) — el dealer amplifica (γ−): si el precio llega, acelera"
+      },
+      "base": {
+        "target": 95.0,
+        "change_pct": -1.8,
+        "probability": 0.994,
+        "driver": "Nivel imán: 25% del peso del mapa está en $95.00"
+      },
+      "bull": {
+        "target": 100.0,
+        "change_pct": 3.4,
+        "probability": 0.783,
+        "driver": "Gamma concentrada en $100.00 (dominan puts) — el dealer amplifica (γ−): si el precio llega, acelera"
+      },
+      "confidence": 32.0,
+      "direction": "down",
+      "summary": "A 20 días el escenario base apunta hacia $95.00 (-1.8%), dentro de un rango esperado de ±18.2% (1σ). No hay lectura clara del flujo. Las señales de los sub-agentes son muy débiles. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 0% de las veces.",
+      "caveat": "Solo 2 de 6 sub-agentes tienen dato; la confianza está recortada.",
+      "calibration": {
+        "applied": false,
+        "shift_pct": 0.0,
+        "samples": 0
+      }
+    },
+    "30": {
+      "bear": {
+        "target": 90.0,
+        "change_pct": -6.9,
+        "probability": 0.832,
+        "driver": "Gamma concentrada en $90.00 (dominan puts) — el dealer amplifica (γ−): si el precio llega, acelera"
+      },
+      "base": {
+        "target": 95.0,
+        "change_pct": -1.8,
+        "probability": 1.0,
+        "driver": "Nivel imán: 24% del peso del mapa está en $95.00"
+      },
+      "bull": {
+        "target": 100.0,
+        "change_pct": 3.4,
+        "probability": 0.793,
+        "driver": "Gamma concentrada en $100.00 (dominan puts) — el dealer amplifica (γ−): si el precio llega, acelera"
+      },
+      "confidence": 31.0,
+      "direction": "down",
+      "summary": "A 30 días el escenario base apunta hacia $95.00 (-1.8%), dentro de un rango esperado de ±22.2% (1σ). No hay lectura clara del flujo. Las señales de los sub-agentes son muy débiles. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 0% de las veces.",
+      "caveat": "Solo 2 de 6 sub-agentes tienen dato; la confianza está recortada.",
+      "calibration": {
+        "applied": false,
+        "shift_pct": 0.0,
+        "samples": 0
+      }
+    }
+  },
+  "warnings": [
+    "Sin tape de MarketSnack: Sesión de MarketSnack inválida o expirada. Actualiza MARKETSNACK_COOKIE.",
+    "Solo 2 de 6 sub-agentes tienen dato (faltan: aggression, conviction, unusuality, iv_context). El puntaje se renormaliza sobre el peso activo, así que NO es comparable con el de un ticker con las 6 categorías.",
+    "El backtest de Confirmación de Precio cubre 0 días; el documento pide 60. La tasa de acierto es provisional.",
+    "Las bandas de puntos del sub-agente 6 (Confirmación de Precio) son una PROPUESTA: su PDF no trae tabla de puntuación."
+  ],
+  "notable_trades": 0,
+  "conviction_trades": 0,
+  "conviction_window": "5d",
+  "top_flows": [],
+  "conviction_rows": [],
+  "call_pct": null,
+  "engine": "victor/tito",
+  "chain_source": "massive",
+  "memory": {
+    "available": true,
+    "iv_days": 0,
+    "iv_rank_real_en": 60,
+    "flows_guardados": 1,
+    "flows_utilizables": 1,
+    "flows_descartados": 0,
+    "flows_corruptos": 0,
+    "flows_sin_id": 0,
+    "escrituras_fallidas": null,
+    "flows_nuevos": 0,
+    "memoria_desde": "2026-08-20T14:00:02.241Z",
+    "predicciones_vencidas": 0,
+    "error_medio_pct": null,
+    "sesgo_pct": null,
+    "calibracion_activa": false,
+    "dir_hit_rate": null,
+    "base_touch_rate": null,
+    "motivo": null,
+    "evals": []
+  },
+  "flow_error": "Sesión de MarketSnack inválida o expirada. Actualiza MARKETSNACK_COOKIE.",
+  "subagentes_apagados": {
+    "total": 4,
+    "de": 6,
+    "grupos": [
+      {
+        "fuente": "marketsnack",
+        "categorias": [
+          "Agresividad",
+          "Convicción",
+          "Inusualidad",
+          "Contexto IV"
+        ],
+        "arreglo": "La cookie de MarketSnack no está sirviendo. NO es una API key: es una cookie de sesión y CADUCA. Vuelve a copiarla del navegador (DevTools → Network → /api/flow_feed → header Cookie) y pégala en MARKETSNACK_COOKIE."
+      }
+    ]
+  },
+  "drift": {
+    "spot": 96.7,
+    "iv": 0.7756,
+    "iv_fuente": "volatilidad realizada del motor (no IV de la cadena)",
+    "mensuales": 10,
+    "motivo": "",
+    "sin_datos": [],
+    "buckets": [
+      {
+        "etiqueta": "Largo ~320 DTE",
+        "dte_objetivo": 320,
+        "vencimiento": "2027-09-17",
+        "dte_real": 372,
+        "muro_calls": 100.0,
+        "muro_calls_oi": 214,
+        "muro_puts": 110.0,
+        "muro_puts_oi": 760,
+        "magneto": 110.0,
+        "magneto_nocional": -7304000.0,
+        "iman_peso": 0.0729,
+        "sigma": 75.72,
+        "total_oi": 8356,
+        "nocional_neto": 12222000.0,
+        "deriva": "RUPTURA a la baja: el precio está fuera del rango de muros [100.00 – 110.00]. El siguiente muro está en 110.00.",
+        "breakout": true,
+        "duplicado": false,
+        "solapa_motor": false
+      },
+      {
+        "etiqueta": "Largo ~120 DTE",
+        "dte_objetivo": 120,
+        "vencimiento": "2027-01-15",
+        "dte_real": 127,
+        "muro_calls": 100.0,
+        "muro_calls_oi": 1184,
+        "muro_puts": 80.0,
+        "muro_puts_oi": 5212,
+        "magneto": 80.0,
+        "magneto_nocional": -40768000.0,
+        "iman_peso": 0.0156,
+        "sigma": 44.24,
+        "total_oi": 101459,
+        "nocional_neto": 2029093000.0,
+        "deriva": "DENTRO DEL RANGO · rechazo: el imán de nocional está en 80.00 y domina el lado de las puts. El precio tiende a irse a los extremos del rango.",
+        "breakout": false,
+        "duplicado": false,
+        "solapa_motor": false
+      },
+      {
+        "etiqueta": "Corto ~90 DTE",
+        "dte_objetivo": 90,
+        "vencimiento": "2026-12-18",
+        "dte_real": 99,
+        "muro_calls": 110.0,
+        "muro_calls_oi": 688,
+        "muro_puts": 110.0,
+        "muro_puts_oi": 2652,
+        "magneto": 110.0,
+        "magneto_nocional": -21604000.0,
+        "iman_peso": 0.0317,
+        "sigma": 39.06,
+        "total_oi": 58633,
+        "nocional_neto": 503397000.0,
+        "deriva": "RUPTURA a la baja: el precio está fuera del rango de muros [110.00 – 110.00]. El siguiente muro está en 110.00.",
+        "breakout": true,
+        "duplicado": false,
+        "solapa_motor": false
+      },
+      {
+        "etiqueta": "Corto ~30 DTE",
+        "dte_objetivo": 30,
+        "vencimiento": "2026-10-16",
+        "dte_real": 36,
+        "muro_calls": 115.0,
+        "muro_calls_oi": 3797,
+        "muro_puts": 85.0,
+        "muro_puts_oi": 7121,
+        "magneto": 85.0,
+        "magneto_nocional": -60503000.0,
+        "iman_peso": 0.1723,
+        "sigma": 23.55,
+        "total_oi": 33490,
+        "nocional_neto": -20615000.0,
+        "deriva": "DENTRO DEL RANGO · rechazo: el imán de nocional está en 85.00 y domina el lado de las puts. El precio tiende a irse a los extremos del rango.",
+        "breakout": false,
+        "duplicado": false,
+        "solapa_motor": true
+      }
+    ]
+  },
+  "targets_drift": {
+    "320": {
+      "bear": {
+        "target": 110.0,
+        "change_pct": 13.8,
+        "probability": 0.609,
+        "driver": "muro de puts",
+        "fuera_del_cono": false
+      },
+      "base": {
+        "target": 110.0,
+        "change_pct": 13.8,
+        "probability": 0.609,
+        "driver": "imán del nocional",
+        "fuera_del_cono": false
+      },
+      "bull": {
+        "target": 100.0,
+        "change_pct": 3.4,
+        "probability": 0.766,
+        "driver": "muro de calls",
+        "fuera_del_cono": false
+      },
+      "orden_invertido": true,
+      "confidence": 17.0,
+      "direction": "up",
+      "summary": "A 320 días el escenario base apunta hacia $110.00 (+13.8%), dentro de un rango esperado de ±44.4% (1σ). No hay lectura clara del flujo. Las señales de los sub-agentes son muy débiles. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 0% de las veces.",
+      "caveat": "Solo 2 de 6 sub-agentes tienen dato; la confianza está recortada.",
+      "calibration": null,
+      "niveles_de": "drift",
+      "iv_usada": 0.4746,
+      "iv_ventana": "la de este plazo, 222 sesiones",
+      "rango_estrecho": true,
+      "vencimiento": "2027-09-17",
+      "dte_real": 372,
+      "muro_puts": 110.0,
+      "muro_calls": 100.0,
+      "iman": 110.0,
+      "duplicado": false,
+      "ancla": 110.0,
+      "ancla_nivel": "imán"
+    },
+    "120": {
+      "bear": {
+        "target": 80.0,
+        "change_pct": -17.3,
+        "probability": 0.633,
+        "driver": "muro de puts",
+        "fuera_del_cono": false
+      },
+      "base": {
+        "target": 80.0,
+        "change_pct": -17.3,
+        "probability": 0.633,
+        "driver": "imán del nocional",
+        "fuera_del_cono": false
+      },
+      "bull": {
+        "target": 100.0,
+        "change_pct": 3.4,
+        "probability": 0.793,
+        "driver": "muro de calls",
+        "fuera_del_cono": false
+      },
+      "orden_invertido": false,
+      "confidence": 11.0,
+      "direction": "down",
+      "summary": "A 120 días el escenario base apunta hacia $80.00 (-17.3%), dentro de un rango esperado de ±30.2% (1σ). No hay lectura clara del flujo. Las señales de los sub-agentes son muy débiles. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 0% de las veces.",
+      "caveat": "Solo 2 de 6 sub-agentes tienen dato; la confianza está recortada.",
+      "calibration": null,
+      "niveles_de": "drift",
+      "iv_usada": 0.526,
+      "iv_ventana": "la de este plazo, 84 sesiones",
+      "rango_estrecho": true,
+      "vencimiento": "2027-01-15",
+      "dte_real": 127,
+      "muro_puts": 80.0,
+      "muro_calls": 100.0,
+      "iman": 80.0,
+      "duplicado": false,
+      "ancla": 80.0,
+      "ancla_nivel": "imán"
+    },
+    "90": {
+      "bear": {
+        "target": 110.0,
+        "change_pct": 13.8,
+        "probability": 0.541,
+        "driver": "muro de puts",
+        "fuera_del_cono": false
+      },
+      "base": {
+        "target": 110.0,
+        "change_pct": 13.8,
+        "probability": 0.541,
+        "driver": "imán del nocional",
+        "fuera_del_cono": false
+      },
+      "bull": {
+        "target": 110.0,
+        "change_pct": 13.8,
+        "probability": 0.541,
+        "driver": "muro de calls",
+        "fuera_del_cono": false
+      },
+      "orden_invertido": false,
+      "confidence": 13.0,
+      "direction": "up",
+      "summary": "A 90 días el escenario base apunta hacia $110.00 (+13.8%), dentro de un rango esperado de ±27.1% (1σ). No hay lectura clara del flujo. Las señales de los sub-agentes son muy débiles. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 0% de las veces.",
+      "caveat": "Solo 2 de 6 sub-agentes tienen dato; la confianza está recortada.",
+      "calibration": null,
+      "niveles_de": "drift",
+      "iv_usada": 0.5465,
+      "iv_ventana": "la de este plazo, 63 sesiones",
+      "rango_estrecho": true,
+      "vencimiento": "2026-12-18",
+      "dte_real": 99,
+      "muro_puts": 110.0,
+      "muro_calls": 110.0,
+      "iman": 110.0,
+      "duplicado": false,
+      "ancla": 110.0,
+      "ancla_nivel": "imán"
+    }
+  },
+  "spot_previo": false,
+  "flow_clusters": null,
+  "company": {
+    "ticker": "LULU",
+    "name": "lululemon athletica inc.",
+    "exchange": "Nasdaq",
+    "sector": "APPAREL & OTHER FINISHD PRODS OF FABRICS & SIMILAR MATL",
+    "price": 96.7,
+    "change": -3.02,
+    "change_percent": -3.03,
+    "market_cap": 11040003693.0,
+    "day_volume": 4555131.0,
+    "day_low": 96.7,
+    "day_high": 99.62,
+    "prev_close": 99.72,
+    "employees": 39000,
+    "has_logo": true
+  },
+  "chain_meta": {
+    "contract_count": 1750,
+    "expiration_count": 17,
+    "truncated": false,
+    "capped": true,
+    "shown": 1500
+  },
+  "top_contracts": [
+    {
+      "option_ticker": "O:LULU270115C00620000",
+      "contract_type": "call",
+      "expiration": "2027-01-15",
+      "strike": 620.0,
+      "open_interest": 6717.0,
+      "volume": 1.0,
+      "price": 0.02,
+      "open_premium": 134.34,
+      "notional_value": 416454000.0,
+      "price_source": "day_close"
+    },
+    {
+      "option_ticker": "O:LULU270115C00500000",
+      "contract_type": "call",
+      "expiration": "2027-01-15",
+      "strike": 500.0,
+      "open_interest": 5947.0,
+      "volume": 26.0,
+      "price": 0.01,
+      "open_premium": 59.47,
+      "notional_value": 297350000.0,
+      "price_source": "day_close"
+    },
+    {
+      "option_ticker": "O:LULU280121C00195000",
+      "contract_type": "call",
+      "expiration": "2028-01-21",
+      "strike": 195.0,
+      "open_interest": 10580.0,
+      "volume": 45.0,
+      "price": 5.55,
+      "open_premium": 58719.0,
+      "notional_value": 206310000.0,
+      "price_source": "day_close"
+    },
+    {
+      "option_ticker": "O:LULU270115C00540000",
+      "contract_type": "call",
+      "expiration": "2027-01-15",
+      "strike": 540.0,
+      "open_interest": 3308.0,
+      "volume": 4.0,
+      "price": 0.04,
+      "open_premium": 132.32,
+      "notional_value": 178632000.0,
+      "price_source": "day_close"
+    },
+    {
+      "option_ticker": "O:LULU280121C00330000",
+      "contract_type": "call",
+      "expiration": "2028-01-21",
+      "strike": 330.0,
+      "open_interest": 4748.0,
+      "volume": 5.0,
+      "price": 1.24,
+      "open_premium": 5887.52,
+      "notional_value": 156684000.0,
+      "price_source": "day_close"
+    }
+  ],
+  "_no_archivado": [
+    "chain",
+    "history",
+    "gex_heatmap",
+    "levels_for_chart",
+    "chart_geometry",
+    "unusual_rows"
+  ],
+  "fecha": "2026-09-10",
+  "agente": "opciones",
+  "guardado_en": "2026-09-10T18:39:04+00:00"
+}
