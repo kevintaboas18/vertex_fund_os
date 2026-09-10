@@ -158,20 +158,6 @@
         "bueno": null
       },
       {
-        "evento": "Initial Jobless Claims (Sep/05)",
-        "fecha": "2026-09-10 12:30",
-        "salio": 206.0,
-        "esperado": 205.0,
-        "anterior": 207.0,
-        "unidad": "",
-        "impacto": "medium",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 1.0,
-        "bueno": false
-      },
-      {
         "evento": "Producer Price Index YoY (Aug)",
         "fecha": "2026-09-10 12:30",
         "salio": 5.4,
@@ -214,6 +200,20 @@
         "bueno": false
       },
       {
+        "evento": "Initial Jobless Claims (Sep/05)",
+        "fecha": "2026-09-10 12:30",
+        "salio": 206.0,
+        "esperado": 205.0,
+        "anterior": 207.0,
+        "unidad": "",
+        "impacto": "medium",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 1.0,
+        "bueno": false
+      },
+      {
         "evento": "Producer Price Index MoM (Aug)",
         "fecha": "2026-09-10 12:30",
         "salio": 0.4,
@@ -240,6 +240,20 @@
         "hora_et": "08:30",
         "sorpresa": -0.09999999999999998,
         "bueno": true
+      },
+      {
+        "evento": "Unemployment Rate (Aug)",
+        "fecha": "2026-09-04 12:30",
+        "salio": 4.1,
+        "esperado": 4.1,
+        "anterior": 4.1,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": 0.0,
+        "bueno": null
       },
       {
         "evento": "Average Hourly Earnings MoM (Aug)",
@@ -270,20 +284,6 @@
         "bueno": true
       },
       {
-        "evento": "Unemployment Rate (Aug)",
-        "fecha": "2026-09-04 12:30",
-        "salio": 4.1,
-        "esperado": 4.1,
-        "anterior": 4.1,
-        "unidad": "",
-        "impacto": "high",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": 0.0,
-        "bueno": null
-      },
-      {
         "evento": "Average Hourly Earnings YoY (Aug)",
         "fecha": "2026-09-04 12:30",
         "salio": 3.1,
@@ -307,21 +307,6 @@
         "anterior": -0.01,
         "unidad": "",
         "impacto": "low",
-        "nivel": 1,
-        "mejor": "bajo",
-        "hora_et": "08:30",
-        "sorpresa": null,
-        "bueno": null,
-        "retrasado": false
-      },
-      {
-        "evento": "Core Inflation Rate MoM (Aug)",
-        "fecha": "2026-09-11 12:30",
-        "salio": null,
-        "esperado": 0.2,
-        "anterior": 0.2,
-        "unidad": "",
-        "impacto": "high",
         "nivel": 1,
         "mejor": "bajo",
         "hora_et": "08:30",
@@ -360,6 +345,21 @@
         "retrasado": false
       },
       {
+        "evento": "Core Inflation Rate YoY (Aug)",
+        "fecha": "2026-09-11 12:30",
+        "salio": null,
+        "esperado": 2.4,
+        "anterior": 2.5,
+        "unidad": "",
+        "impacto": "high",
+        "nivel": 1,
+        "mejor": "bajo",
+        "hora_et": "08:30",
+        "sorpresa": null,
+        "bueno": null,
+        "retrasado": false
+      },
+      {
         "evento": "Core CPI (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
@@ -375,11 +375,11 @@
         "retrasado": false
       },
       {
-        "evento": "Core Inflation Rate YoY (Aug)",
+        "evento": "Core Inflation Rate MoM (Aug)",
         "fecha": "2026-09-11 12:30",
         "salio": null,
-        "esperado": 2.4,
-        "anterior": 2.5,
+        "esperado": 0.2,
+        "anterior": 0.2,
         "unidad": "",
         "impacto": "high",
         "nivel": 1,
@@ -420,13 +420,13 @@
         "retrasado": false
       },
       {
-        "evento": "Retail Sales YoY (Aug)",
+        "evento": "Retail Sales MoM (Aug)",
         "fecha": "2026-09-16 12:30",
         "salio": null,
-        "esperado": 4.3,
-        "anterior": 5.0,
+        "esperado": -0.1,
+        "anterior": -0.4,
         "unidad": "",
-        "impacto": "low",
+        "impacto": "medium",
         "nivel": 1,
         "mejor": "alto",
         "hora_et": "08:30",
@@ -435,13 +435,13 @@
         "retrasado": false
       },
       {
-        "evento": "Retail Sales MoM (Aug)",
+        "evento": "Retail Sales YoY (Aug)",
         "fecha": "2026-09-16 12:30",
         "salio": null,
-        "esperado": -0.1,
-        "anterior": -0.4,
+        "esperado": 4.3,
+        "anterior": 5.0,
         "unidad": "",
-        "impacto": "medium",
+        "impacto": "low",
         "nivel": 1,
         "mejor": "alto",
         "hora_et": "08:30",
@@ -515,6 +515,6 @@
     "fuente": "FMP"
   },
   "generado_resultados": "2026-09-10T18:38:47.758243+00:00",
-  "generado_macro": "2026-09-10T20:03:48.754636+00:00",
-  "generado": "2026-09-10T20:03:48.754636+00:00"
+  "generado_macro": "2026-09-10T23:46:21.609854+00:00",
+  "generado": "2026-09-10T23:46:21.609854+00:00"
 }
