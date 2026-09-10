@@ -4,7 +4,7 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 65.0 / 100 |
-| Spot | $490.87 |
+| Spot | $490.99 |
 | Régimen de gamma | positive |
 | Nodo imán | $500.00 |
 | Gamma flip | $492.40 |
@@ -34,8 +34,8 @@
 | Precio | Tipo | Fuerza | P(toque) | Por qué |
 |---|---|---|---|---|
 | $515.17 | resistencia | 60 | 35% | el precio reaccionó 4 veces aquí · 81,937 contratos abiertos de calls · confluencia precio + opciones |
-| $491.34 | resistencia | 55 | 96% | el precio reaccionó 6 veces aquí · 60,063 contratos abiertos de calls · confluencia precio + opciones |
-| $505.52 | resistencia | 47 | 56% | el precio reaccionó 2 veces aquí · 131,846 contratos abiertos de calls · confluencia precio + opciones |
+| $491.34 | resistencia | 55 | 97% | el precio reaccionó 6 veces aquí · 60,063 contratos abiertos de calls · confluencia precio + opciones |
+| $505.52 | resistencia | 47 | 57% | el precio reaccionó 2 veces aquí · 131,846 contratos abiertos de calls · confluencia precio + opciones |
 | $466.90 | soporte | 46 | 36% | el precio reaccionó 3 veces aquí · 34,771 contratos abiertos de puts · confluencia precio + opciones |
 | $473.04 | soporte | 41 | 50% | el precio reaccionó 2 veces aquí · 53,200 contratos abiertos de puts · confluencia precio + opciones |
 | $433.20 | soporte | 41 | 2% | el precio reaccionó 2 veces aquí · 38,787 contratos abiertos de puts · confluencia precio + opciones |
