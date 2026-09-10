@@ -4,7 +4,7 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 55.0 / 100 |
-| Spot | $757.70 |
+| Spot | $757.62 |
 | Régimen de gamma | negative |
 | Nodo imán | $760.00 |
 | Gamma flip | $763.94 |
@@ -25,17 +25,17 @@
 
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
-| 10 días | $755.00 | $760.00 | $768.33 | 54.0 |
-| 20 días | $755.00 | $760.00 | $772.77 | 52.0 |
-| 30 días | $755.00 | $760.00 | $776.20 | 50.0 |
+| 10 días | $755.00 | $760.00 | $768.25 | 54.0 |
+| 20 días | $755.00 | $760.00 | $772.69 | 51.0 |
+| 30 días | $755.00 | $760.00 | $776.12 | 50.0 |
 
 ## Niveles importantes
 
 | Precio | Tipo | Fuerza | P(toque) | Por qué |
 |---|---|---|---|---|
-| $752.84 | soporte | 70 | 75% | el precio reaccionó 5 veces aquí · 971,016 contratos abiertos de puts · confluencia precio + opciones |
+| $752.84 | soporte | 70 | 76% | el precio reaccionó 5 veces aquí · 971,016 contratos abiertos de puts · confluencia precio + opciones |
 | $776.39 | resistencia | 68 | 21% | el precio reaccionó 4 veces aquí · 714,055 contratos abiertos de calls · confluencia precio + opciones |
-| $760.64 | resistencia | 63 | 84% | el precio reaccionó 3 veces aquí · 395,111 contratos abiertos de calls · confluencia precio + opciones |
+| $760.64 | resistencia | 63 | 83% | el precio reaccionó 3 veces aquí · 395,111 contratos abiertos de calls · confluencia precio + opciones |
 | $740.16 | soporte | 55 | 24% | el precio reaccionó 2 veces aquí · 837,619 contratos abiertos de puts · confluencia precio + opciones |
 | $733.37 | soporte | 55 | 10% | el precio reaccionó 2 veces aquí · 975,103 contratos abiertos de puts · confluencia precio + opciones |
 | $725.85 | soporte | 55 | 3% | el precio reaccionó 2 veces aquí · 766,171 contratos abiertos de puts · confluencia precio + opciones |
