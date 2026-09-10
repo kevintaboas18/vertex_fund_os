@@ -4,7 +4,7 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 65.0 / 100 |
-| Spot | $218.10 |
+| Spot | $217.93 |
 | Régimen de gamma | positive |
 | Nodo imán | $230.00 |
 | Gamma flip | $217.99 |
@@ -25,9 +25,9 @@
 
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
-| 10 días | $217.50 | $230.00 | $234.63 | 37.0 |
-| 20 días | $217.50 | $230.00 | $241.84 | 36.0 |
-| 30 días | $217.50 | $230.00 | $247.52 | 36.0 |
+| 10 días | $217.50 | $230.00 | $234.45 | 36.0 |
+| 20 días | $217.50 | $230.00 | $241.65 | 36.0 |
+| 30 días | $217.50 | $230.00 | $247.33 | 36.0 |
 
 ## Niveles importantes
 
@@ -37,13 +37,13 @@
 | $215.23 | soporte | 62 | 94% | el precio reaccionó 3 veces aquí · 130,856 contratos abiertos de puts · confluencia precio + opciones |
 | $231.38 | resistencia | 56 | 53% | el precio reaccionó 2 veces aquí · 438,712 contratos abiertos de calls · confluencia precio + opciones |
 | $235.65 | resistencia | 54 | 42% | el precio reaccionó 2 veces aquí · 313,114 contratos abiertos de calls · confluencia precio + opciones |
-| $208.02 | soporte | 53 | 68% | el precio reaccionó 2 veces aquí · 227,109 contratos abiertos de puts · confluencia precio + opciones |
+| $208.02 | soporte | 53 | 69% | el precio reaccionó 2 veces aquí · 227,109 contratos abiertos de puts · confluencia precio + opciones |
 | $197.61 | soporte | 51 | 37% | el precio reaccionó 3 veces aquí · 6,209 contratos abiertos de puts · confluencia precio + opciones |
 | $227.92 | resistencia | 48 | 63% | el precio reaccionó 1 vez aquí · 471,356 contratos abiertos de calls · confluencia precio + opciones |
 | $216.83 | soporte | 43 | 100% | el precio reaccionó 1 vez aquí · 148,881 contratos abiertos de puts · confluencia precio + opciones |
-| $199.34 | soporte | 41 | 41% | el precio reaccionó 1 vez aquí · 450,094 contratos abiertos de puts · confluencia precio + opciones |
+| $199.34 | soporte | 41 | 42% | el precio reaccionó 1 vez aquí · 450,094 contratos abiertos de puts · confluencia precio + opciones |
 | $250.00 | resistencia | 28 | 17% | 525,827 contratos abiertos de calls |
-| $240.00 | resistencia | 27 | 33% | 367,127 contratos abiertos de calls |
+| $240.00 | resistencia | 27 | 32% | 367,127 contratos abiertos de calls |
 | $220.00 | resistencia | 26 | 89% | 369,089 contratos abiertos de calls |
 
 ## Los 3 flujos más grandes
