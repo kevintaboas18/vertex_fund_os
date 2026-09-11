@@ -5562,9 +5562,15 @@ def _tito_geometria_drift(r, targets):
                     "points": [{"t": round(x, 4), "price": round(pr, 4)}
                                for x, pr in ruta.points],
                 }
-            em = expected_move(spot, iv, dias)
+            # `iv_h`, no `iv`. El cono y las rutas de arriba ya usaban la IV
+            # de ESTE plazo; estas dos líneas se quedaron con la de la cadena,
+            # así que la banda que se DIBUJA y los números 1σ/2σ que se
+            # PUBLICAN al lado salían de dos volatilidades distintas. Es la
+            # misma contradicción que la cabecera de este bloque dice estar
+            # arreglando, a medio arreglar.
+            em = expected_move(spot, iv_h, dias)
             geo[str(h)] = {
-                "iv": round(iv, 6),
+                "iv": round(iv_h, 6),
                 "em": {"sigma_pct": round(em.sigma_pct, 4),
                        "lower1": round(em.lower1, 4), "upper1": round(em.upper1, 4),
                        "lower2": round(em.lower2, 4), "upper2": round(em.upper2, 4)},

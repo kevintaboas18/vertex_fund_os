@@ -6639,6 +6639,46 @@ class TestDriftEnLaRuta:
             for k in ("bear", "base", "bull"):
                 assert k in g["paths"], f"{h}d: falta la ruta {k}"
 
+    def test_el_cono_usa_la_IV_DE_ESE_PLAZO_no_la_de_la_cadena(
+            self, client, cadena_larga):
+        """La misma volatilidad para el cono, las rutas Y los números del `em`.
+
+        `_tito_chart_geometry` ya calcula `iv_h` —la IV del vencimiento que
+        sirve ese plazo— y la usa para `cone_points` y para `prediction_path`.
+        Pero el bloque `em` y el `iv` publicado se quedaron con la `iv` de la
+        CADENA, que es otra. Resultado: la banda que se DIBUJA y los números
+        1σ/2σ que se PUBLICAN al lado salen de dos volatilidades distintas.
+
+        Es exactamente la contradicción que el comentario de esa función dice
+        estar arreglando —«el número decía una cosa y la gráfica otra, sobre la
+        misma pantalla»— a medio arreglar.
+        """
+        from wbj.tito.expected_move import expected_move
+
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        iv_cadena = float((d.get("gex") or {}).get("iv") or 0)
+        distintos = 0
+        for h, v in d["targets_drift"].items():
+            iv_plazo = float(v["iv_usada"])
+            if not iv_plazo or abs(iv_plazo - iv_cadena) < 1e-4:
+                continue                     # no distingue nada: son la misma
+            distintos += 1
+            g = d["chart_geometry"][h]
+            assert abs(float(g["iv"]) - iv_plazo) < 5e-4, (
+                f"{h}d: se publica la IV de la cadena ({g['iv']}) en vez de la "
+                f"del plazo ({iv_plazo})")
+            bueno = expected_move(d["spot"], iv_plazo, float(h))
+            malo = expected_move(d["spot"], iv_cadena, float(h))
+            pintado = g["em"]["sigma_pct"]
+            assert abs(pintado - bueno.sigma_pct) < abs(pintado - malo.sigma_pct), (
+                f"{h}d: el `em` se calculó con la IV de la CADENA "
+                f"({iv_cadena}) en vez de con la del plazo ({iv_plazo}). "
+                f"σ publicada {pintado}, con la buena {bueno.sigma_pct}, "
+                f"con la de la cadena {malo.sigma_pct}")
+        assert distintos, (
+            "en este escenario ningún plazo tiene IV propia distinta de la de "
+            "la cadena, así que el caso no mide nada")
+
     def test_el_cono_se_dibuja_al_PLAZO_ELEGIDO_no_al_del_vencimiento(
             self, client, cadena_larga):
         """«No son 392 días, son 320.» — Kevin, 23/08/2026.
@@ -6672,6 +6712,16 @@ class TestDriftEnLaRuta:
             # que es la pregunta de verdad.
             con_real = expected_move(d["spot"], iv, real).sigma_pct
             con_elegido = expected_move(d["spot"], iv, float(h)).sigma_pct
+            # Si la σ pintada no se parece a NINGUNA de las dos, el problema
+            # no son los días sino la IV, y decirlo aquí ahorra el diagnóstico:
+            # este caso ya salió una vez en rojo culpando al plazo cuando lo
+            # que fallaba era que el `em` usaba la IV de la cadena.
+            lejos = min(abs(pintado - con_elegido), abs(pintado - con_real))
+            assert lejos < max(0.05, 0.02 * con_elegido), (
+                f"{h}d: la σ pintada ({pintado}) no se parece ni al plazo "
+                f"elegido ({con_elegido}) ni al del vencimiento ({con_real}). "
+                f"No son los días: mira la IV con la que se calculó el `em` "
+                f"(este plazo usa {iv}).")
             assert abs(pintado - con_elegido) < abs(pintado - con_real), (
                 f"{h}d: el cono se dibujó a los días del VENCIMIENTO ({real}) "
                 f"en vez de al plazo elegido ({h}). σ pintada {pintado}, con el "
