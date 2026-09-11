@@ -2,15 +2,25 @@
 
 _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se borran, se quedan debajo con su fecha._
 
+### 2026-09-11 · agente de opciones
+
+**Oportunidad Moderada** · puntaje 57 · precio $763.94
+
+---
+
 ### 2026-09-10 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 55 · precio $757.62
 
 ---
 
+---
+
 ### 2026-09-10 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 55 · precio $757.70
+
+---
 
 ---
 
@@ -26,21 +36,27 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
-### 2026-09-05 · agente de opciones
-
-**Oportunidad Moderada** · puntaje 56 · precio $770.19
-
----
-
----
-
----
-
 ---
 
 ### 2026-09-05 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 56 · precio $770.19
+
+---
+
+---
+
+---
+
+---
+
+---
+
+### 2026-09-05 · agente de opciones
+
+**Oportunidad Moderada** · puntaje 56 · precio $770.19
+
+---
 
 ---
 
@@ -68,9 +84,13 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+---
+
 ### 2026-08-27 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 62 · precio $768.38
+
+---
 
 ---
 
@@ -106,9 +126,13 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+---
+
 ### 2026-08-25 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 60 · precio $765.00
+
+---
 
 ---
 
@@ -152,35 +176,11 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+---
+
 ### 2026-08-21 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 62 · precio $764.99
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
-### 2026-08-21 · agente de opciones
-
-**Oportunidad Moderada** · puntaje 64 · precio $762.60
 
 ---
 
