@@ -7143,3 +7143,105 @@ class TestElVerdeDeLaFranjaEsAlcanzable:
     def test_el_pie_ya_no_promete_un_sondeo_que_no_existe(self, html):
         assert "QD se reprueba" not in html
         assert "se refresca cada 90s" in html
+
+
+class TestLaPolaridadDelMuroEsLaDeSuSTRIKE:
+    """Cada muro se narra con SU signo, no con el de toda la cadena.
+
+    Su `prediction.ts` construye la frase así:
+
+        const regimeWord = regime === "positive" ? "el dealer estabiliza (γ+)…"
+                                                 : "el dealer amplifica (γ−)…";
+        const wallText = (l) => `Gamma concentrada en $${l.strike} `
+                              + `(dominan ${l.side === "call" ? "calls" : "puts"}) — ${regimeWord}`;
+
+    `regime` sale de `totalNetGex >= 0`: es la suma de la cadena ENTERA. `l.side`
+    es el signo de ESE strike. Se pegan en la misma frase dos escalas distintas,
+    y cuando no coinciden la línea se contradice sola. Medido ejecutando SU
+    archivo en Node:
+
+        Gamma concentrada en $190.00 (dominan puts) — el dealer estabiliza (γ+)
+
+    «Dominan puts» es gamma local negativa, que AMPLIFICA. La misma frase dice
+    que frena. Y esa frase es la razón por la que se entra: en un objetivo
+    bajista, «llega y frena» y «llega y acelera» son dos operaciones contrarias.
+
+    El signo local no hay que calcularlo: `side` YA es `netGex >= 0`, así que
+    viene dentro de su propio texto. Aquí solo se elige narrar el nivel con su
+    número en vez de con el del total.
+    """
+
+    @staticmethod
+    def _f():
+        import vertex_api as V
+        return V._driver_polaridad_local
+
+    def test_un_muro_de_calls_frena(self):
+        d = self._f()("Gamma concentrada en $210.00 (dominan calls) — lo que sea",
+                      "positive")
+        assert "γ+" in d and "frenarse" in d
+        assert "acelera" not in d
+
+    def test_un_muro_de_puts_acelera(self):
+        d = self._f()("Gamma concentrada en $190.00 (dominan puts) — lo que sea",
+                      "negative")
+        assert "γ−" in d and "acelera" in d
+        assert "frenarse" not in d
+
+    def test_el_muro_de_puts_NO_dice_que_estabiliza_por_la_cadena(self):
+        """El caso que reprodujo su archivo: cadena γ+, muro de puts."""
+        d = self._f()("Gamma concentrada en $190.00 (dominan puts) — lo que sea",
+                      "positive")
+        assert "acelera" in d, d
+        assert "frenarse" not in d, d
+
+    def test_y_cuando_no_coinciden_se_DICE(self):
+        """El desacuerdo es el dato nuevo: el muro está del lado contrario al
+        de la cadena. Callarlo dejaría la frase correcta pero muda."""
+        d = self._f()("Gamma concentrada en $190.00 (dominan puts) — lo que sea",
+                      "positive")
+        assert "cadena" in d.lower(), d
+
+    def test_cuando_SI_coinciden_no_se_añade_ruido(self):
+        d = self._f()("Gamma concentrada en $190.00 (dominan puts) — lo que sea",
+                      "negative")
+        assert "cadena" not in d.lower(), d
+
+    def test_el_strike_y_el_lado_se_conservan_intactos(self):
+        d = self._f()("Gamma concentrada en $190.00 (dominan puts) — lo que sea",
+                      "positive")
+        assert d.startswith("Gamma concentrada en $190.00 (dominan puts) — "), d
+
+    @pytest.mark.parametrize("otro", [
+        "Techo de 1σ: hasta aquí llega el movimiento esperado por volatilidad",
+        "Suelo de 1σ: hasta aquí llega la caída esperada por volatilidad",
+        "Nivel imán: 65% del peso del mapa está en $195.00",
+        "Sin nodos de gamma suficientes para fijar un imán",
+        "", None,
+    ])
+    def test_lo_que_no_es_un_muro_no_se_toca(self, otro):
+        """Solo se reescribe la frase del muro. El cono y el imán son otros
+        textos suyos y tienen que llegar tal cual."""
+        assert self._f()(otro, "positive") == otro
+
+
+    def test_la_ruta_SIRVE_la_polaridad_local_no_la_de_la_cadena(self, client):
+        """Que la función exista no basta: tiene que estar cableada.
+
+        Es el fallo que ya pasó en este panel dos veces — servir un campo bueno
+        que nadie pinta, o dejar el arreglo en una función que nadie llama.
+        """
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        muros = [e["driver"] for p in d["predictions"].values()
+                 for e in (p["bear"], p["base"], p["bull"])
+                 if "Gamma concentrada" in (e.get("driver") or "")]
+        assert muros, "ningún escenario salió anclado en un muro"
+        for m in muros:
+            # Su frase vieja no puede sobrevivir en ningún muro servido.
+            assert "el dealer estabiliza" not in m and "el dealer amplifica" not in m, m
+            assert "gamma local" in m, m
+            # Y el lado local manda sobre lo que diga la cadena.
+            if "dominan calls" in m:
+                assert "γ+" in m and "acelera" not in m, m
+            else:
+                assert "γ−" in m and "frenarse" not in m, m

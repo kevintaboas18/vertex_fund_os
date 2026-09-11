@@ -1,9 +1,9 @@
-Dos bugs en web/lib/prediction.ts de agente-tito-metralleta
+Tres bugs en web/lib/prediction.ts de agente-tito-metralleta
 
 Encontrados al portar el motor a Python (Vertex Fund OS).
 
 ESTADO EN EL PORT: los dos se reproducen TAL CUAL. El port es un espejo, no una
-versión mejorada — `engine/scripts/diff_motor2.sh` compara 846 casos contra este
+versión mejorada — `engine/scripts/diff_motor2.sh` compara 929 casos contra este
 archivo y exige cero diferencias, así que arreglarlos aquí y no allá rompería la
 comparación. El arreglo entra en el port el día que entre aquí. Mientras tanto
 queda fijado en tests de caracterización (`test_prediction.py`) y en un check de
@@ -103,3 +103,83 @@ IV 0.5 el techo del base queda en ~119 y un imán en 110 pasa intacto.
 
 El test actual "ningún escenario se sale del cono de 2σ" solo comprueba
 p.bull.target; por eso ninguno de los dos bugs salta hoy.
+
+
+── BUG 3 · el muro se narra con el régimen de TODA la cadena ───────────────
+
+    const regimeWord = regime === "positive"
+      ? "el dealer estabiliza (γ+): el precio tiende a frenarse ahí"
+      : "el dealer amplifica (γ−): si el precio llega, acelera";
+
+    const wallText = (l: LevelProb) =>
+      `Gamma concentrada en $${l.strike.toFixed(2)} (dominan ${l.side === "call" ? "calls" : "puts"}) — ${regimeWord}`;
+
+`regime` viene de `totalNetGex >= 0` en gex.ts: es la suma de la cadena ENTERA.
+`l.side` viene de `r.netGex >= 0` en el MISMO archivo: es el signo de ESE
+strike. `wallText` los pega en la misma frase, así que cuando no coinciden la
+línea se contradice sola.
+
+Se reproduce con cualquier cadena cuyo total sea positivo y que tenga un muro
+de puts (o al revés):
+
+    predictPro({ spot: 200, iv: 0.45, horizonDays: 30, nodes: [
+      { strike: 210, concentration: 0.30, side: "call", netGex:  9.0e8 },
+      { strike: 195, concentration: 0.95, side: "put",  netGex: -2.0e8 },
+      { strike: 190, concentration: 0.35, side: "put",  netGex: -1.0e8 },
+    ], regime: "positive", ... })
+
+    // bear.driver:
+    // "Gamma concentrada en $190.00 (dominan puts) — el dealer estabiliza (γ+):
+    //  el precio tiende a frenarse ahí"
+
+«Dominan puts» es gamma local NEGATIVA, que amplifica. La misma frase dice que
+frena. Y esa frase es la que justifica la operación: en un objetivo bajista,
+«llega y frena» y «llega y acelera» son decisiones contrarias.
+
+No es un caso raro. Sobre 3.000 cadenas sintéticas con muros a los dos lados,
+1.933 de 5.500 muros narrados (35,1%) salieron contradiciéndose. Ocurre siempre
+que un muro cae del lado minoritario del total, y casi toda cadena tiene muros
+arriba y abajo.
+
+Arreglo: narrar el muro con SU signo. No hace falta dato nuevo — `l.side` ya
+ES `netGex >= 0`, así que el signo local viaja dentro del propio texto.
+
+    const localWord = (l: LevelProb) =>
+      l.side === "call"
+        ? "gamma local γ+: si el precio llega, tiende a frenarse ahí"
+        : "gamma local γ−: si el precio llega, acelera";
+
+    const wallText = (l: LevelProb) => {
+      const local = l.side === "call";
+      const choca = local !== (regime === "positive");
+      const cadena = choca
+        ? ` La cadena entera es ${regime === "positive" ? "γ+" : "γ−"}, así que aquí no coinciden.`
+        : "";
+      return `Gamma concentrada en $${l.strike.toFixed(2)} `
+           + `(dominan ${local ? "calls" : "puts"}) — ${localWord(l)}.${cadena}`;
+    };
+
+El régimen de la cadena NO se pierde: sigue en `GexAnalysis.regime` y se puede
+enseñar aparte, dicho como lo que es. Y el desacuerdo entre el muro y la cadena
+pasa a ser visible, que es información que hoy no está en ninguna pantalla: un
+muro del lado contrario al de la cadena es donde se acaba lo que la cadena
+promete.
+
+Esto no toca ningún número: ni un objetivo, ni una probabilidad, ni el score,
+ni la confianza. Solo el texto que explica el nivel.
+
+ESTADO EN VERTEX: arreglado en la CAPA DE PRESENTACIÓN (`vertex_api.py`,
+`_driver_polaridad_local`), no en el port, para que `engine/wbj/` siga siendo
+espejo literal y `diff_motor2.sh` siga en 929/929. Va declarado en el registro
+de divergencias de `auditar_tito.py`. Entra en el motor el día que entre aquí.
+
+── Tests de regresión sugeridos (prediction.test.ts) ───────────────────────
+
+  it("un muro de puts no dice que el dealer estabiliza", () => {
+    const p = predictPro(input({ regime: "positive", nodes: [
+      { strike: 210, concentration: 0.30, side: "call", netGex:  9.0e8 },
+      { strike: 190, concentration: 0.35, side: "put",  netGex: -1.0e8 },
+    ] }));
+    expect(p.bear.driver).toContain("γ−");
+    expect(p.bear.driver).not.toContain("frenarse");
+  });

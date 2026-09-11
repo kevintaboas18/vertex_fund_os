@@ -5322,7 +5322,8 @@ def _tito_targets_drift(r, drift, cierres=None):
         # Los tres escenarios SON los tres niveles de Drift.
         _esc = _tito_escenarios_drift(b, r.spot, iv_b, dias)
         _e = lambda s: {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
-                        "probability": _r(s.probability, 3), "driver": s.driver,
+                        "probability": _r(s.probability, 3),
+                        "driver": _driver_polaridad_local(s.driver, r.gex.regime),
                         "fuera_del_cono": False}
         if _esc is None:                   # no pasa: el bucket trae los tres
             _esc = {"bear": _e(p.bear), "base": _e(p.base), "bull": _e(p.bull),
@@ -11195,6 +11196,64 @@ def _r(x, n=2):
     return js_round(x * f) / f
 
 
+#: La frase del muro, tal y como la escribe su `wallText`. El strike y el lado
+#: van en el grupo 1 para devolverlos intactos; lo que se reemplaza es la cola.
+_DRIVER_MURO = re.compile(
+    r"^(Gamma concentrada en \$[^()]*\(dominan (calls|puts)\)) — .*$", re.S)
+
+
+def _driver_polaridad_local(driver, regimen: str):
+    """El muro, narrado con el signo de SU strike y no con el de la cadena.
+
+    **DIVERGENCIA DECLARADA — la novena.**
+
+    Su `prediction.ts` arma la frase pegando dos escalas distintas:
+
+        const regimeWord = regime === "positive" ? "el dealer estabiliza (γ+)…"
+                                                 : "el dealer amplifica (γ−)…";
+        const wallText = (l) => `… (dominan ${l.side === "call" ? "calls" : "puts"}) — ${regimeWord}`;
+
+    `regime` es `totalNetGex >= 0`, la suma de la cadena ENTERA. `l.side` es el
+    signo de ESE strike. Cuando no coinciden, la línea se contradice sola.
+    Medido ejecutando SU archivo en Node:
+
+        Gamma concentrada en $190.00 (dominan puts) — el dealer estabiliza (γ+)
+
+    «Dominan puts» es gamma local negativa, que amplifica; la misma frase dice
+    que frena. Y de esa frase sale la decisión: en un objetivo bajista, «llega
+    y frena» y «llega y acelera» son operaciones contrarias.
+
+    **No hay matemática nueva.** `side` ES `netGex >= 0` (su `gex.ts`), así que
+    el signo local ya viaja dentro de su propio texto: no hay que buscar el
+    nodo ni parsear el strike, que serían dos formas de equivocarse de nivel.
+    Solo se elige narrar el muro con su número en vez de con el del total.
+
+    Se arregla AQUÍ y no en el motor a propósito: `engine/wbj/` es un espejo
+    literal de su repositorio y `diff_motor2.sh` exige cero diferencias sobre
+    929 casos. El arreglo va propuesto aguas arriba en
+    `engine/scripts/upstream-tito-prediction.patch` y entra en el motor el día
+    que entre allá.
+
+    Lo que NO toca: ni un objetivo, ni una probabilidad, ni el score, ni la
+    confianza. Solo la frase que explica el nivel.
+    """
+    m = _DRIVER_MURO.match(driver) if isinstance(driver, str) else None
+    if m is None:
+        return driver                      # el cono y el imán son otros textos suyos
+    cabeza, lado = m.group(1), m.group(2)
+    local_mas = lado == "calls"
+    cola = ("gamma local γ+: si el precio llega, tiende a frenarse ahí"
+            if local_mas
+            else "gamma local γ−: si el precio llega, acelera")
+    # El desacuerdo es el dato que hoy no está en ninguna pantalla: un muro del
+    # lado contrario al de la cadena es donde se acaba lo que la cadena promete.
+    if local_mas != (regimen == "positive"):
+        cola += (". La cadena entera es γ+, así que aquí no coinciden"
+                 if regimen == "positive"
+                 else ". La cadena entera es γ−, así que aquí no coinciden")
+    return f"{cabeza} — {cola}."
+
+
 def _tito_json(r):
     """Aplana el ScorecardResult a JSON. Solo lo que el panel necesita pintar.
 
@@ -11207,7 +11266,10 @@ def _tito_json(r):
     """
     def scen(s):
         return {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
-                "probability": _r(s.probability, 3), "driver": s.driver}
+                "probability": _r(s.probability, 3),
+                # El muro se narra con el signo de SU strike, no con el de la
+                # cadena entera. Ver `_driver_polaridad_local`.
+                "driver": _driver_polaridad_local(s.driver, r.gex.regime)}
 
     # `const agresividadIds = new Set(interesting.map(r => r.id))` suyo. El
     # cruce de su `UnusualityCard`: qué trades vio TAMBIÉN el sub-agente 1.

@@ -1806,6 +1806,20 @@ DIVERGENCIAS = {
         "buscando. Es el SPOT: con `NaN` el cono entero sale `NaN` sin lanzar "
         "nada, y con `0` las distancias a los muros se van a infinito. Si "
         "ninguno sirve el resultado es `None`, que sí se puede reportar."),
+    "el muro se narra con SU signo": (
+        VERTEX / "vertex_api.py",
+        "Su `wallText` pega el régimen de la CADENA ENTERA (`totalNetGex >= 0`) "
+        "encima de cada muro individual, cuyo signo es el de ESE strike "
+        "(`l.side`). Cuando no coinciden la frase se contradice sola: «(dominan "
+        "puts) — el dealer estabiliza (γ+)», cuando dominar puts es gamma local "
+        "negativa, que amplifica. Y de esa frase sale la decisión: en un "
+        "objetivo bajista, «llega y frena» y «llega y acelera» son operaciones "
+        "contrarias. Aquí el muro se narra con su propio signo, y si discrepa "
+        "de la cadena se dice. NO hay matemática nueva: `side` ES `netGex >= 0`, "
+        "así que el signo local ya viaja dentro de su texto. NO cambia ningún "
+        "número: ni objetivo, ni probabilidad, ni score, ni confianza. El motor "
+        "sigue siendo espejo (diff_motor2, 929/929) y el arreglo va propuesto "
+        "en `upstream-tito-prediction.patch`."),
     "wheel sin bid": (
         VERTEX / "engine/wbj/tito/wheel.py",
         "Su plan de Massive no sirve `last_quote`, y su propio compute.ts lo dice: "
