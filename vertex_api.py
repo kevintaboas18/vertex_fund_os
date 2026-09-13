@@ -4788,8 +4788,14 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     out["drift"] = _tito_drift(chain or [], r, now)
     # Los targets a 90/120/320 días. La matemática del agente sin tocar; lo
     # único distinto son los niveles, que ahí son los TRES de Drift.
+    # `drift_30` no se pinta: a 30 días manda el agente. Se guarda para que
+    # los DOS imanes del mismo plazo queden en el archivo y algún día el precio
+    # pueda decir cuál acertó. Hoy esa pregunta no tiene datos: de los 162
+    # scorecards guardados, ninguno lleva el imán de Drift a 30 días.
+    _drift_30 = {}
     out["targets_drift"] = _tito_targets_drift(
-        r, out["drift"], [b.close for b in bars])
+        r, out["drift"], [b.close for b in bars], solapado=_drift_30)
+    out["drift_30"] = _drift_30.get("30")
     _geo_drift = _tito_geometria_drift(r, out["targets_drift"])
     # El spot no salió de una sesión en curso sino del cierre anterior. Va al
     # payload SIEMPRE que sea así, porque el spot ancla los nodos del GEX, la
@@ -5180,7 +5186,7 @@ def _iv_del_plazo(cierres, dias: int, por_defecto: float) -> float:
     return min(3.0, max(0.05, _m.sqrt(var) * _m.sqrt(252)))
 
 
-def _tito_targets_drift(r, drift, cierres=None):
+def _tito_targets_drift(r, drift, cierres=None, solapado=None):
     """Los targets a 90/120/320 días, con los niveles de Drift.
 
     **Qué cambia y qué NO.** Lo que pidió Kevin, literal: «en los targets
@@ -5232,8 +5238,18 @@ def _tito_targets_drift(r, drift, cierres=None):
 
     fuera = {}
     for b in drift["buckets"]:
+        # El de ~30 días no se PINTA: a ese plazo manda el agente, y va a
+        # seguir mandando. Pero se GUARDA si quien llama pasa un `solapado`,
+        # porque sin él la pregunta «¿cuál de los dos imanes acierta más?» no
+        # se puede contestar nunca. Medido sobre los 162 scorecards del
+        # archivo: cero casos con el imán de Drift a 30 días, así que la
+        # comparación no tiene con qué empezar. Ya está calculado; tirarlo era
+        # lo único que costaba.
+        _destino = fuera
         if b.get("solapa_motor"):
-            continue                       # el de 30 días ya lo cubre el agente
+            if solapado is None:
+                continue                   # el de 30 días ya lo cubre el agente
+            _destino = solapado
         niveles = []
         _iman_lado = "call" if (b.get("magneto_nocional") or 0) >= 0 else "put"
         for strike, lado, lado_es_iman in (
@@ -5328,7 +5344,7 @@ def _tito_targets_drift(r, drift, cierres=None):
         if _esc is None:                   # no pasa: el bucket trae los tres
             _esc = {"bear": _e(p.bear), "base": _e(p.base), "bull": _e(p.bull),
                     "orden_invertido": False}
-        fuera[str(b["dte_objetivo"])] = {
+        _destino[str(b["dte_objetivo"])] = {
             "bear": _esc["bear"], "base": _esc["base"], "bull": _esc["bull"],
             "orden_invertido": _esc["orden_invertido"],
             "confidence": _tito_confianza_drift(p, b, sub, _hit.get("value"),

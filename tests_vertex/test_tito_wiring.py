@@ -2581,6 +2581,14 @@ class TestElPanelNoTiraNadaDelPayload:
         "levels_for_chart": "el recorte de niveles para la gráfica",
         "chart_geometry": "el cono y las rutas que dibuja la gráfica",
         "flow_error": "se promueve a `warnings[0]`, que sí se pinta",
+        # A 30 días manda el agente y se pinta el suyo. El de Drift se guarda
+        # SOLO para el archivo: es la única forma de que algún día el precio
+        # pueda decir cuál de los dos imanes acierta más, y hoy esa pregunta
+        # no tiene ni un caso. Pintarlo sería lo contrario de lo que toca:
+        # dos imanes del mismo plazo en pantalla sin saber cuál vale.
+        "drift_30": "el bucket de ~30 de Drift, guardado para poder comparar "
+                    "los dos imanes del mismo plazo; en pantalla va el del "
+                    "agente, que es el bueno para operar",
     }
 
     @staticmethod
@@ -6638,6 +6646,35 @@ class TestDriftEnLaRuta:
             assert g["em"] and g["em"]["sigma_pct"] > 0
             for k in ("bear", "base", "bull"):
                 assert k in g["paths"], f"{h}d: falta la ruta {k}"
+
+    def test_el_bucket_de_30_de_DRIFT_se_GUARDA_aunque_no_se_pinte(
+            self, client, cadena_larga):
+        """Los dos imanes del MISMO plazo, para poder compararlos algún día.
+
+        A 30 días manda el agente y eso no cambia: Drift resuelve a un mensual
+        que la mitad del calendario está a más de una semana de 30, y además no
+        puntúa. Pero hasta ahora su bucket de 30 se calculaba y se TIRABA, y por
+        eso la pregunta «¿cuál de los dos imanes acierta más?» no se puede
+        contestar: medido sobre los 162 scorecards guardados, hay **cero** casos
+        con el imán de Drift a 30 días.
+
+        Guardarlo no cuesta nada —ya está calculado— y es la única forma de que
+        dentro de unos meses el precio conteste. No se pinta: el panel sigue
+        enseñando el del agente a 30, que es el bueno para operar.
+        """
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        # Lo que el panel pinta NO cambia: el 30 sigue fuera de la tarjeta larga.
+        assert "30" not in (d.get("targets_drift") or {}), (
+            "el bucket de 30 se coló en los plazos largos y se pintaría")
+        g = d.get("drift_30")
+        assert g, "no se guardó el bucket de 30 de Drift"
+        for k in ("bear", "base", "bull"):
+            assert g[k]["target"] is not None, f"falta el nivel {k}"
+        assert g["dte_real"] is not None, (
+            "sin `dte_real` no se puede saber a cuántos días miró de verdad")
+        assert g["iman"] is not None, "falta el imán, que es lo que se compara"
+        # Y el del agente sigue estando, que es el otro lado de la comparación.
+        assert d["predictions"]["30"]["base"]["target"] is not None
 
     def test_el_cono_usa_la_IV_DE_ESE_PLAZO_no_la_de_la_cadena(
             self, client, cadena_larga):
