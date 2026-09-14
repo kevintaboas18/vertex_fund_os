@@ -6229,9 +6229,13 @@ async function vcFetchTargets(ticker) {
     const ctrl = new AbortController();
     const reloj = setTimeout(() => ctrl.abort(), VC_PLAZO_TARGETS_MS);
     try {
+        // `cache: 'no-store'` como los seis `fetch` suyos. El servidor ya
+        // manda `Cache-Control: no-store`, así que esto es cinturón y
+        // tirantes: si algún proxy intermedio se comiera la cabecera, el
+        // navegador seguiría pidiendo el precio de ahora y no el de antes.
         const r = await fetch(
             `${API_BASE}/api/projection-targets?ticker=${encodeURIComponent(ticker)}`,
-            { signal: ctrl.signal });
+            { signal: ctrl.signal, cache: 'no-store' });
         // Un 502/503 de Render devuelve HTML, no JSON: `r.json()` lanzaría un
         // «Unexpected token <» que no le dice nada a nadie. Se traduce.
         if (!r.ok) {

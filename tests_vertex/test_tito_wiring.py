@@ -7332,3 +7332,59 @@ class TestLaPolaridadDelMuroEsLaDeSuSTRIKE:
                 assert "γ+" in m and "acelera" not in m, m
             else:
                 assert "γ−" in m and "frenarse" not in m, m
+
+
+class TestElPrecioNoSeQuedaPegado:
+    """Con el mercado abierto, cada análisis trae el precio de AHORA.
+
+    Kevin lo vio en Proyecciones: reabría el tab con el mercado abierto y le
+    salía el mismo precio de antes. La ruta no cachea nada por dentro —cada
+    llamada recalcula— pero **la respuesta no decía que no se cacheara**, así
+    que el navegador (y cualquier proxy delante, que en Render lo hay) podía
+    servir la anterior. Es un GET sin cabeceras: cachearlo es lo que manda la
+    norma cuando nadie dice lo contrario.
+
+    Víctor no tiene este problema porque lo declara en las once rutas de su
+    app: diez llevan `export const dynamic = "force-dynamic"` y la única que no
+    es la del LOGO, que es una imagen. En Next.js eso significa exactamente
+    «no caches nunca esta respuesta». El equivalente aquí es la cabecera.
+
+    Y sus `fetch` de datos vivos van todos con `cache: "no-store"`, los seis.
+    """
+
+    #: Estáticos que SÍ deben seguir cacheados, como en su `logo/route.ts`.
+    ESTATICAS = ("/icon-192.png",)
+
+    def test_proyecciones_prohibe_cachear_la_respuesta(self, client):
+        r = client.get("/api/projection-targets?ticker=DEMO")
+        cc = (r.headers.get("cache-control") or "").lower()
+        assert "no-store" in cc, (
+            f"la respuesta no prohíbe cachearse (Cache-Control: {cc!r}), así "
+            "que el navegador puede devolver el precio de la llamada anterior")
+
+    def test_y_el_resto_de_rutas_vivas_tambien(self, client):
+        for ruta in ("/api/tito-health", "/api/almacen"):
+            r = client.get(ruta)
+            cc = (r.headers.get("cache-control") or "").lower()
+            assert "no-store" in cc, f"{ruta} no prohíbe cachearse: {cc!r}"
+
+    def test_pero_los_ESTATICOS_siguen_cacheados(self, client):
+        """Su excepción es el logo, y aquí tiene que seguir siéndolo: meterle
+        `no-store` a una imagen que no cambia es pagar ancho de banda en cada
+        carga a cambio de nada."""
+        for ruta in self.ESTATICAS:
+            r = client.get(ruta)
+            if r.status_code != 200:
+                continue
+            cc = (r.headers.get("cache-control") or "").lower()
+            assert "max-age" in cc and "no-store" not in cc, (
+                f"{ruta} perdió su caché: {cc!r}")
+
+    def test_el_panel_tambien_lo_pide_sin_cache(self):
+        """Cinturón y tirantes, y además es su convención: los seis `fetch` de
+        datos vivos de su repositorio llevan `cache: \"no-store\"`."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = h.index("/api/projection-targets?ticker=${encodeURIComponent(ticker)}")
+        trozo = h[i:i + 260]
+        assert "no-store" in trozo, (
+            "el fetch de Proyecciones no pide sin caché: " + trozo[:180])

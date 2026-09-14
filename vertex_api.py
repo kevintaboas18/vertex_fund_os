@@ -1200,6 +1200,36 @@ def _auth_ok(request) -> bool:
 
 
 @app.middleware("http")
+async def _sin_cache_lo_vivo(request, call_next):
+    """El equivalente de su `export const dynamic = "force-dynamic"`.
+
+    Diez de las once rutas de su app lo declaran; la única que no es la del
+    LOGO, que es una imagen. En Next.js eso significa exactamente «no caches
+    nunca esta respuesta», y sus seis `fetch` de datos vivos van además con
+    `cache: "no-store"`.
+
+    Aquí faltaba, y el síntoma era el que Kevin vio en Proyecciones: reabrir el
+    tab con el mercado abierto y leer el mismo precio de antes. La ruta no
+    cachea nada por dentro —cada llamada baja la cadena y recalcula— pero una
+    respuesta 200 a un GET **sin cabeceras** es cacheable por norma: el
+    navegador puede servir la anterior sin preguntar, y en Render hay además un
+    proxy delante. Un precio viejo presentado como el de ahora es justo lo que
+    este panel no puede hacer: el spot ancla los nodos del GEX, la ventana de
+    strikes, los niveles, el cono y los tres targets.
+
+    Solo toca `/api/`. Y NO pisa a quien ya puso la suya: el logo y el icono se
+    sirven con `max-age`, que es su excepción y aquí sigue siéndolo. Meterle
+    `no-store` a una imagen que no cambia es pagar ancho de banda en cada carga
+    a cambio de nada.
+    """
+    respuesta = await call_next(request)
+    if (request.url.path.startswith("/api/")
+            and "cache-control" not in respuesta.headers):
+        respuesta.headers["Cache-Control"] = "no-store"
+    return respuesta
+
+
+@app.middleware("http")
 async def _require_auth(request, call_next):
     path = request.url.path
     # Se resuelve el usuario ANTES de decidir, y se deja en el contexto de la
