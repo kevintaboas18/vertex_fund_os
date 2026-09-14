@@ -1,0 +1,27 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-09-14",
+  "_como_se_obtuvo": "Resuelto al analizar JCI. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 255000000000,
+  "_cita_verificada": "https://www.frost.com/",
+  "tam_source": "Frost & Sullivan + Global HVAC Equipment Market + 2025",
+  "tam_source_tier": 3,
+  "tam_anio": 2025,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial de equipos HVAC (calefacción, ventilación y aire acondicionado)",
+  "_capa_coincide": "Johnson Controls International (JCI) es un líder global en tecnologías de edificios, que cubre sistemas de HVAC, seguridad contra incendios, seguridad y sistemas de gestión de edificios. Su categoría de producto más grande son los sistemas de climatización y HVAC (comerciales).",
+  "_cita": "https://ww2.frost.com/research/industry/energy-environment/hvac-equipment-market-global-2026-2031/",
+  "_cita_textual": "The global HVAC Equipment Market was valued at USD 255.40 billion in 2025 and is projected to reach USD 383.60 billion by 2031, expanding at a CAGR of 7.0% during the forecast period.",
+  "tam_history": [
+    229850000000,
+    255400000000
+  ],
+  "_segmento_patrones": [
+    "hvac",
+    "heating ventilation air conditioning",
+    "building climate systems",
+    "building technologies"
+  ],
+  "_capa_juzgada": "no se pudo consultar la capa (gemini: ClientError 429 RESOURCE_EXHAUST)"
+}
