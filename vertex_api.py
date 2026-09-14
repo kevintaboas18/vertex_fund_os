@@ -4832,6 +4832,8 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     # ventana de strikes, los niveles, el cono y los tres targets: leerlos sin
     # saberlo es leerlos mal.
     out["spot_previo"] = bool(_meta_cadena.get("spot_previo"))
+    # De cuál de los tres escalones de su cascada salió. «cierre» es de ayer.
+    out["spot_fuente"] = _meta_cadena.get("spot_fuente")
     # El cono y las rutas, para los horizontes del agente Y para los de Drift.
     # Sin la segunda mitad, elegir «3 meses · Drift» dejaba la gráfica con
     # «Sin datos»: `renderVictorProjChart` busca el horizonte en el payload y
@@ -5813,6 +5815,40 @@ def _tito_tape(ticker):
     return trades, anchos, error
 
 
+def _spot_de_donde(precio_empresa, precio_cadena, cierre_barra):
+    """De qué escalón de SU cascada salió el spot: snapshot, cadena o cierre.
+
+    La cascada es suya y no se toca: `company.price ?? chainMeta.underlyingPrice
+    ?? bars[bars.length-1].close`. Lo que faltaba era decir cuál ganó.
+
+    Los dos primeros escalones son de HOY. El tercero es el cierre de la última
+    barra DIARIA —o sea de ayer— y encima `cached_daily_bars` las guarda un día
+    de mercado entero, así que no se refresca sola dentro de la sesión.
+
+    Sin esto, los tres se publicaban igual. Es lo que Kevin veía: $226 en el
+    reporte con la acción en $218. Ocho dólares no son minutos de retraso, son
+    otro día.
+    """
+    if precio_empresa is not None:
+        return "snapshot"
+    if precio_cadena is not None:
+        return "cadena"
+    if cierre_barra is not None:
+        return "cierre"
+    return None
+
+
+def _spot_es_previo(precio_empresa, precio_cadena, cierre_barra) -> bool:
+    """¿El spot que va a salir es de una sesión ANTERIOR?
+
+    Solo cuando gana el tercer escalón. El aviso `spot_previo` ya existía pero
+    únicamente se encendía si la cascada entera fallaba y había que bajar al
+    cierre a mano; si el tercer escalón devolvía un número bueno, `spot` quedaba
+    puesto, `_util(spot)` era cierto y el aviso no saltaba nunca.
+    """
+    return _spot_de_donde(precio_empresa, precio_cadena, cierre_barra) == "cierre"
+
+
 def _tito_chain_and_bars(ticker):
     """Cadena + barras diarias desde **Massive**, la fuente que usa Víctor.
 
@@ -5878,6 +5914,10 @@ def _tito_chain_and_bars(ticker):
                 return v
         return None
     spot = _nn(empresa.get("price"), chain_res.underlying_price, bars[-1].close)
+    # De qué escalón salió, ANTES de cualquier respaldo posterior. Los tres se
+    # publicaban igual y el tercero es el cierre de ayer.
+    _spot_fuente = _spot_de_donde(empresa.get("price"),
+                                  chain_res.underlying_price, bars[-1].close)
 
     def _util(v):
         return (isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0)
@@ -5902,7 +5942,10 @@ def _tito_chain_and_bars(ticker):
     # un error: `spot_previo` viaja al payload y el panel lo dice en pantalla.
     # La preocupación original —no presentar un precio viejo como si fuera de
     # ahora— se resuelve etiquetándolo, no matando el tab medio día.
-    spot_previo = False
+    # El cierre de la última barra diaria ES un precio de la sesión anterior,
+    # gane por la cascada o por el respaldo de abajo. Antes solo contaba el
+    # segundo camino, así que el primero salía sin etiqueta.
+    spot_previo = (_spot_fuente == "cierre")
     if not _util(spot):
         _sin_sesion = (not _util(empresa.get("price"))
                        and not _util(empresa.get("day_volume"))
@@ -5911,6 +5954,7 @@ def _tito_chain_and_bars(ticker):
             _respaldo = _nn(empresa.get("prev_close"), bars[-1].close)
             if _util(_respaldo):
                 spot, spot_previo = float(_respaldo), True
+                _spot_fuente = "cierre"
 
     if not _util(spot):
         # El mensaje SI mejora: un 0 y una clave mala se veian igual, y se
@@ -5938,7 +5982,8 @@ def _tito_chain_and_bars(ticker):
     # Massive — que la cadena llegó incompleta— y solo lo sabe esta función.
     return chain_res.rows, bars, float(spot), {"empresa": empresa,
                                                "truncated": chain_res.truncated,
-                                               "spot_previo": spot_previo}
+                                               "spot_previo": spot_previo,
+                                               "spot_fuente": _spot_fuente}
 
 
 def _tito_memory(ticker, trades, chain, bars, now):

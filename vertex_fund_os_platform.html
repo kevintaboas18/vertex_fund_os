@@ -7979,10 +7979,17 @@ function renderProjections(d) {
     // los nodos del GEX, la ventana de strikes, los niveles, el cono y los
     // tres targets. Leerlo creyendo que es de ahora es leerlo mal.
     const _previo = !!d.spot_previo;
+    // De cuál de los tres escalones de su cascada salió. «cierre» es la última
+    // barra DIARIA, o sea de ayer; «cadena» es el precio con el que Massive
+    // armó la cadena; «snapshot» es la última operación. Los tres se pintaban
+    // igual, y ocho dólares de diferencia se leían como si fueran de ahora.
+    const _fuente = d.spot_fuente || null;
+    const _pieSpot = _previo
+        ? 'cierre anterior · no es el precio de ahora'
+        : (_fuente === 'cadena' ? 'precio con el que Massive armó la cadena' : '');
 
     document.getElementById('projCards').innerHTML =
-        card('Spot', money(spot), _previo ? 'text-amber-300' : '',
-             _previo ? 'cierre anterior · sin sesión en curso' : '') +
+        card('Spot', money(spot), _previo ? 'text-amber-300' : '', _pieSpot) +
         dual('Muro de calls', cw, 'text-red-400',
              cwN ? 'GEX ' + fmtAbbr(cwN.net_gex) : '',
              dr30 ? dr30.muro_calls : null,

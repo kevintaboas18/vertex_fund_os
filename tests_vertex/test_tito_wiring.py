@@ -7388,3 +7388,71 @@ class TestElPrecioNoSeQuedaPegado:
         trozo = h[i:i + 260]
         assert "no-store" in trozo, (
             "el fetch de Proyecciones no pide sin caché: " + trozo[:180])
+
+
+class TestElSpotDICEdeDondeSale:
+    """Un precio de ayer no puede salir sin etiqueta.
+
+    La cascada es la suya: `company.price ?? chainMeta.underlyingPrice ??
+    bars[bars.length-1].close`. Los dos primeros son de HOY; el tercero es el
+    cierre de la última barra DIARIA, o sea de ayer. Y `cached_daily_bars`
+    guarda esas barras un día de mercado entero, así que no se refresca sola.
+
+    El aviso `spot_previo` solo se enciende cuando la cascada ENTERA falla y
+    hay que bajar al cierre a mano. Si el tercer escalón devuelve un número
+    bueno, `spot` queda puesto, `_util(spot)` es cierto y el aviso no se
+    enciende nunca: el cierre de ayer se publica como si fuera el precio de
+    ahora. Es la diferencia que Kevin ve entre $226 en el reporte y $218 en el
+    mercado — ocho dólares no son minutos de retraso, son otro día.
+
+    Lo que se arregla es la ETIQUETA, no el número: la cascada sigue siendo la
+    suya, en el mismo orden. Lo que no puede seguir es que los tres escalones
+    se presenten igual.
+    """
+
+    @staticmethod
+    def _corre(monkeypatch, precio_empresa, precio_cadena, cierre=218.0):
+        import vertex_api as V
+        from wbj.tito.structure import ChainRow
+
+        class _Cadena:
+            rows = [ChainRow(contract_type="call", expiration="2026-12-18",
+                             strike=220.0, open_interest=10, volume=1,
+                             notional=1.0, price=1.0)]
+            underlying_price = precio_cadena
+            truncated = False
+        class _Barra:
+            close = cierre
+            time = "2026-09-11"
+
+        monkeypatch.setattr(V, "fetch_option_chain", lambda *a, **k: _Cadena())
+        monkeypatch.setattr(V, "fetch_company",
+                            lambda *a, **k: {"price": precio_empresa})
+        monkeypatch.setattr(V, "_tito_bars", lambda *a, **k: [_Barra()], raising=False)
+        return V
+
+    def test_cuando_el_spot_sale_de_la_BARRA_se_marca_como_previo(self):
+        """El caso del medio: el snapshot no contesta, la cadena tampoco, y el
+        precio acaba siendo el cierre de la última barra diaria."""
+        import vertex_api as V
+        assert hasattr(V, "_spot_de_donde"), (
+            "no existe forma de saber de qué escalón salió el spot")
+        assert V._spot_de_donde(None, None, 218.0) == "cierre"
+        assert V._spot_de_donde(None, 219.0, 218.0) == "cadena"
+        assert V._spot_de_donde(220.0, 219.0, 218.0) == "snapshot"
+
+    def test_el_cierre_cuenta_como_precio_PREVIO(self):
+        """Y por tanto enciende el mismo aviso ámbar que ya existe."""
+        import vertex_api as V
+        assert V._spot_es_previo(None, None, 218.0) is True
+        assert V._spot_es_previo(None, 219.0, 218.0) is False
+        assert V._spot_es_previo(220.0, None, 218.0) is False
+
+    def test_la_ruta_publica_la_procedencia(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d.get("spot_fuente") in ("snapshot", "cadena", "cierre"), (
+            f"la ruta no dice de dónde salió el spot: {d.get('spot_fuente')!r}")
+
+    def test_el_panel_lo_PINTA(self):
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "spot_fuente" in h, "el panel no lee la procedencia del spot"
