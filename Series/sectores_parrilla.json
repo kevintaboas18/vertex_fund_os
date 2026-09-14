@@ -624,11 +624,11 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 15.84,
-      "cambio_pct": -11.21,
+      "precio": 17.58,
+      "cambio_pct": 10.98,
       "rsi": 50.4,
       "sma200": 18.12,
-      "sma200_dist": -12.57,
+      "sma200_dist": -2.97,
       "cambios": {
         "7D": 10.61,
         "1M": 8.87,
@@ -1587,5 +1587,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-09-14T03:23:38.756809+00:00"
+  "generado": "2026-09-14T12:45:03.428365+00:00"
 }
