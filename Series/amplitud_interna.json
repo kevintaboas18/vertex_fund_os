@@ -1,5 +1,5 @@
 {
-  "generado": "2026-09-14T02:58:38.211063+00:00",
+  "generado": "2026-09-15T15:30:17.433759+00:00",
   "sectores": {
     "XLK": {
       "pct": 66.7,
@@ -7,22 +7,20 @@
       "encima": [
         "AAPL",
         "ACN",
+        "ADBE",
         "AMD",
         "CRM",
         "IBM",
         "MSFT",
-        "NVDA",
         "ORCL"
       ],
       "miembros": 12,
       "motivo": null
     },
     "XLF": {
-      "pct": 50.0,
+      "pct": 30.0,
       "n": 10,
       "encima": [
-        "BAC",
-        "JPM",
         "MA",
         "V",
         "WFC"
@@ -31,10 +29,11 @@
       "motivo": null
     },
     "XLV": {
-      "pct": 41.7,
+      "pct": 50.0,
       "n": 12,
       "encima": [
         "ABBV",
+        "DHR",
         "JNJ",
         "MRK",
         "PFE",
@@ -44,47 +43,45 @@
       "motivo": null
     },
     "XLY": {
-      "pct": 20.0,
+      "pct": 10.0,
       "n": 10,
       "encima": [
-        "AMZN",
         "TSLA"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLC": {
-      "pct": 80.0,
+      "pct": 60.0,
       "n": 10,
       "encima": [
-        "CMCSA",
         "DIS",
         "EA",
         "META",
         "NFLX",
         "T",
-        "TMUS",
         "VZ"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLI": {
-      "pct": 20.0,
+      "pct": 10.0,
       "n": 10,
       "encima": [
-        "DE",
-        "ETN"
+        "DE"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLP": {
-      "pct": 40.0,
+      "pct": 60.0,
       "n": 10,
       "encima": [
         "KO",
         "MDLZ",
+        "MO",
+        "PG",
         "PM",
         "TGT"
       ],
@@ -109,20 +106,17 @@
       "motivo": null
     },
     "XLU": {
-      "pct": 10.0,
+      "pct": 0.0,
       "n": 10,
-      "encima": [
-        "CEG"
-      ],
+      "encima": [],
       "miembros": 10,
       "motivo": null
     },
     "XLRE": {
-      "pct": 20.0,
+      "pct": 10.0,
       "n": 10,
       "encima": [
-        "AMT",
-        "DLR"
+        "AMT"
       ],
       "miembros": 10,
       "motivo": null
