@@ -1,0 +1,28 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-09-17",
+  "_como_se_obtuvo": "Resuelto al analizar IBM. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 1870000000000,
+  "_cita_verificada": "https://marketanalysis.com/gartner-global-it-spending-to-hit-6-31-trillion-in-2026-driven-by-ai-infrastructure/",
+  "tam_source": "Gartner + Worldwide IT Spending Forecast + Abril 2026",
+  "tam_source_tier": 3,
+  "tam_anio": 2026,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial de servicios de TI (incluye consultoría, implementación, soporte y servicios gestionados)",
+  "_capa_coincide": "IBM factura en consultoría, servicios de infraestructura, servicios de aplicación y ofertas de nube, que están cubiertos bajo la categoría de servicios de TI de Gartner.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQElldrvjrs6j_L1vzKGlYTvNrQQ41qpJRIyoYex-o3zfuPQKQ9sfDtFCI9M5bvEDCxq5BXFzOPJE546yCIzbdmKjQlg-tQ_d9R9ndoC_0mc7ZvCOqmo13YEwjlbaYhGu5shUSgJ7TGwBHxfEwX1cxsQb2To9Cd8FV4AsYiQquP5w58oGJ3_cam-ViXd4hoMQrVabSzbs0UoiRGcvnN7OTDAk0MbWSkSEcIQ9w==",
+  "_cita_textual": "IT services remains the largest spending category overall, projected to surpass $1.87 trillion in 2026, up 9% from the prior year.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "tam_history": [
+    1715596330275,
+    1870000000000
+  ],
+  "_segmento_patrones": [
+    "consulting",
+    "infrastructure services",
+    "managed services",
+    "software (as a service)"
+  ],
+  "_capa_juzgada": "La cifra de Gartner mide el gasto mundial en servicios de TI (incluyendo consultoría, implementación, soporte y servicios gestionados), lo cual coincide con los principales segmentos de negocio de IBM donde factura por servicios de consultoría, servicios tecnológicos, y servicios gestionados."
+}
