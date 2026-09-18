@@ -1,0 +1,28 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-09-18",
+  "_como_se_obtuvo": "Resuelto al analizar VRTX. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 1700000000000,
+  "_cita_verificada": "https://www.iqvia.com/blogs/2026/03/iqvia-early-bird-2025-revealed",
+  "tam_source": "IQVIA Global Prescription Medicine Market 2025",
+  "tam_source_tier": 3,
+  "tam_anio": 2025,
+  "_ambito": "mundial",
+  "_capa": "ventas mundiales de medicamentos de prescripción",
+  "_capa_coincide": "Vertex Pharmaceuticals desarrolla y comercializa medicamentos, que son productos dentro del mercado de medicamentos de prescripción.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHAQ92AP5zRmT0DMqF1QvEfhPQq7ha1BBDDbq28YwX4XDV-k_IEbN4y5oCM1IxLPa9mO4s6v7U9oh5itUp2Rhwu1kCjoB9VCJT6uEy7CfdeAUYteveUYgL0Udx-scNAgAyLylad-izrM4oH7cZFdYdBRAiCpiY3491VxAZ8zw==",
+  "_cita_textual": "At list prices, the market reached ~$1.7 trillion, reflecting 10% year-on-year growth (Figure 1).",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "tam_history": [
+    1545454545455,
+    1700000000000
+  ],
+  "_segmento_patrones": [
+    "pharmaceutical",
+    "biopharmaceutical",
+    "medicine",
+    "drug"
+  ],
+  "_capa_juzgada": "no se pudo consultar la capa (gemini: ClientError 429 RESOURCE_EXHAUST)"
+}
