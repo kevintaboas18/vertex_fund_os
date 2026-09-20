@@ -1,0 +1,24 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-09-20",
+  "_como_se_obtuvo": "Resuelto al analizar TJX. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 1800000000000,
+  "_cita_verificada": "https://www.euromonitor.com/newsroom/press-releases/march-2026/sportswear-outpaces-apparel-market",
+  "tam_source": "Euromonitor International + World Market for Apparel and Footwear 2026 report + 2025",
+  "tam_source_tier": 3,
+  "tam_anio": 2025,
+  "_ambito": "mundial",
+  "_capa": "valor de venta minorista de ropa y calzado",
+  "_capa_coincide": "TJX factura en la venta minorista de ropa y calzado a los consumidores.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGCviAgnijbcc-o7rTrSCw6CwiJeyRy9ek-RsO9F3NvxngkQ8D83QMFtwH-T3XV2DOwytYXJ8yHmWR5XKdhK8lKryvx5WcDCy2cqrdIofmG5MMeuggrIHlXT-J9avcuRT-C4qL9C0i7p3cXeGnL_C3H1Vsi9eQSkk8hBI9dRgComQTIopXc883M7z4XjEJ7P8kZ004u3ixARKSTMn0",
+  "_cita_textual": "Findings from Euromonitor's World Market for Apparel and Footwear 2026 report show the global apparel and footwear market was valued at USD1.8 trillion in 2025",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "_segmento_patrones": [
+    "apparel",
+    "clothing",
+    "footwear",
+    "retail"
+  ],
+  "_capa_juzgada": "no se pudo consultar la capa (gemini: ClientError 429 RESOURCE_EXHAUST)"
+}
