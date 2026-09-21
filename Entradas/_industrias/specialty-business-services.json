@@ -1,0 +1,23 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-09-21",
+  "_como_se_obtuvo": "Resuelto al analizar CTAS. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 3000000000000,
+  "_cita_verificada": "https://www.jll.com/en-us/newsroom/dollar3-trillion-fm-market-navigates-shifting-economic-and-tech-landscape",
+  "tam_source": "JLL Global State of Facilities Management Report 2025",
+  "tam_source_tier": 3,
+  "tam_anio": 2026,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial de servicios de gestión de instalaciones",
+  "_capa_coincide": "CTAS factura en servicios de gestión de instalaciones (servicios para instalaciones, primeros auxilios y seguridad, y servicios de protección contra incendios), que son parte del mercado de gestión de instalaciones.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFnSHCJhQ6NjKfijGF2_7XdjQq95uBukwIokWvFOo5eBX-d8HGc3dbn6u2db_6S1j2DkvVJw8QAIPIrbHgQdlVlB_MRdxhDghZG8acuCHlZ-6V1ZiZ7-2JCngk7vlPDXMaTn9IU5hWf2mmctrfTZwjLcMdlmgJG49GCIJz7BjkplXlZwQ9DuZue_5dNWiNvEkHZxmujZv5xuZr1jNe2rEn62N71ytpI",
+  "_cita_textual": "The global facilities management (FM) industry continues its rapid growth, with total spending projected to surpass $3 trillion by 2026.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "_segmento_patrones": [
+    "uniform rental and facility services",
+    "first aid and safety services",
+    "fire protection services"
+  ],
+  "_capa_juzgada": "no se pudo consultar la capa (gemini: ServerError 503 UNAVAILABLE. {'e)"
+}
