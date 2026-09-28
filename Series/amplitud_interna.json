@@ -1,12 +1,11 @@
 {
-  "generado": "2026-09-25T15:46:23.125937+00:00",
+  "generado": "2026-09-28T18:33:27.453761+00:00",
   "sectores": {
     "XLK": {
-      "pct": 58.3,
+      "pct": 50.0,
       "n": 12,
       "encima": [
         "AAPL",
-        "ACN",
         "AMD",
         "CRM",
         "MSFT",
@@ -17,14 +16,16 @@
       "motivo": null
     },
     "XLF": {
-      "pct": 0.0,
+      "pct": 10.0,
       "n": 10,
-      "encima": [],
+      "encima": [
+        "V"
+      ],
       "miembros": 10,
       "motivo": null
     },
     "XLV": {
-      "pct": 66.7,
+      "pct": 75.0,
       "n": 12,
       "encima": [
         "ABBV",
@@ -32,6 +33,7 @@
         "DHR",
         "ISRG",
         "JNJ",
+        "LLY",
         "MRK",
         "PFE",
         "TMO"
@@ -71,20 +73,21 @@
       "motivo": null
     },
     "XLP": {
-      "pct": 20.0,
+      "pct": 40.0,
       "n": 10,
       "encima": [
-        "KO",
+        "MO",
+        "PG",
+        "PM",
         "TGT"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLE": {
-      "pct": 60.0,
+      "pct": 50.0,
       "n": 10,
       "encima": [
-        "COP",
         "CVX",
         "MPC",
         "PSX",
@@ -109,9 +112,10 @@
       "motivo": null
     },
     "XLB": {
-      "pct": 20.0,
+      "pct": 30.0,
       "n": 10,
       "encima": [
+        "ECL",
         "FCX",
         "NEM"
       ],
