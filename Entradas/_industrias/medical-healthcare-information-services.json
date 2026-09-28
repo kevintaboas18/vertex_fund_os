@@ -1,0 +1,29 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-09-28",
+  "_como_se_obtuvo": "Resuelto al analizar TEM. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 809140000000,
+  "_cita_verificada": "https://store.frost.com/growth-opportunities-in-the-global-healthcare-it-industry-2026.html",
+  "tam_source": "Frost & Sullivan - Global Healthcare IT Market Growth Opportunities, 2026",
+  "tam_source_tier": 3,
+  "tam_anio": 2026,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial de soluciones y servicios de TI para el sector sanitario (Healthcare IT)",
+  "_capa_coincide": "TEM compite en la industria de 'Medical - Healthcare Information Services', lo que implica la provisión de soluciones de software, análisis de datos, servicios gestionados y consultoría a proveedores, pagadores y empresas de ciencias de la vida en el sector sanitario. La capa de mercado de 'Healthcare IT' medida por Frost & Sullivan abarca las inversiones de la empresa en plataformas tecnológicas para proveedores, pacientes y pagadores, lo que coincide directamente con los servicios que TEM facturaría.",
+  "_cita": "https://store.frost.com/growth-opportunities-in-the-global-healthcare-it-industry-2026.html",
+  "_cita_textual": "The healthcare IT market is projected to grow from approximately $700.54 billion in 2025 to $809.14 billion in 2026, representing an estimated 15.5% annual growth rate.",
+  "tam_history": [
+    700540000000,
+    809140000000
+  ],
+  "_segmento_patrones": [
+    "healthcare it",
+    "digital health",
+    "medical information services",
+    "provider it",
+    "payer it",
+    "patient it"
+  ],
+  "_capa_juzgada": "no se pudo consultar la capa (gemini: ClientError 429 RESOURCE_EXHAUST)"
+}
