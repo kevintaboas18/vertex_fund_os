@@ -1,14 +1,15 @@
 {
-  "generado": "2026-10-01T17:19:27.624167+00:00",
+  "generado": "2026-10-03T14:30:20.221260+00:00",
   "sectores": {
     "XLK": {
-      "pct": 58.3,
+      "pct": 66.7,
       "n": 12,
       "encima": [
         "AAPL",
         "ACN",
         "AMD",
         "CRM",
+        "CSCO",
         "MSFT",
         "NVDA",
         "TXN"
@@ -24,11 +25,10 @@
       "motivo": null
     },
     "XLV": {
-      "pct": 58.3,
+      "pct": 50.0,
       "n": 12,
       "encima": [
         "ABBV",
-        "AMGN",
         "DHR",
         "ISRG",
         "MRK",
@@ -105,9 +105,11 @@
       "motivo": null
     },
     "XLB": {
-      "pct": 0.0,
+      "pct": 10.0,
       "n": 10,
-      "encima": [],
+      "encima": [
+        "FCX"
+      ],
       "miembros": 10,
       "motivo": null
     }
