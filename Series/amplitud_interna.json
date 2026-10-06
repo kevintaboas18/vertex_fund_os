@@ -1,38 +1,40 @@
 {
-  "generado": "2026-10-03T14:30:20.221260+00:00",
+  "generado": "2026-10-06T17:05:20.243394+00:00",
   "sectores": {
     "XLK": {
-      "pct": 66.7,
+      "pct": 83.3,
       "n": 12,
       "encima": [
         "AAPL",
         "ACN",
         "AMD",
+        "AVGO",
         "CRM",
         "CSCO",
         "MSFT",
         "NVDA",
+        "ORCL",
         "TXN"
       ],
       "miembros": 12,
       "motivo": null
     },
     "XLF": {
-      "pct": 0.0,
+      "pct": 10.0,
       "n": 10,
-      "encima": [],
+      "encima": [
+        "V"
+      ],
       "miembros": 10,
       "motivo": null
     },
     "XLV": {
-      "pct": 50.0,
+      "pct": 33.3,
       "n": 12,
       "encima": [
         "ABBV",
         "DHR",
         "ISRG",
-        "MRK",
-        "PFE",
         "TMO"
       ],
       "miembros": 12,
@@ -48,10 +50,11 @@
       "motivo": null
     },
     "XLC": {
-      "pct": 20.0,
+      "pct": 30.0,
       "n": 10,
       "encima": [
         "EA",
+        "GOOGL",
         "META"
       ],
       "miembros": 10,
@@ -69,46 +72,57 @@
       "motivo": null
     },
     "XLP": {
-      "pct": 10.0,
+      "pct": 30.0,
       "n": 10,
       "encima": [
-        "TGT"
+        "MO",
+        "PG",
+        "PM"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLE": {
-      "pct": 50.0,
+      "pct": 80.0,
       "n": 10,
       "encima": [
+        "COP",
         "CVX",
+        "EOG",
         "MPC",
         "PSX",
         "VLO",
+        "WMB",
         "XOM"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLU": {
-      "pct": 0.0,
+      "pct": 10.0,
       "n": 10,
-      "encima": [],
+      "encima": [
+        "CEG"
+      ],
       "miembros": 10,
       "motivo": null
     },
     "XLRE": {
-      "pct": 0.0,
+      "pct": 10.0,
       "n": 10,
-      "encima": [],
+      "encima": [
+        "EQIX"
+      ],
       "miembros": 10,
       "motivo": null
     },
     "XLB": {
-      "pct": 10.0,
+      "pct": 30.0,
       "n": 10,
       "encima": [
-        "FCX"
+        "ECL",
+        "FCX",
+        "LIN"
       ],
       "miembros": 10,
       "motivo": null
