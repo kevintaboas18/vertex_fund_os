@@ -1,0 +1,26 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-10-08",
+  "_como_se_obtuvo": "Resuelto al analizar ISRG. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 589900000000,
+  "_cita_verificada": "https://www.frost.com/",
+  "tam_source": "Frost & Sullivan + Global Medical Devices Market + 2025",
+  "tam_source_tier": 3,
+  "tam_anio": 2025,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial de dispositivos médicos",
+  "_capa_coincide": "ISRG factura en la fabricación y venta de sistemas quirúrgicos robóticos, instrumentos y accesorios asociados, que son una parte integral del mercado global de dispositivos médicos.",
+  "_cita": "https://www.frostandsullivan.com/report/medical-devices-market-share-growth-forecast/",
+  "_cita_textual": "The global Medical Devices Market size was valued at USD 589.9 billion in 2025 and is projected to reach USD 954.3 billion by 2031, expanding at a CAGR of 6.7% to 8.3% during the forecast period.",
+  "tam_history": [
+    545380000000,
+    589900000000
+  ],
+  "_segmento_patrones": [
+    "robotic surgical systems",
+    "surgical instruments",
+    "medical devices"
+  ],
+  "_capa_juzgada": "La cifra mide la facturación mundial de dispositivos médicos, y ISRG factura directamente por la venta de dispositivos médicos y servicios relacionados."
+}
