@@ -1,5 +1,5 @@
 {
-  "generado": "2026-10-08T17:47:42.713300+00:00",
+  "generado": "2026-10-11T22:15:44.176152+00:00",
   "sectores": {
     "XLK": {
       "pct": 66.7,
@@ -28,12 +28,15 @@
       "motivo": null
     },
     "XLV": {
-      "pct": 41.7,
+      "pct": 66.7,
       "n": 12,
       "encima": [
         "ABBV",
+        "AMGN",
         "DHR",
         "ISRG",
+        "LLY",
+        "MRK",
         "PFE",
         "TMO"
       ],
@@ -41,9 +44,10 @@
       "motivo": null
     },
     "XLY": {
-      "pct": 10.0,
+      "pct": 20.0,
       "n": 10,
       "encima": [
+        "AMZN",
         "TSLA"
       ],
       "miembros": 10,
@@ -62,17 +66,20 @@
       "motivo": null
     },
     "XLI": {
-      "pct": 0.0,
+      "pct": 10.0,
       "n": 10,
-      "encima": [],
+      "encima": [
+        "ETN"
+      ],
       "miembros": 10,
       "motivo": null
     },
     "XLP": {
-      "pct": 50.0,
+      "pct": 60.0,
       "n": 10,
       "encima": [
         "COST",
+        "KO",
         "MO",
         "PG",
         "PM",
@@ -107,17 +114,21 @@
       "motivo": null
     },
     "XLRE": {
-      "pct": 0.0,
+      "pct": 20.0,
       "n": 10,
-      "encima": [],
+      "encima": [
+        "AMT",
+        "CCI"
+      ],
       "miembros": 10,
       "motivo": null
     },
     "XLB": {
-      "pct": 20.0,
+      "pct": 30.0,
       "n": 10,
       "encima": [
         "ECL",
+        "FCX",
         "LIN"
       ],
       "miembros": 10,
