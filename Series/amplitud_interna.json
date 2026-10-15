@@ -1,41 +1,45 @@
 {
-  "generado": "2026-10-13T18:03:42.493161+00:00",
+  "generado": "2026-10-15T15:32:44.572005+00:00",
   "sectores": {
     "XLK": {
-      "pct": 66.7,
+      "pct": 58.3,
       "n": 12,
       "encima": [
         "AAPL",
         "ACN",
         "AMD",
         "CRM",
-        "CSCO",
+        "IBM",
         "MSFT",
-        "NVDA",
         "TXN"
       ],
       "miembros": 12,
       "motivo": null
     },
     "XLF": {
-      "pct": 20.0,
+      "pct": 30.0,
       "n": 10,
       "encima": [
         "MA",
+        "SPGI",
         "V"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLV": {
-      "pct": 41.7,
+      "pct": 75.0,
       "n": 12,
       "encima": [
         "ABBV",
+        "AMGN",
         "DHR",
         "ISRG",
+        "LLY",
+        "MRK",
         "PFE",
-        "TMO"
+        "TMO",
+        "UNH"
       ],
       "miembros": 12,
       "motivo": null
@@ -44,7 +48,7 @@
       "pct": 30.0,
       "n": 10,
       "encima": [
-        "AMZN",
+        "ORLY",
         "TJX",
         "TSLA"
       ],
@@ -64,71 +68,78 @@
       "motivo": null
     },
     "XLI": {
-      "pct": 0.0,
+      "pct": 10.0,
       "n": 10,
-      "encima": [],
+      "encima": [
+        "DE"
+      ],
       "miembros": 10,
       "motivo": null
     },
     "XLP": {
-      "pct": 70.0,
+      "pct": 90.0,
       "n": 10,
       "encima": [
         "CL",
         "COST",
         "KO",
+        "MDLZ",
         "MO",
         "PG",
         "PM",
+        "TGT",
         "WMT"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLE": {
-      "pct": 90.0,
+      "pct": 70.0,
       "n": 10,
       "encima": [
         "COP",
         "CVX",
         "EOG",
         "MPC",
-        "OKE",
         "PSX",
         "VLO",
-        "WMB",
         "XOM"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLU": {
-      "pct": 30.0,
+      "pct": 40.0,
       "n": 10,
       "encima": [
         "AEP",
-        "CEG",
-        "SO"
+        "DUK",
+        "SO",
+        "XEL"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLRE": {
-      "pct": 20.0,
+      "pct": 30.0,
       "n": 10,
       "encima": [
         "AMT",
-        "CCI"
+        "CCI",
+        "WELL"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLB": {
-      "pct": 20.0,
+      "pct": 50.0,
       "n": 10,
       "encima": [
+        "APD",
+        "DOW",
         "ECL",
-        "LIN"
+        "LIN",
+        "SHW"
       ],
       "miembros": 10,
       "motivo": null
