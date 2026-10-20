@@ -1,0 +1,27 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-10-20",
+  "_como_se_obtuvo": "Resuelto al analizar SN. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 298000000000,
+  "_cita_verificada": "https://www.euromonitor.com/the-world-market-for-major-appliances/report",
+  "tam_source": "Euromonitor International + The World Market for Major Appliances + 2025",
+  "tam_source_tier": 3,
+  "tam_anio": 2025,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial de electrodomésticos principales",
+  "_capa_coincide": "Este es un segmento clave dentro de la industria de 'Furnishings, Fixtures & Appliances' en la que SN opera, cubriendo la parte de los productos finales de 'Appliances'.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE8mQc5sMYZ-0Jnz0V4M1G-VN-vQ6yRrI0EKz31Ni8ggNtFLYrTk6OBscLYGnmOGSNA0KKF7DTR2ZsUs88vKsudraewT4tnDH7lqjxP6QlvjBHTIXD-a-0I9w_54-c6X558_oPddqVDZMq0MdJQDUtZGVQFVV6ntN6HnqfprdkDvGEXfA==",
+  "_cita_textual": "The global major appliances market reached 570 million units and USD298 billion in 2025.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "tam_history": [
+    298000000000,
+    298000000000
+  ],
+  "_segmento_patrones": [
+    "major appliances",
+    "appliances",
+    "electrodomésticos"
+  ],
+  "_capa_juzgada": "no se pudo consultar la capa (gemini: ClientError 429 RESOURCE_EXHAUST)"
+}
