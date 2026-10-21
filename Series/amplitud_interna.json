@@ -1,76 +1,62 @@
 {
-  "generado": "2026-10-19T17:23:22.071263+00:00",
+  "generado": "2026-10-21T15:53:07.143259+00:00",
   "sectores": {
     "XLK": {
-      "pct": 58.3,
-      "n": 12,
+      "pct": 66.7,
+      "n": 6,
       "encima": [
         "AAPL",
-        "ACN",
+        "ADBE",
         "AMD",
-        "CRM",
-        "IBM",
-        "MSFT",
-        "TXN"
+        "MSFT"
       ],
       "miembros": 12,
       "motivo": null
     },
     "XLF": {
-      "pct": 40.0,
-      "n": 10,
+      "pct": 20.0,
+      "n": 5,
       "encima": [
-        "BLK",
-        "MA",
-        "SPGI",
         "V"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLV": {
-      "pct": 66.7,
-      "n": 12,
+      "pct": 75.0,
+      "n": 4,
       "encima": [
         "ABBV",
-        "AMGN",
-        "DHR",
-        "ISRG",
-        "LLY",
         "PFE",
-        "TMO",
         "UNH"
       ],
       "miembros": 12,
       "motivo": null
     },
     "XLY": {
-      "pct": 40.0,
-      "n": 10,
+      "pct": 75.0,
+      "n": 4,
       "encima": [
         "AMZN",
-        "ORLY",
-        "TJX",
+        "NKE",
         "TSLA"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLC": {
-      "pct": 40.0,
-      "n": 10,
+      "pct": 33.3,
+      "n": 6,
       "encima": [
         "DIS",
-        "EA",
-        "GOOGL",
         "META"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLI": {
-      "pct": 10.0,
-      "n": 10,
+      "pct": 33.3,
+      "n": 3,
       "encima": [
         "LMT"
       ],
@@ -79,68 +65,44 @@
     },
     "XLP": {
       "pct": 80.0,
-      "n": 10,
+      "n": 5,
       "encima": [
-        "CL",
         "COST",
         "KO",
-        "MDLZ",
-        "MO",
-        "PG",
-        "PM",
+        "PEP",
         "WMT"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLE": {
-      "pct": 70.0,
-      "n": 10,
+      "pct": 100.0,
+      "n": 2,
       "encima": [
-        "COP",
         "CVX",
-        "EOG",
-        "MPC",
-        "PSX",
-        "VLO",
         "XOM"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLU": {
-      "pct": 40.0,
-      "n": 10,
-      "encima": [
-        "AEP",
-        "DUK",
-        "SO",
-        "XEL"
-      ],
+      "pct": null,
+      "n": 0,
+      "encima": [],
       "miembros": 10,
       "motivo": null
     },
     "XLRE": {
-      "pct": 30.0,
-      "n": 10,
-      "encima": [
-        "AMT",
-        "CCI",
-        "WELL"
-      ],
+      "pct": null,
+      "n": 0,
+      "encima": [],
       "miembros": 10,
       "motivo": null
     },
     "XLB": {
-      "pct": 50.0,
-      "n": 10,
-      "encima": [
-        "APD",
-        "DOW",
-        "ECL",
-        "LIN",
-        "NUE"
-      ],
+      "pct": null,
+      "n": 0,
+      "encima": [],
       "miembros": 10,
       "motivo": null
     }
