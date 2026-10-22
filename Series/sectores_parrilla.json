@@ -22,42 +22,42 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 772.68,
-      "cambio_pct": 0.47,
-      "rsi": 53.3,
-      "sma200": 726.29,
-      "sma200_dist": 6.39,
+      "precio": 763.39,
+      "cambio_pct": -1.25,
+      "rsi": 44.7,
+      "sma200": 726.65,
+      "sma200_dist": 5.06,
       "cambios": {
-        "7D": 0.42,
-        "1M": -0.07,
-        "3M": 4.7,
-        "6M": 8.67,
-        "1A": 15.13
+        "7D": -1.09,
+        "1M": -0.58,
+        "3M": 3.31,
+        "6M": 7.75,
+        "1A": 13.72
       },
       "volumen": {
         "7D": {
-          "medio": 38157147,
+          "medio": 37382696,
           "relativo": 0.9,
           "respalda": false
         },
         "1M": {
-          "medio": 39872099,
+          "medio": 39131988,
           "relativo": 0.94,
           "respalda": false
         },
         "3M": {
-          "medio": 42359046,
-          "relativo": 1.0,
+          "medio": 42273449,
+          "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 47198896,
-          "relativo": 1.12,
+          "medio": 47065684,
+          "relativo": 1.13,
           "respalda": false
         },
         "1A": {
-          "medio": 64610670,
-          "relativo": 1.53,
+          "medio": 64543766,
+          "relativo": 1.55,
           "respalda": true
         }
       }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 16.72,
-      "cambio_pct": -3.41,
-      "rsi": 51.9,
-      "sma200": 18.14,
-      "sma200_dist": -7.85,
+      "precio": 18.76,
+      "cambio_pct": 12.47,
+      "rsi": 59.4,
+      "sma200": 18.16,
+      "sma200_dist": 3.28,
       "cambios": {
-        "7D": -1.01,
-        "1M": 17.52,
-        "3M": -10.7,
-        "6M": -11.73,
-        "1A": -8.39
+        "7D": 14.28,
+        "1M": 23.91,
+        "3M": 1.24,
+        "6M": -2.59,
+        "1A": 5.26
       },
       "volumen": {
         "7D": {
@@ -974,78 +974,64 @@
     }
   },
   "interna": {
-    "generado": "2026-10-19T17:23:22.071263+00:00",
+    "generado": "2026-10-21T15:53:07.143259+00:00",
     "sectores": {
       "XLK": {
-        "pct": 58.3,
-        "n": 12,
+        "pct": 66.7,
+        "n": 6,
         "encima": [
           "AAPL",
-          "ACN",
+          "ADBE",
           "AMD",
-          "CRM",
-          "IBM",
-          "MSFT",
-          "TXN"
+          "MSFT"
         ],
         "miembros": 12,
         "motivo": null
       },
       "XLF": {
-        "pct": 40.0,
-        "n": 10,
+        "pct": 20.0,
+        "n": 5,
         "encima": [
-          "BLK",
-          "MA",
-          "SPGI",
           "V"
         ],
         "miembros": 10,
         "motivo": null
       },
       "XLV": {
-        "pct": 66.7,
-        "n": 12,
+        "pct": 75.0,
+        "n": 4,
         "encima": [
           "ABBV",
-          "AMGN",
-          "DHR",
-          "ISRG",
-          "LLY",
           "PFE",
-          "TMO",
           "UNH"
         ],
         "miembros": 12,
         "motivo": null
       },
       "XLY": {
-        "pct": 40.0,
-        "n": 10,
+        "pct": 75.0,
+        "n": 4,
         "encima": [
           "AMZN",
-          "ORLY",
-          "TJX",
+          "NKE",
           "TSLA"
         ],
         "miembros": 10,
         "motivo": null
       },
       "XLC": {
-        "pct": 40.0,
-        "n": 10,
+        "pct": 33.3,
+        "n": 6,
         "encima": [
           "DIS",
-          "EA",
-          "GOOGL",
           "META"
         ],
         "miembros": 10,
         "motivo": null
       },
       "XLI": {
-        "pct": 10.0,
-        "n": 10,
+        "pct": 33.3,
+        "n": 3,
         "encima": [
           "LMT"
         ],
@@ -1054,73 +1040,49 @@
       },
       "XLP": {
         "pct": 80.0,
-        "n": 10,
+        "n": 5,
         "encima": [
-          "CL",
           "COST",
           "KO",
-          "MDLZ",
-          "MO",
-          "PG",
-          "PM",
+          "PEP",
           "WMT"
         ],
         "miembros": 10,
         "motivo": null
       },
       "XLE": {
-        "pct": 70.0,
-        "n": 10,
+        "pct": 100.0,
+        "n": 2,
         "encima": [
-          "COP",
           "CVX",
-          "EOG",
-          "MPC",
-          "PSX",
-          "VLO",
           "XOM"
         ],
         "miembros": 10,
         "motivo": null
       },
       "XLU": {
-        "pct": 40.0,
-        "n": 10,
-        "encima": [
-          "AEP",
-          "DUK",
-          "SO",
-          "XEL"
-        ],
+        "pct": null,
+        "n": 0,
+        "encima": [],
         "miembros": 10,
         "motivo": null
       },
       "XLRE": {
-        "pct": 30.0,
-        "n": 10,
-        "encima": [
-          "AMT",
-          "CCI",
-          "WELL"
-        ],
+        "pct": null,
+        "n": 0,
+        "encima": [],
         "miembros": 10,
         "motivo": null
       },
       "XLB": {
-        "pct": 50.0,
-        "n": 10,
-        "encima": [
-          "APD",
-          "DOW",
-          "ECL",
-          "LIN",
-          "NUE"
-        ],
+        "pct": null,
+        "n": 0,
+        "encima": [],
         "miembros": 10,
         "motivo": null
       }
     }
   },
   "motivo": null,
-  "generado": "2026-10-21T15:53:07.143625+00:00"
+  "generado": "2026-10-22T15:49:53.558050+00:00"
 }
