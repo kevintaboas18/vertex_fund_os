@@ -1,13 +1,12 @@
 {
-  "generado": "2026-10-21T15:53:07.143259+00:00",
+  "generado": "2026-10-23T15:41:11.863327+00:00",
   "sectores": {
     "XLK": {
-      "pct": 66.7,
+      "pct": 50.0,
       "n": 6,
       "encima": [
         "AAPL",
         "ADBE",
-        "AMD",
         "MSFT"
       ],
       "miembros": 12,
@@ -37,19 +36,18 @@
       "pct": 75.0,
       "n": 4,
       "encima": [
-        "AMZN",
         "NKE",
+        "SBUX",
         "TSLA"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLC": {
-      "pct": 33.3,
+      "pct": 16.7,
       "n": 6,
       "encima": [
-        "DIS",
-        "META"
+        "DIS"
       ],
       "miembros": 10,
       "motivo": null
