@@ -1,12 +1,12 @@
 {
-  "generado": "2026-10-23T15:41:11.863327+00:00",
+  "generado": "2026-10-26T17:11:34.521031+00:00",
   "sectores": {
     "XLK": {
       "pct": 50.0,
       "n": 6,
       "encima": [
         "AAPL",
-        "ADBE",
+        "CSCO",
         "MSFT"
       ],
       "miembros": 12,
