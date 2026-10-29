@@ -1,5 +1,5 @@
 {
-  "generado": "2026-10-28T17:03:18.781624+00:00",
+  "generado": "2026-10-29T17:21:16.136819+00:00",
   "sectores": {
     "XLK": {
       "pct": 50.0,
@@ -13,10 +13,12 @@
       "motivo": null
     },
     "XLF": {
-      "pct": 20.0,
+      "pct": 60.0,
       "n": 5,
       "encima": [
-        "V"
+        "JPM",
+        "V",
+        "WFC"
       ],
       "miembros": 10,
       "motivo": null

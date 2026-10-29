@@ -22,41 +22,41 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 771.74,
-      "cambio_pct": 0.27,
-      "rsi": 52.8,
-      "sma200": 728.15,
-      "sma200_dist": 5.99,
+      "precio": 768.34,
+      "cambio_pct": -0.51,
+      "rsi": 49.8,
+      "sma200": 728.52,
+      "sma200_dist": 5.47,
       "cambios": {
-        "7D": -0.18,
-        "1M": 0.98,
-        "3M": 4.05,
-        "6M": 8.45,
-        "1A": 12.62
+        "7D": 0.59,
+        "1M": 0.77,
+        "3M": 2.87,
+        "6M": 6.93,
+        "1A": 11.85
       },
       "volumen": {
         "7D": {
-          "medio": 31458330,
-          "relativo": 0.79,
+          "medio": 28162223,
+          "relativo": 0.71,
           "respalda": false
         },
         "1M": {
-          "medio": 38188160,
-          "relativo": 0.96,
+          "medio": 37022758,
+          "relativo": 0.93,
           "respalda": false
         },
         "3M": {
-          "medio": 40910642,
-          "relativo": 1.03,
+          "medio": 40516843,
+          "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 46884259,
+          "medio": 46649304,
           "relativo": 1.18,
           "respalda": false
         },
         "1A": {
-          "medio": 63974601,
+          "medio": 63878960,
           "relativo": 1.61,
           "respalda": true
         }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 17.39,
-      "cambio_pct": -0.74,
-      "rsi": 52.0,
+      "precio": 16.55,
+      "cambio_pct": -2.13,
+      "rsi": 48.6,
       "sma200": 18.23,
-      "sma200_dist": -4.59,
+      "sma200_dist": -9.2,
       "cambios": {
-        "7D": 4.08,
-        "1M": 8.23,
-        "3M": 1.58,
-        "6M": -7.71,
-        "1A": 9.94
+        "7D": -13.24,
+        "1M": 1.04,
+        "3M": 3.25,
+        "6M": -2.25,
+        "1A": 0.55
       },
       "volumen": {
         "7D": {
@@ -974,14 +974,14 @@
     }
   },
   "interna": {
-    "generado": "2026-10-26T17:11:34.521031+00:00",
+    "generado": "2026-10-28T17:03:18.781624+00:00",
     "sectores": {
       "XLK": {
         "pct": 50.0,
         "n": 6,
         "encima": [
           "AAPL",
-          "CSCO",
+          "AMD",
           "MSFT"
         ],
         "miembros": 12,
@@ -997,10 +997,11 @@
         "motivo": null
       },
       "XLV": {
-        "pct": 75.0,
+        "pct": 100.0,
         "n": 4,
         "encima": [
           "ABBV",
+          "JNJ",
           "PFE",
           "UNH"
         ],
@@ -1037,12 +1038,11 @@
         "motivo": null
       },
       "XLP": {
-        "pct": 80.0,
+        "pct": 60.0,
         "n": 5,
         "encima": [
           "COST",
           "KO",
-          "PEP",
           "WMT"
         ],
         "miembros": 10,
@@ -1082,5 +1082,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-10-28T17:03:18.781703+00:00"
+  "generado": "2026-10-29T17:21:16.137047+00:00"
 }
