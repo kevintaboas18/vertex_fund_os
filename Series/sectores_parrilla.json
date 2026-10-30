@@ -22,42 +22,42 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 768.34,
-      "cambio_pct": -0.51,
-      "rsi": 49.8,
-      "sma200": 728.52,
-      "sma200_dist": 5.47,
+      "precio": 755.82,
+      "cambio_pct": -1.76,
+      "rsi": 40.4,
+      "sma200": 728.86,
+      "sma200_dist": 3.7,
       "cambios": {
-        "7D": 0.59,
-        "1M": 0.77,
-        "3M": 2.87,
-        "6M": 6.93,
-        "1A": 11.85
+        "7D": -0.51,
+        "1M": -1.03,
+        "3M": -0.21,
+        "6M": 4.92,
+        "1A": 10.0
       },
       "volumen": {
         "7D": {
-          "medio": 28162223,
-          "relativo": 0.71,
+          "medio": 30890957,
+          "relativo": 0.78,
           "respalda": false
         },
         "1M": {
-          "medio": 37022758,
+          "medio": 36992224,
           "relativo": 0.93,
           "respalda": false
         },
         "3M": {
-          "medio": 40516843,
-          "relativo": 1.02,
+          "medio": 40312706,
+          "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 46649304,
-          "relativo": 1.18,
+          "medio": 46681186,
+          "relativo": 1.17,
           "respalda": false
         },
         "1A": {
-          "medio": 63878960,
-          "relativo": 1.61,
+          "medio": 63725824,
+          "relativo": 1.6,
           "respalda": true
         }
       }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 16.55,
-      "cambio_pct": -2.13,
-      "rsi": 48.6,
-      "sma200": 18.23,
-      "sma200_dist": -9.2,
+      "precio": 20.8,
+      "cambio_pct": 20.93,
+      "rsi": 62.5,
+      "sma200": 18.25,
+      "sma200_dist": 13.97,
       "cambios": {
-        "7D": -13.24,
-        "1M": 1.04,
-        "3M": 3.25,
-        "6M": -2.25,
-        "1A": 0.55
+        "7D": 5.86,
+        "1M": 25.63,
+        "3M": 29.82,
+        "6M": 21.19,
+        "1A": 21.69
       },
       "volumen": {
         "7D": {
@@ -974,7 +974,7 @@
     }
   },
   "interna": {
-    "generado": "2026-10-28T17:03:18.781624+00:00",
+    "generado": "2026-10-29T17:21:16.136819+00:00",
     "sectores": {
       "XLK": {
         "pct": 50.0,
@@ -988,10 +988,12 @@
         "motivo": null
       },
       "XLF": {
-        "pct": 20.0,
+        "pct": 60.0,
         "n": 5,
         "encima": [
-          "V"
+          "JPM",
+          "V",
+          "WFC"
         ],
         "miembros": 10,
         "motivo": null
@@ -1082,5 +1084,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-10-29T17:21:16.137047+00:00"
+  "generado": "2026-10-30T16:58:39.809726+00:00"
 }
