@@ -22,42 +22,42 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 768.02,
-      "cambio_pct": 1.81,
-      "rsi": 51.7,
-      "sma200": 729.92,
-      "sma200_dist": 5.22,
+      "precio": 735.68,
+      "cambio_pct": -4.06,
+      "rsi": 34.7,
+      "sma200": 730.17,
+      "sma200_dist": 0.75,
       "cambios": {
-        "7D": -0.52,
-        "1M": -1.39,
-        "3M": -0.04,
-        "6M": 4.7,
-        "1A": 12.43
+        "7D": -4.27,
+        "1M": -5.23,
+        "3M": -4.75,
+        "6M": 0.68,
+        "1A": 9.08
       },
       "volumen": {
         "7D": {
-          "medio": 47119728,
-          "relativo": 1.16,
-          "respalda": false
+          "medio": 57354454,
+          "relativo": 1.38,
+          "respalda": true
         },
         "1M": {
-          "medio": 39107336,
-          "relativo": 0.96,
+          "medio": 41987528,
+          "relativo": 1.01,
           "respalda": false
         },
         "3M": {
-          "medio": 40620426,
-          "relativo": 1.0,
+          "medio": 41380535,
+          "relativo": 0.99,
           "respalda": false
         },
         "6M": {
-          "medio": 46915109,
-          "relativo": 1.15,
+          "medio": 47230574,
+          "relativo": 1.13,
           "respalda": false
         },
         "1A": {
-          "medio": 63530714,
-          "relativo": 1.56,
+          "medio": 63582484,
+          "relativo": 1.53,
           "respalda": true
         }
       }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 16.99,
-      "cambio_pct": -18.43,
-      "rsi": 48.0,
-      "sma200": 18.28,
-      "sma200_dist": -7.06,
+      "precio": 26.8,
+      "cambio_pct": 61.35,
+      "rsi": 67.5,
+      "sma200": 18.33,
+      "sma200_dist": 46.24,
       "cambios": {
-        "7D": 0.3,
-        "1M": 12.99,
-        "3M": 11.95,
-        "6M": -2.47,
-        "1A": -1.22
+        "7D": 53.95,
+        "1M": 75.6,
+        "3M": 77.72,
+        "6M": 55.04,
+        "1A": 39.37
       },
       "volumen": {
         "7D": {
@@ -974,21 +974,23 @@
     }
   },
   "interna": {
-    "generado": "2026-11-02T20:40:16.358537+00:00",
+    "generado": "2026-11-04T18:31:18.719521+00:00",
     "sectores": {
       "XLK": {
-        "pct": 16.7,
+        "pct": 33.3,
         "n": 6,
         "encima": [
-          "AAPL"
+          "AAPL",
+          "MSFT"
         ],
         "miembros": 12,
         "motivo": null
       },
       "XLF": {
-        "pct": 40.0,
+        "pct": 60.0,
         "n": 5,
         "encima": [
+          "JPM",
           "V",
           "WFC"
         ],
@@ -1008,9 +1010,10 @@
         "motivo": null
       },
       "XLY": {
-        "pct": 75.0,
+        "pct": 100.0,
         "n": 4,
         "encima": [
+          "AMZN",
           "NKE",
           "SBUX",
           "TSLA"
@@ -1028,9 +1031,10 @@
         "motivo": null
       },
       "XLI": {
-        "pct": 33.3,
+        "pct": 66.7,
         "n": 3,
         "encima": [
+          "GE",
           "LMT"
         ],
         "miembros": 10,
@@ -1083,5 +1087,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-11-04T18:31:18.719599+00:00"
+  "generado": "2026-11-05T18:35:11.481444+00:00"
 }

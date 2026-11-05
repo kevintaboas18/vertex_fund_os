@@ -1,5 +1,5 @@
 {
-  "generado": "2026-11-04T18:31:18.719521+00:00",
+  "generado": "2026-11-05T18:35:11.481230+00:00",
   "sectores": {
     "XLK": {
       "pct": 33.3,
@@ -12,10 +12,9 @@
       "motivo": null
     },
     "XLF": {
-      "pct": 60.0,
+      "pct": 40.0,
       "n": 5,
       "encima": [
-        "JPM",
         "V",
         "WFC"
       ],
@@ -35,13 +34,12 @@
       "motivo": null
     },
     "XLY": {
-      "pct": 100.0,
+      "pct": 75.0,
       "n": 4,
       "encima": [
         "AMZN",
         "NKE",
-        "SBUX",
-        "TSLA"
+        "SBUX"
       ],
       "miembros": 10,
       "motivo": null
@@ -56,10 +54,9 @@
       "motivo": null
     },
     "XLI": {
-      "pct": 66.7,
+      "pct": 33.3,
       "n": 3,
       "encima": [
-        "GE",
         "LMT"
       ],
       "miembros": 10,
