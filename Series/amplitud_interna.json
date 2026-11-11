@@ -1,20 +1,22 @@
 {
-  "generado": "2026-11-09T21:21:10.941388+00:00",
+  "generado": "2026-11-11T18:28:17.500124+00:00",
   "sectores": {
     "XLK": {
-      "pct": 33.3,
+      "pct": 50.0,
       "n": 6,
       "encima": [
         "AAPL",
+        "AMD",
         "MSFT"
       ],
       "miembros": 12,
       "motivo": null
     },
     "XLF": {
-      "pct": 60.0,
+      "pct": 80.0,
       "n": 5,
       "encima": [
+        "GS",
         "JPM",
         "V",
         "WFC"
