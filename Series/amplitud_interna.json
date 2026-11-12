@@ -1,5 +1,5 @@
 {
-  "generado": "2026-11-11T18:28:17.500124+00:00",
+  "generado": "2026-11-12T18:45:09.538842+00:00",
   "sectores": {
     "XLK": {
       "pct": 50.0,
@@ -13,10 +13,9 @@
       "motivo": null
     },
     "XLF": {
-      "pct": 80.0,
+      "pct": 60.0,
       "n": 5,
       "encima": [
-        "GS",
         "JPM",
         "V",
         "WFC"
@@ -49,10 +48,11 @@
       "motivo": null
     },
     "XLC": {
-      "pct": 16.7,
+      "pct": 33.3,
       "n": 6,
       "encima": [
-        "DIS"
+        "DIS",
+        "VZ"
       ],
       "miembros": 10,
       "motivo": null
@@ -81,9 +81,12 @@
       "motivo": null
     },
     "XLE": {
-      "pct": 0.0,
+      "pct": 100.0,
       "n": 2,
-      "encima": [],
+      "encima": [
+        "CVX",
+        "XOM"
+      ],
       "miembros": 10,
       "motivo": null
     },
