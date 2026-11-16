@@ -22,42 +22,42 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 752.02,
-      "cambio_pct": -0.67,
-      "rsi": 45.7,
-      "sma200": 731.9,
-      "sma200_dist": 2.75,
+      "precio": 739.6,
+      "cambio_pct": -1.96,
+      "rsi": 40.1,
+      "sma200": 732.15,
+      "sma200_dist": 1.02,
       "cambios": {
-        "7D": 2.22,
-        "1M": -2.62,
-        "3M": -2.73,
-        "6M": 1.68,
+        "7D": -1.8,
+        "1M": -3.16,
+        "3M": -3.69,
+        "6M": 0.06,
         "1A": 9.98
       },
       "volumen": {
         "7D": {
-          "medio": 37177288,
-          "relativo": 0.87,
+          "medio": 39739095,
+          "relativo": 0.92,
           "respalda": false
         },
         "1M": {
-          "medio": 46794146,
-          "relativo": 1.09,
+          "medio": 46732510,
+          "relativo": 1.08,
           "respalda": false
         },
         "3M": {
-          "medio": 42919843,
+          "medio": 43224118,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 47327000,
+          "medio": 47448003,
           "relativo": 1.1,
           "respalda": false
         },
         "1A": {
-          "medio": 62988697,
-          "relativo": 1.47,
+          "medio": 62828509,
+          "relativo": 1.45,
           "respalda": true
         }
       }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 19.59,
-      "cambio_pct": 4.76,
-      "rsi": 51.6,
-      "sma200": 18.45,
-      "sma200_dist": 6.17,
+      "precio": 23.69,
+      "cambio_pct": 22.75,
+      "rsi": 58.4,
+      "sma200": 18.48,
+      "sma200_dist": 28.18,
       "cambios": {
-        "7D": -23.05,
-        "1M": 19.87,
-        "3M": 29.89,
-        "6M": 7.05,
-        "1A": 12.68
+        "7D": 19.93,
+        "1M": 19.51,
+        "3M": 50.82,
+        "6M": 34.06,
+        "1A": 19.45
       },
       "volumen": {
         "7D": {
@@ -1089,5 +1089,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-11-13T18:27:16.597595+00:00"
+  "generado": "2026-11-16T20:51:43.246800+00:00"
 }

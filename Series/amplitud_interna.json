@@ -1,22 +1,20 @@
 {
-  "generado": "2026-11-12T18:45:09.538842+00:00",
+  "generado": "2026-11-16T20:51:43.246575+00:00",
   "sectores": {
     "XLK": {
-      "pct": 50.0,
+      "pct": 33.3,
       "n": 6,
       "encima": [
         "AAPL",
-        "AMD",
-        "MSFT"
+        "ADBE"
       ],
       "miembros": 12,
       "motivo": null
     },
     "XLF": {
-      "pct": 60.0,
+      "pct": 40.0,
       "n": 5,
       "encima": [
-        "JPM",
         "V",
         "WFC"
       ],
@@ -81,11 +79,10 @@
       "motivo": null
     },
     "XLE": {
-      "pct": 100.0,
+      "pct": 50.0,
       "n": 2,
       "encima": [
-        "CVX",
-        "XOM"
+        "CVX"
       ],
       "miembros": 10,
       "motivo": null
