@@ -1,5 +1,5 @@
 {
-  "generado": "2026-11-18T19:17:15.997972+00:00",
+  "generado": "2026-11-19T19:24:53.022273+00:00",
   "sectores": {
     "XLK": {
       "pct": 16.7,
@@ -20,11 +20,10 @@
       "motivo": null
     },
     "XLV": {
-      "pct": 50.0,
+      "pct": 25.0,
       "n": 4,
       "encima": [
-        "ABBV",
-        "JNJ"
+        "ABBV"
       ],
       "miembros": 12,
       "motivo": null
@@ -41,11 +40,10 @@
       "motivo": null
     },
     "XLC": {
-      "pct": 33.3,
+      "pct": 16.7,
       "n": 6,
       "encima": [
-        "DIS",
-        "VZ"
+        "DIS"
       ],
       "miembros": 10,
       "motivo": null
