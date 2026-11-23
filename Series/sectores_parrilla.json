@@ -22,42 +22,42 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 701.61,
-      "cambio_pct": -1.99,
-      "rsi": 27.5,
-      "sma200": 732.81,
-      "sma200_dist": -4.26,
+      "precio": 722.51,
+      "cambio_pct": 4.74,
+      "rsi": 41.5,
+      "sma200": 732.91,
+      "sma200_dist": -1.42,
       "cambios": {
-        "7D": -7.01,
-        "1M": -8.18,
-        "3M": -8.12,
-        "6M": -5.92,
-        "1A": 5.86
+        "7D": -2.39,
+        "1M": -4.96,
+        "3M": -5.7,
+        "6M": -3.77,
+        "1A": 10.69
       },
       "volumen": {
         "7D": {
-          "medio": 67455960,
-          "relativo": 1.46,
+          "medio": 87722418,
+          "relativo": 1.81,
           "respalda": true
         },
         "1M": {
-          "medio": 53152755,
-          "relativo": 1.15,
-          "respalda": false
+          "medio": 59682105,
+          "relativo": 1.23,
+          "respalda": true
         },
         "3M": {
-          "medio": 45401398,
-          "relativo": 0.98,
+          "medio": 47673101,
+          "relativo": 0.99,
           "respalda": false
         },
         "6M": {
-          "medio": 48317022,
-          "relativo": 1.05,
+          "medio": 49344133,
+          "relativo": 1.02,
           "respalda": false
         },
         "1A": {
-          "medio": 62424307,
-          "relativo": 1.35,
+          "medio": 62445125,
+          "relativo": 1.29,
           "respalda": true
         }
       }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 31.43,
-      "cambio_pct": 10.51,
-      "rsi": 67.6,
-      "sma200": 18.65,
-      "sma200_dist": 68.5,
+      "precio": 26.62,
+      "cambio_pct": -25.83,
+      "rsi": 55.9,
+      "sma200": 18.72,
+      "sma200_dist": 42.2,
       "cambios": {
-        "7D": 63.01,
-        "1M": 65.32,
-        "3M": 98.49,
-        "6M": 88.38,
-        "1A": 32.97
+        "7D": 16.19,
+        "1M": 36.86,
+        "3M": 72.3,
+        "6M": 56.5,
+        "1A": 0.76
       },
       "volumen": {
         "7D": {
@@ -1077,5 +1077,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-11-20T19:00:34.073597+00:00"
+  "generado": "2026-11-23T22:30:14.525979+00:00"
 }
