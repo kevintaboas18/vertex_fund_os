@@ -22,42 +22,42 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 722.51,
-      "cambio_pct": 4.74,
-      "rsi": 41.5,
-      "sma200": 732.91,
-      "sma200_dist": -1.42,
+      "precio": 718.88,
+      "cambio_pct": -0.47,
+      "rsi": 40.5,
+      "sma200": 733.04,
+      "sma200_dist": -1.93,
       "cambios": {
-        "7D": -2.39,
-        "1M": -4.96,
-        "3M": -5.7,
-        "6M": -3.77,
-        "1A": 10.69
+        "7D": -1.85,
+        "1M": -6.07,
+        "3M": -6.16,
+        "6M": -4.21,
+        "1A": 9.08
       },
       "volumen": {
         "7D": {
-          "medio": 87722418,
-          "relativo": 1.81,
+          "medio": 84618613,
+          "relativo": 1.74,
           "respalda": true
         },
         "1M": {
-          "medio": 59682105,
-          "relativo": 1.23,
+          "medio": 60843033,
+          "relativo": 1.25,
           "respalda": true
         },
         "3M": {
-          "medio": 47673101,
+          "medio": 48107477,
           "relativo": 0.99,
           "respalda": false
         },
         "6M": {
-          "medio": 49344133,
+          "medio": 49455331,
           "relativo": 1.02,
           "respalda": false
         },
         "1A": {
-          "medio": 62445125,
-          "relativo": 1.29,
+          "medio": 62175923,
+          "relativo": 1.28,
           "respalda": true
         }
       }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 26.62,
-      "cambio_pct": -25.83,
-      "rsi": 55.9,
-      "sma200": 18.72,
-      "sma200_dist": 42.2,
+      "precio": 26.19,
+      "cambio_pct": -1.62,
+      "rsi": 55.3,
+      "sma200": 18.76,
+      "sma200_dist": 39.58,
       "cambios": {
-        "7D": 16.19,
-        "1M": 36.86,
-        "3M": 72.3,
-        "6M": 56.5,
-        "1A": 0.76
+        "7D": 2.87,
+        "1M": 42.41,
+        "3M": 72.19,
+        "6M": 60.77,
+        "1A": 11.78
       },
       "volumen": {
         "7D": {
@@ -974,7 +974,7 @@
     }
   },
   "interna": {
-    "generado": "2026-11-19T19:24:53.022273+00:00",
+    "generado": "2026-11-23T22:30:14.525538+00:00",
     "sectores": {
       "XLK": {
         "pct": 16.7,
@@ -995,10 +995,11 @@
         "motivo": null
       },
       "XLV": {
-        "pct": 25.0,
+        "pct": 50.0,
         "n": 4,
         "encima": [
-          "ABBV"
+          "ABBV",
+          "JNJ"
         ],
         "miembros": 12,
         "motivo": null
@@ -1015,10 +1016,11 @@
         "motivo": null
       },
       "XLC": {
-        "pct": 16.7,
+        "pct": 33.3,
         "n": 6,
         "encima": [
-          "DIS"
+          "DIS",
+          "VZ"
         ],
         "miembros": 10,
         "motivo": null
@@ -1077,5 +1079,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-11-23T22:30:14.525979+00:00"
+  "generado": "2026-11-24T21:02:14.164863+00:00"
 }
