@@ -1,5 +1,5 @@
 {
-  "generado": "2026-11-23T22:30:14.525538+00:00",
+  "generado": "2026-11-25T20:25:27.254597+00:00",
   "sectores": {
     "XLK": {
       "pct": 16.7,
@@ -33,7 +33,7 @@
       "pct": 75.0,
       "n": 4,
       "encima": [
-        "AMZN",
+        "NKE",
         "SBUX",
         "TSLA"
       ],
@@ -41,10 +41,11 @@
       "motivo": null
     },
     "XLC": {
-      "pct": 33.3,
+      "pct": 50.0,
       "n": 6,
       "encima": [
         "DIS",
+        "T",
         "VZ"
       ],
       "miembros": 10,
