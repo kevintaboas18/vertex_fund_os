@@ -22,42 +22,42 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 715.97,
-      "cambio_pct": -0.39,
-      "rsi": 39.6,
+      "precio": 716.7,
+      "cambio_pct": -0.29,
+      "rsi": 39.8,
       "sma200": 733.16,
-      "sma200_dist": -2.34,
+      "sma200_dist": -2.25,
       "cambios": {
-        "7D": -1.93,
-        "1M": -6.96,
-        "3M": -7.13,
-        "6M": -5.1,
-        "1A": 7.08
+        "7D": -1.85,
+        "1M": -6.88,
+        "3M": -7.05,
+        "6M": -5.02,
+        "1A": 7.17
       },
       "volumen": {
         "7D": {
-          "medio": 87405627,
-          "relativo": 1.78,
+          "medio": 90771145,
+          "relativo": 1.84,
           "respalda": true
         },
         "1M": {
-          "medio": 62610089,
+          "medio": 63411403,
           "relativo": 1.28,
           "respalda": true
         },
         "3M": {
-          "medio": 48602442,
+          "medio": 48869547,
           "relativo": 0.99,
           "respalda": false
         },
         "6M": {
-          "medio": 49647214,
+          "medio": 49780766,
           "relativo": 1.01,
           "respalda": false
         },
         "1A": {
-          "medio": 62117597,
-          "relativo": 1.27,
+          "medio": 62184374,
+          "relativo": 1.26,
           "respalda": true
         }
       }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 27.99,
-      "cambio_pct": 6.18,
-      "rsi": 57.5,
+      "precio": 26.8,
+      "cambio_pct": -5.27,
+      "rsi": 57.8,
       "sma200": 18.82,
-      "sma200_dist": 48.76,
+      "sma200_dist": 42.42,
       "cambios": {
-        "7D": 14.33,
-        "1M": 60.27,
-        "3M": 93.52,
-        "6M": 78.4,
-        "1A": 36.84
+        "7D": 15.19,
+        "1M": 61.47,
+        "3M": 94.97,
+        "6M": 79.73,
+        "1A": 37.87
       },
       "volumen": {
         "7D": {
@@ -974,7 +974,7 @@
     }
   },
   "interna": {
-    "generado": "2026-11-23T22:30:14.525538+00:00",
+    "generado": "2026-11-25T20:25:27.254597+00:00",
     "sectores": {
       "XLK": {
         "pct": 16.7,
@@ -1008,7 +1008,7 @@
         "pct": 75.0,
         "n": 4,
         "encima": [
-          "AMZN",
+          "NKE",
           "SBUX",
           "TSLA"
         ],
@@ -1016,10 +1016,11 @@
         "motivo": null
       },
       "XLC": {
-        "pct": 33.3,
+        "pct": 50.0,
         "n": 6,
         "encima": [
           "DIS",
+          "T",
           "VZ"
         ],
         "miembros": 10,
@@ -1079,5 +1080,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-11-25T20:25:27.340278+00:00"
+  "generado": "2026-11-26T20:02:44.384162+00:00"
 }
