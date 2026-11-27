@@ -22,42 +22,42 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 716.7,
-      "cambio_pct": -0.29,
-      "rsi": 39.8,
-      "sma200": 733.16,
-      "sma200_dist": -2.25,
+      "precio": 728.32,
+      "cambio_pct": 1.62,
+      "rsi": 45.0,
+      "sma200": 733.34,
+      "sma200_dist": -0.68,
       "cambios": {
-        "7D": -1.85,
-        "1M": -6.88,
-        "3M": -7.05,
-        "6M": -5.02,
-        "1A": 7.17
+        "7D": 1.74,
+        "1M": -5.7,
+        "3M": -5.33,
+        "6M": -3.72,
+        "1A": 7.9
       },
       "volumen": {
         "7D": {
-          "medio": 90771145,
-          "relativo": 1.84,
+          "medio": 83182566,
+          "relativo": 1.68,
           "respalda": true
         },
         "1M": {
-          "medio": 63411403,
-          "relativo": 1.28,
+          "medio": 63822160,
+          "relativo": 1.29,
           "respalda": true
         },
         "3M": {
-          "medio": 48869547,
+          "medio": 48901536,
           "relativo": 0.99,
           "respalda": false
         },
         "6M": {
-          "medio": 49780766,
-          "relativo": 1.01,
+          "medio": 49651274,
+          "relativo": 1.0,
           "respalda": false
         },
         "1A": {
-          "medio": 62184374,
-          "relativo": 1.26,
+          "medio": 62016447,
+          "relativo": 1.25,
           "respalda": true
         }
       }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 26.8,
-      "cambio_pct": -5.27,
-      "rsi": 57.8,
-      "sma200": 18.82,
-      "sma200_dist": 42.42,
+      "precio": 23.81,
+      "cambio_pct": -11.16,
+      "rsi": 51.3,
+      "sma200": 18.85,
+      "sma200_dist": 26.33,
       "cambios": {
-        "7D": 15.19,
-        "1M": 61.47,
-        "3M": 94.97,
-        "6M": 79.73,
-        "1A": 37.87
+        "7D": -16.28,
+        "1M": 40.8,
+        "3M": 65.0,
+        "6M": 55.42,
+        "1A": 28.29
       },
       "volumen": {
         "7D": {
@@ -1080,5 +1080,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-11-26T20:02:44.384162+00:00"
+  "generado": "2026-11-27T19:50:57.337212+00:00"
 }
